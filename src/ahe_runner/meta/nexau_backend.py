@@ -593,7 +593,7 @@ class NexAUMetaBackend(MetaBackend):
             yaml.safe_dump(payload, sort_keys=False),
             encoding="utf-8",
         )
-        config = AgentConfig.from_yaml(str(config_path))
+        config = AgentConfig.from_yaml(config_path)
         config.llm_config.update(
             {
                 "model": settings.model,
