@@ -17,9 +17,8 @@ import yaml
 from nexau import Agent
 from nexau.archs.main_sub.config import AgentConfig
 
-from ahe_runner.adapter import EvidenceTask
 from ahe_runner.errors import ConfigurationError, InfrastructureError, IntegrityError
-from ahe_runner.evidence import load_evidence_manifest, load_task_detail
+from ahe_runner.evidence import EvidenceTask, load_evidence_manifest, load_task_detail
 from ahe_runner.harness import validate_harness
 from ahe_runner.io import (
     atomic_write_json,
