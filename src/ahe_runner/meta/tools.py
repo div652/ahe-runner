@@ -130,8 +130,9 @@ def search_text(
             if pattern.search(line):
                 matches.append(
                     {
-                        "path": path.relative_to(base if base.is_dir() else base.parent)
-                        .as_posix(),
+                        "path": path.relative_to(
+                            base if base.is_dir() else base.parent
+                        ).as_posix(),
                         "line": line_number,
                         "text": line[:2_000],
                     }
@@ -286,12 +287,9 @@ def validate_candidate(agent_state: AgentState | None = None) -> str:
         str(_context_value(agent_state, "harness_manifest_path"))
     ).resolve()
     project_root = Path(str(_context_value(agent_state, "project_root"))).resolve()
-    output_dir = Path(
-        str(_context_value(agent_state, "meta_output_dir"))
-    ).resolve()
+    output_dir = Path(str(_context_value(agent_state, "meta_output_dir"))).resolve()
     training_ids = tuple(
-        str(item)
-        for item in (_context_value(agent_state, "training_task_ids") or [])
+        str(item) for item in (_context_value(agent_state, "training_task_ids") or [])
     )
     parent_hashes = {
         str(key): str(value)
@@ -462,9 +460,7 @@ def complete_task(
                     not isinstance(item, dict) or not item.get("path")
                     for item in changes
                 ):
-                    problems.append(
-                        "every change_manifest.json change requires a path"
-                    )
+                    problems.append("every change_manifest.json change requires a path")
         if not isinstance(validation, dict) or validation.get("ok") is not True:
             problems.append("validate_candidate must pass after the final commit")
         if problems:
@@ -520,9 +516,7 @@ def _resolve_virtual(
     roots_key = "meta_write_roots" if write else "meta_read_roots"
     roots = {
         str(key): Path(str(value)).resolve()
-        for key, value in dict(
-            _context_value(agent_state, roots_key) or {}
-        ).items()
+        for key, value in dict(_context_value(agent_state, roots_key) or {}).items()
     }
     if not write:
         roots.update(
@@ -627,9 +621,7 @@ def _research_gate(agent_state: AgentState | None) -> str | None:
                     ),
                 }
             )
-    progress["research_calls_since_commit"] = (
-        calls + 1
-    )
+    progress["research_calls_since_commit"] = calls + 1
     _store_progress(agent_state, key, progress)
     if (
         role == "evolve"
@@ -665,9 +657,7 @@ def _deliverable_write_error(
     role = str(_context_value(agent_state, "meta_role"))
     if role not in {"source_explorer", "web_explorer"}:
         return None
-    target = Path(
-        str(_context_value(agent_state, "required_deliverable"))
-    ).resolve()
+    target = Path(str(_context_value(agent_state, "required_deliverable"))).resolve()
     if path != target:
         return None
     progress, _ = _progress(agent_state)
@@ -697,15 +687,11 @@ def _record_deliverable_write(
     role = str(_context_value(agent_state, "meta_role"))
     if role not in {"source_explorer", "web_explorer"}:
         return
-    target = Path(
-        str(_context_value(agent_state, "required_deliverable"))
-    ).resolve()
+    target = Path(str(_context_value(agent_state, "required_deliverable"))).resolve()
     if path != target:
         return
     progress, key = _progress(agent_state)
-    progress["deliverable_writes"] = (
-        int(progress.get("deliverable_writes", 0)) + 1
-    )
+    progress["deliverable_writes"] = int(progress.get("deliverable_writes", 0)) + 1
     progress["deliverable_characters"] = len(content)
     progress["research_calls_since_commit"] = 0
     _store_progress(agent_state, key, progress)
@@ -793,6 +779,4 @@ def _require_public_url(url: str) -> None:
     for value in addresses:
         address = ipaddress.ip_address(value)
         if not address.is_global:
-            raise ValueError(
-                f"URL resolves to non-public address {address.compressed}"
-            )
+            raise ValueError(f"URL resolves to non-public address {address.compressed}")

@@ -48,8 +48,7 @@ class RecordedExactModelClient:
             (
                 int(path.name.removeprefix("call-"))
                 for path in self._log_dir.glob("call-*")
-                if path.is_dir()
-                and path.name.removeprefix("call-").isdigit()
+                if path.is_dir() and path.name.removeprefix("call-").isdigit()
             ),
             default=0,
         )

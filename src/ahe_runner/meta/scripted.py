@@ -120,8 +120,7 @@ class ScriptedMetaBackend(MetaBackend):
         (output_dir / "overview.md").write_text(
             "# Scripted Debugger overview\n\n"
             + "\n".join(
-                f"- `{row['task_key']}`: {row['outcome_summary']}"
-                for row in analyses
+                f"- `{row['task_key']}`: {row['outcome_summary']}" for row in analyses
             )
             + "\n",
             encoding="utf-8",

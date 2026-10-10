@@ -32,20 +32,12 @@ def test_full_deterministic_campaign_and_idempotent_resume(tmp_path: Path) -> No
     selected = status["selection"]["selected_checkpoint"]
     assert (campaign_dir / "final" / "selected-harness" / "agent.yaml").is_file()
     assert (
-        campaign_dir
-        / "checkpoints"
-        / selected
-        / "harness"
-        / "change_manifest.json"
+        campaign_dir / "checkpoints" / selected / "harness" / "change_manifest.json"
     ).is_file()
 
-    attempts_before = {
-        row["name"]: len(row["attempts"]) for row in status["stages"]
-    }
+    attempts_before = {row["name"]: len(row["attempts"]) for row in status["stages"]}
     resumed = CampaignController(load_config(config_path)).resume()
-    attempts_after = {
-        row["name"]: len(row["attempts"]) for row in resumed["stages"]
-    }
+    attempts_after = {row["name"]: len(row["attempts"]) for row in resumed["stages"]}
     assert attempts_after == attempts_before
     assert resumed["selection"] == status["selection"]
     assert resumed["final_test"] == status["final_test"]

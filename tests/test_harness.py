@@ -29,9 +29,7 @@ def test_harness_validation_rejects_symlinks_and_task_memorization(
 
     symlink_harness = tmp_path / "symlink-harness"
     shutil.copytree(harness, symlink_harness)
-    (symlink_harness / "linked.md").symlink_to(
-        symlink_harness / "systemprompt.md"
-    )
+    (symlink_harness / "linked.md").symlink_to(symlink_harness / "systemprompt.md")
     with pytest.raises(CandidateValidationError) as symlink_error:
         validate_harness(
             symlink_harness,

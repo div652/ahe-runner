@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import importlib
 import sys
-from contextlib import contextmanager
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Iterator
+from typing import Any
 
 from .adapter import BenchmarkAdapter
 from .config import ResolvedConfig
@@ -18,16 +19,12 @@ def load_adapter(config: ResolvedConfig) -> BenchmarkAdapter:
     reference = config.document.project.adapter
     module_name, separator, class_name = reference.partition(":")
     if not separator or not module_name or not class_name:
-        raise ConfigurationError(
-            "project.adapter must use the form module:ClassName"
-        )
+        raise ConfigurationError("project.adapter must use the form module:ClassName")
     with project_import_path(config.project_root):
         module = _import_fresh(module_name)
         value = getattr(module, class_name, None)
     if not isinstance(value, type) or not issubclass(value, BenchmarkAdapter):
-        raise ConfigurationError(
-            f"{reference} is not a BenchmarkAdapter subclass"
-        )
+        raise ConfigurationError(f"{reference} is not a BenchmarkAdapter subclass")
     return value(
         project_root=config.project_root,
         settings=config.document.project.adapter_settings,
@@ -41,10 +38,8 @@ def project_import_path(project_root: Path) -> Iterator[None]:
     try:
         yield
     finally:
-        try:
+        with suppress(ValueError):
             sys.path.remove(value)
-        except ValueError:
-            pass
 
 
 def load_symbol(reference: str, *, project_root: Path) -> Any:

@@ -18,8 +18,8 @@ from nexau import Agent
 from nexau.archs.main_sub.config import AgentConfig
 
 from ahe_runner.adapter import EvidenceTask
-from ahe_runner.evidence import load_evidence_manifest, load_task_detail
 from ahe_runner.errors import ConfigurationError, InfrastructureError, IntegrityError
+from ahe_runner.evidence import load_evidence_manifest, load_task_detail
 from ahe_runner.harness import validate_harness
 from ahe_runner.io import (
     atomic_write_json,
@@ -191,9 +191,7 @@ class NexAUMetaBackend(MetaBackend):
                 {
                     "task_key": item["task_key"],
                     "task_id": item["diagnosis"].get("task_id"),
-                    "primary_failure_class": item["diagnosis"][
-                        "primary_failure_class"
-                    ],
+                    "primary_failure_class": item["diagnosis"]["primary_failure_class"],
                     "recurrent_pattern_key": item["diagnosis"].get(
                         "recurrent_pattern_key"
                     ),
@@ -242,9 +240,7 @@ class NexAUMetaBackend(MetaBackend):
             self.context.harness_manifest,
             project_root=self.context.config.project_root,
             training_task_ids=(
-                task.task_id
-                for task in evidence.tasks
-                if task.task_id is not None
+                task.task_id for task in evidence.tasks if task.task_id is not None
             ),
             run_nexau_smoke=False,
         )
@@ -278,19 +274,13 @@ class NexAUMetaBackend(MetaBackend):
             "parent_checkpoint": f"C{round_index - 1}",
             "workspace_dir": str(workspace),
             "project_root": str(self.context.config.project_root),
-            "harness_manifest_path": str(
-                self.context.config.harness_manifest_path
-            ),
+            "harness_manifest_path": str(self.context.config.harness_manifest_path),
             "meta_output_dir": str(output_dir),
             "training_task_ids": [
                 task.task_id for task in evidence.tasks if task.task_id is not None
             ],
-            "parent_runtime_owned_hashes": parent_validation[
-                "runtime_owned_hashes"
-            ],
-            "meta_read_roots": {
-                key: str(value) for key, value in read_roots.items()
-            },
+            "parent_runtime_owned_hashes": parent_validation["runtime_owned_hashes"],
+            "meta_read_roots": {key: str(value) for key, value in read_roots.items()},
             "meta_write_roots": {"workspace": str(workspace)},
             "web_leakage_terms": list(
                 self.context.prompt_context.task_id_leakage_terms
@@ -300,9 +290,7 @@ class NexAUMetaBackend(MetaBackend):
             round_label=round_label,
             evidence=evidence.model_dump(mode="json"),
             roots=sorted(read_roots),
-            recovery_present=(
-                recovery_dir is not None and any(recovery_dir.iterdir())
-            ),
+            recovery_present=(recovery_dir is not None and any(recovery_dir.iterdir())),
         )
         final_response = self._run_agent(
             name="AHE-Evolve",
@@ -352,9 +340,7 @@ class NexAUMetaBackend(MetaBackend):
             "initial_head": initial_head,
             "final_head": final_head,
             "final_response": final_response,
-            "change_manifest_sha256": sha256_file(
-                workspace / "change_manifest.json"
-            ),
+            "change_manifest_sha256": sha256_file(workspace / "change_manifest.json"),
             "candidate_validation_sha256": sha256_file(validation_path),
         }
         atomic_write_json(output_dir / "evolve_result.json", response)
@@ -391,9 +377,7 @@ class NexAUMetaBackend(MetaBackend):
         context = {
             "meta_role": role,
             "required_deliverable": str(deliverable),
-            "meta_read_roots": {
-                key: str(value) for key, value in read_roots.items()
-            },
+            "meta_read_roots": {key: str(value) for key, value in read_roots.items()},
             "meta_write_roots": {"knowledge": str(deliverable.parents[1])},
             "web_leakage_terms": list(
                 self.context.prompt_context.task_id_leakage_terms
@@ -452,9 +436,7 @@ class NexAUMetaBackend(MetaBackend):
             "task": task.model_dump(mode="json"),
             "detail": detail,
             "benchmark_context": self.context.prompt_context.model_dump(mode="json"),
-            "model": self.context.config.document.models.meta.model_dump(
-                mode="json"
-            ),
+            "model": self.context.config.document.models.meta.model_dump(mode="json"),
             "system_prompt_sha256": sha256_file(
                 _resource_path("meta", "prompts", "debugger.md")
             ),
@@ -593,8 +575,7 @@ class NexAUMetaBackend(MetaBackend):
             "middlewares": [
                 {
                     "import": (
-                        "ahe_runner.meta.middleware:"
-                        "MetaContextCompactionMiddleware"
+                        "ahe_runner.meta.middleware:MetaContextCompactionMiddleware"
                     ),
                     "params": {
                         "max_context_tokens": (
@@ -606,11 +587,7 @@ class NexAUMetaBackend(MetaBackend):
                 }
             ],
             "tracers": [
-                {
-                    "import": (
-                        "nexau.archs.tracer.adapters.in_memory:InMemoryTracer"
-                    )
-                }
+                {"import": ("nexau.archs.tracer.adapters.in_memory:InMemoryTracer")}
             ],
         }
         config_path.write_text(
@@ -626,9 +603,7 @@ class NexAUMetaBackend(MetaBackend):
             }
         )
         if settings.reasoning_effort is not None:
-            config.llm_config["reasoning"] = {
-                "effort": settings.reasoning_effort
-            }
+            config.llm_config["reasoning"] = {"effort": settings.reasoning_effort}
         client = self._model_client(
             settings=settings,
             log_dir=runtime_dir / "model_calls",
@@ -654,11 +629,7 @@ class NexAUMetaBackend(MetaBackend):
             )
             atomic_write_json(
                 runtime_dir / "conversation_trace.json",
-                {
-                    "messages": [
-                        _jsonable(message) for message in agent.full_trace
-                    ]
-                },
+                {"messages": [_jsonable(message) for message in agent.full_trace]},
             )
             tracer = agent.global_storage.get("tracer")
             if tracer is not None and hasattr(tracer, "dump_traces"):
@@ -772,12 +743,15 @@ def _skill_record(path: Path) -> dict[str, Any]:
 
 
 def _debugger_task_key(task: EvidenceTask) -> str:
-    return "task-" + sha256_json(
-        {
-            "task_id": task.task_id,
-            "detail_sha256": task.detail_sha256,
-        }
-    )[:20]
+    return (
+        "task-"
+        + sha256_json(
+            {
+                "task_id": task.task_id,
+                "detail_sha256": task.detail_sha256,
+            }
+        )[:20]
+    )
 
 
 def _verified_debugger_result(
@@ -881,9 +855,7 @@ def _validate_debugger_diagnosis(
             raise ValueError("recommended change component_class is invalid")
         for field in ("change", "expected_effect", "risk", "verification"):
             if not isinstance(item.get(field), str) or not item[field].strip():
-                raise ValueError(
-                    f"recommended change requires non-empty {field}"
-                )
+                raise ValueError(f"recommended change requires non-empty {field}")
     pattern = payload["recurrent_pattern_key"]
     if pattern is not None and not isinstance(pattern, str):
         raise ValueError("recurrent_pattern_key must be a string or null")

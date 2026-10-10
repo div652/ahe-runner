@@ -50,9 +50,7 @@ class TransportSettings(StrictModel):
     request_timeout_seconds: float = Field(default=300.0, gt=0)
     observable_model_policy: Literal["exact"] = "exact"
     model_catalog: Literal["required", "optional", "disabled"] = "optional"
-    negative_control: Literal["required", "best_effort", "disabled"] = (
-        "best_effort"
-    )
+    negative_control: Literal["required", "best_effort", "disabled"] = "best_effort"
 
     @field_validator("base_url")
     @classmethod

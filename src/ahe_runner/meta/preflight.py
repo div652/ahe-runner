@@ -116,8 +116,7 @@ def run_model_preflight(
         }
         atomic_write_json(output_path, report)
         raise IntegrityError(
-            f"positive probe returned {returned_model!r}; "
-            f"expected {settings.model!r}"
+            f"positive probe returned {returned_model!r}; expected {settings.model!r}"
         )
     report["positive_probe"] = {
         "passed": True,

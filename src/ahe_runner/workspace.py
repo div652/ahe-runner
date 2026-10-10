@@ -14,7 +14,9 @@ from typing import Any
 from .errors import IntegrityError
 from .io import atomic_write_json, read_json, sha256_json, tree_hashes
 
-_COPILOT_TRAILER = "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+_COPILOT_TRAILER = (
+    "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
+)
 
 
 def initialize_baseline_checkpoint(
@@ -169,9 +171,7 @@ def freeze_checkpoint(
         raise IntegrityError(f"incomplete checkpoint directory: {destination}")
     status = git_output(workspace, "status", "--porcelain")
     if status.strip():
-        raise IntegrityError(
-            "Evolve workspace is not clean before freeze:\n" + status
-        )
+        raise IntegrityError("Evolve workspace is not clean before freeze:\n" + status)
     commit_count = int(git_output(workspace, "rev-list", "--count", "HEAD"))
     if commit_count < 2:
         raise IntegrityError("Evolve produced no committed harness change")
@@ -252,8 +252,7 @@ def git_output(repository: Path, *args: str) -> str:
     )
     if completed.returncode != 0:
         raise RuntimeError(
-            f"git {' '.join(args)} failed in {repository}: "
-            f"{completed.stderr.strip()}"
+            f"git {' '.join(args)} failed in {repository}: {completed.stderr.strip()}"
         )
     return completed.stdout
 
@@ -307,9 +306,7 @@ def _validate_change_manifest(
     }
     for key, expected in required.items():
         if value.get(key) != expected:
-            raise IntegrityError(
-                f"change manifest {key} must be {expected!r}"
-            )
+            raise IntegrityError(f"change manifest {key} must be {expected!r}")
     changes = value.get("changes")
     if not isinstance(changes, list) or not changes:
         raise IntegrityError("change manifest must contain logical changes")
@@ -329,9 +326,7 @@ def _validate_change_manifest(
 def _make_tree_read_only(root: Path) -> None:
     for path in sorted(root.rglob("*"), reverse=True):
         mode = path.stat().st_mode
-        if path.is_dir():
-            path.chmod(mode & ~stat.S_IWUSR & ~stat.S_IWGRP & ~stat.S_IWOTH)
-        elif path.is_file():
+        if path.is_dir() or path.is_file():
             path.chmod(mode & ~stat.S_IWUSR & ~stat.S_IWGRP & ~stat.S_IWOTH)
 
 

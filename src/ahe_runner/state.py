@@ -63,9 +63,9 @@ class StageStore:
         stage_path = stage_dir / "stage.json"
         input_payload = dict(semantic_inputs)
         input_sha256 = sha256_json(input_payload)
-        stage_id = sha256_json(
-            {"name": name, "semantic_inputs_sha256": input_sha256}
-        )[:24]
+        stage_id = sha256_json({"name": name, "semantic_inputs_sha256": input_sha256})[
+            :24
+        ]
         stage = self._load_or_create(
             stage_path=stage_path,
             name=name,
@@ -81,8 +81,7 @@ class StageStore:
                 )
             return StageResult(
                 outputs=tuple(
-                    self.campaign_dir / str(row["path"])
-                    for row in stage["outputs"]
+                    self.campaign_dir / str(row["path"]) for row in stage["outputs"]
                 ),
                 data=dict(stage.get("data") or {}),
             )
@@ -111,18 +110,14 @@ class StageStore:
         attempt = len(attempts) + 1
         if attempt > self.maximum_attempts:
             stage["status"] = "blocked"
-            stage["last_error"] = (
-                f"stage exhausted {self.maximum_attempts} attempts"
-            )
+            stage["last_error"] = f"stage exhausted {self.maximum_attempts} attempts"
             atomic_write_json(stage_path, stage)
             raise StageBlockedError(name, stage["last_error"])
 
         attempt_dir = stage_dir / "attempts" / f"{attempt:04d}"
         attempt_dir.mkdir(parents=True, exist_ok=False)
         previous_attempt_dir = (
-            stage_dir / "attempts" / f"{attempt - 1:04d}"
-            if attempt > 1
-            else None
+            stage_dir / "attempts" / f"{attempt - 1:04d}" if attempt > 1 else None
         )
         attempt_record = {
             "attempt": attempt,

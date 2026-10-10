@@ -100,9 +100,7 @@ def validate_harness(
             size = path.stat().st_size
             total_bytes += size
             if size > manifest.limits.maximum_file_bytes:
-                errors.append(
-                    f"file exceeds maximum size: {path.relative_to(root)}"
-                )
+                errors.append(f"file exceeds maximum size: {path.relative_to(root)}")
     if total_bytes > manifest.limits.maximum_tree_bytes:
         errors.append("harness exceeds maximum tree size")
 
@@ -301,14 +299,10 @@ def _validate_agent_references(
     else:
         for index, sub_agent in enumerate(sub_agents):
             value = (
-                sub_agent.get("config_path")
-                if isinstance(sub_agent, Mapping)
-                else None
+                sub_agent.get("config_path") if isinstance(sub_agent, Mapping) else None
             )
             if not isinstance(value, str):
-                errors.append(
-                    f"{label}.sub_agents[{index}].config_path is required"
-                )
+                errors.append(f"{label}.sub_agents[{index}].config_path is required")
             else:
                 _safe_relative(
                     root,
@@ -361,7 +355,9 @@ def _reject_task_memorization(
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
-        match = next((identifier for identifier in identifiers if identifier in text), None)
+        match = next(
+            (identifier for identifier in identifiers if identifier in text), None
+        )
         if match is not None:
             errors.append(
                 f"candidate hardcodes a complete training task ID in {path}: {match}"

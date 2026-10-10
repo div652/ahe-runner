@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -168,7 +167,9 @@ class EvaluationStore:
         return True
 
     def finalize(self, payload: dict[str, Any]) -> Path:
-        incomplete = [unit.unit_id for unit in self.units if not self.verify_complete(unit)]
+        incomplete = [
+            unit.unit_id for unit in self.units if not self.verify_complete(unit)
+        ]
         if incomplete:
             raise IntegrityError(
                 f"cannot finalize evaluation with incomplete units: {incomplete[:5]}"

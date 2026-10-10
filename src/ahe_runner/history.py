@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -33,10 +32,7 @@ def materialize_history(
         }
         if index > 0:
             transition_path = (
-                campaign_dir
-                / "attribution"
-                / checkpoint
-                / "transition.json"
+                campaign_dir / "attribution" / checkpoint / "transition.json"
             )
             if transition_path.is_file():
                 row["transition_from_parent"] = read_json(transition_path)

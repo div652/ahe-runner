@@ -17,13 +17,12 @@ from .adapter import (
     EvaluationRequest,
     EvaluationResult,
     EvidenceRequest,
-    SplitDefinition,
     SplitName,
     VerificationRequest,
 )
 from .config import ResolvedConfig
-from .evidence import verify_evidence_bundle
 from .errors import CandidateValidationError, ConfigurationError, IntegrityError
+from .evidence import verify_evidence_bundle
 from .harness import HarnessManifest, load_harness_manifest, validate_harness
 from .history import materialize_history, write_transition
 from .io import (
@@ -38,9 +37,9 @@ from .meta import MetaBackendContext, create_meta_backend
 from .state import StageContext, StageResult, StageStore
 from .workspace import (
     freeze_checkpoint,
+    git_output,
     initialize_baseline_checkpoint,
     prepare_evolve_workspace,
-    git_output,
     verify_checkpoint,
 )
 
@@ -487,9 +486,7 @@ class CampaignController:
                 recovery_output_dir=context.attempt_dir / "recovery",
             )
             recovery_dir = (
-                context.attempt_dir / "recovery"
-                if context.attempt > 1
-                else None
+                context.attempt_dir / "recovery" if context.attempt > 1 else None
             )
             meta_output = output_root / f"attempt-{context.attempt:04d}"
             result = self.meta.run_evolve(
@@ -522,15 +519,11 @@ class CampaignController:
                 "round": index,
                 "parent_checkpoint": f"C{index - 1}",
                 "parent_harness_sha256": parent_manifest["harness_sha256"],
-                "evidence_sha256": sha256_file(
-                    evidence_dir / "evidence_manifest.json"
-                ),
+                "evidence_sha256": sha256_file(evidence_dir / "evidence_manifest.json"),
                 "debugger_sha256": sha256_file(debugger_dir / "overview.json"),
                 "meta_model": self.config.document.models.meta.model_dump(mode="json"),
                 "explore_skills_sha256": sha256_file(
-                    self.config.campaign_dir
-                    / "explore_skills"
-                    / "skills_manifest.json"
+                    self.config.campaign_dir / "explore_skills" / "skills_manifest.json"
                 ),
             },
             action=action,
@@ -563,9 +556,7 @@ class CampaignController:
                 self.harness_manifest,
                 project_root=self.config.project_root,
                 training_task_ids=train_ids,
-                parent_runtime_owned_hashes=parent_validation[
-                    "runtime_owned_hashes"
-                ],
+                parent_runtime_owned_hashes=parent_validation["runtime_owned_hashes"],
             )
             adapter_result = self.adapter.validate_candidate(
                 CandidateValidationRequest(
@@ -644,14 +635,12 @@ class CampaignController:
     def _ensure_attribution(self, index: int) -> Path:
         before = EvaluationResult.model_validate(
             read_json(
-                self._evaluation_dir(index - 1, SplitName.TRAIN)
-                / "adapter_result.json"
+                self._evaluation_dir(index - 1, SplitName.TRAIN) / "adapter_result.json"
             )
         )
         after = EvaluationResult.model_validate(
             read_json(
-                self._evaluation_dir(index, SplitName.TRAIN)
-                / "adapter_result.json"
+                self._evaluation_dir(index, SplitName.TRAIN) / "adapter_result.json"
             )
         )
         change_manifest = read_json(
@@ -737,10 +726,7 @@ class CampaignController:
         selected_harness = final_dir / "selected-harness"
         if not selected_harness.exists():
             shutil.copytree(
-                self.config.campaign_dir
-                / "checkpoints"
-                / selected
-                / "harness",
+                self.config.campaign_dir / "checkpoints" / selected / "harness",
                 selected_harness,
             )
         payload = {
@@ -766,16 +752,12 @@ class CampaignController:
             "python": platform.python_version(),
             "nexau_version": importlib.metadata.version("nexau"),
             "config": self.config.immutable_snapshot(),
-            "harness_manifest_sha256": sha256_file(
-                self.config.harness_manifest_path
-            ),
+            "harness_manifest_sha256": sha256_file(self.config.harness_manifest_path),
             "base_harness_sha256": sha256_json(tree_hashes(self.config.harness_dir)),
             "adapter": self.adapter.identity().model_dump(mode="json"),
             "adapter_source": {
                 "path": adapter_source,
-                "sha256": sha256_file(Path(adapter_source))
-                if adapter_source
-                else None,
+                "sha256": sha256_file(Path(adapter_source)) if adapter_source else None,
             },
             "splits": {
                 name.value: {
@@ -808,9 +790,7 @@ class CampaignController:
         return payload
 
     def _validate_split_separation(self) -> None:
-        sets = {
-            name: set(split.task_ids) for name, split in self.splits.items()
-        }
+        sets = {name: set(split.task_ids) for name, split in self.splits.items()}
         for left, right in (
             (SplitName.TRAIN, SplitName.VALIDATION),
             (SplitName.TRAIN, SplitName.TEST),

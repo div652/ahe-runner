@@ -94,9 +94,11 @@ class ExampleAdapter(BenchmarkAdapter):
             trials=request.trials,
             trial_seeds=seeds,
         )
-        prompt = (request.harness_dir / "systemprompt.md").read_text(
-            encoding="utf-8"
-        ).casefold()
+        prompt = (
+            (request.harness_dir / "systemprompt.md")
+            .read_text(encoding="utf-8")
+            .casefold()
+        )
         for unit in store.pending_units():
             attempt, attempt_dir = store.begin_attempt(unit)
             required = _TASKS[request.split.name][unit.task_id]

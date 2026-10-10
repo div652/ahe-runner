@@ -57,9 +57,7 @@ def test_recorded_client_enforces_model_reasoning_and_records_calls(
         seen.update(kwargs)
         return SimpleNamespace(
             model="exact-model",
-            choices=[
-                SimpleNamespace(message=SimpleNamespace(content="OK"))
-            ],
+            choices=[SimpleNamespace(message=SimpleNamespace(content="OK"))],
             model_dump=lambda mode="json": {"model": "exact-model"},
         )
 
@@ -94,9 +92,7 @@ def test_recorded_client_fails_closed_on_mismatch_and_timeout(
     mismatch._base = _FakeOpenAI(  # type: ignore[attr-defined]
         lambda _kwargs: SimpleNamespace(
             model="different-model",
-            choices=[
-                SimpleNamespace(message=SimpleNamespace(content="wrong"))
-            ],
+            choices=[SimpleNamespace(message=SimpleNamespace(content="wrong"))],
             model_dump=lambda mode="json": {"model": "different-model"},
         )
     )
