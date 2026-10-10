@@ -1,0 +1,10 @@
+type: tool
+name: git_commit
+description: Stage and commit one coherent candidate-harness improvement.
+input_schema:
+  type: object
+  properties:
+    message:
+      type: string
+  required: [message]
+  additionalProperties: false

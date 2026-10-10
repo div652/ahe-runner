@@ -1,0 +1,10 @@
+type: tool
+name: complete_task
+description: Verify role-specific deliverables and mark the meta-agent task complete.
+input_schema:
+  type: object
+  properties:
+    final_summary:
+      type: string
+  required: [final_summary]
+  additionalProperties: false

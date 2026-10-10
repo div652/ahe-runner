@@ -1,0 +1,12 @@
+type: tool
+name: delete_path
+description: Delete one file or one already-empty directory in a writable root.
+input_schema:
+  type: object
+  properties:
+    root:
+      type: string
+    relative_path:
+      type: string
+  required: [root, relative_path]
+  additionalProperties: false

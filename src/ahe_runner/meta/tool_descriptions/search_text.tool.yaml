@@ -1,0 +1,24 @@
+type: tool
+name: search_text
+description: Search text files inside an exposed virtual root.
+input_schema:
+  type: object
+  properties:
+    root:
+      type: string
+    query:
+      type: string
+    relative_path:
+      type: string
+      default: "."
+    file_glob:
+      type: string
+      default: "**/*"
+    case_sensitive:
+      type: boolean
+      default: false
+    regex:
+      type: boolean
+      default: false
+  required: [root, query]
+  additionalProperties: false

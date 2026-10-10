@@ -1,0 +1,10 @@
+type: tool
+name: git_diff
+description: Show staged or unstaged changes in the candidate harness workspace.
+input_schema:
+  type: object
+  properties:
+    staged:
+      type: boolean
+      default: false
+  additionalProperties: false

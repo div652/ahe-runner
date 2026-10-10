@@ -1,0 +1,20 @@
+type: tool
+name: replace_text
+description: Replace an exact text fragment after verifying its occurrence count.
+input_schema:
+  type: object
+  properties:
+    root:
+      type: string
+    relative_path:
+      type: string
+    old_text:
+      type: string
+    new_text:
+      type: string
+    expected_occurrences:
+      type: integer
+      minimum: 1
+      default: 1
+  required: [root, relative_path, old_text, new_text]
+  additionalProperties: false

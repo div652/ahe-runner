@@ -1,0 +1,7 @@
+type: tool
+name: git_status
+description: Show the short Git status of the candidate harness workspace.
+input_schema:
+  type: object
+  properties: {}
+  additionalProperties: false

@@ -1,0 +1,14 @@
+type: tool
+name: write_file
+description: Write a UTF-8 file inside an explicitly writable virtual root.
+input_schema:
+  type: object
+  properties:
+    root:
+      type: string
+    relative_path:
+      type: string
+    content:
+      type: string
+  required: [root, relative_path, content]
+  additionalProperties: false

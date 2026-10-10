@@ -17,10 +17,12 @@ models:
     model: example-evaluated-model
     max_tokens: 4096
     reasoning_effort: provider-default
+    temperature: 0.2
   meta:
     model: example-meta-model
     max_tokens: 8192
     reasoning_effort: provider-default
+    temperature: 0.2
 
 transport:
   base_url: http://127.0.0.1:3141/v1
@@ -51,6 +53,7 @@ meta:
     source_enabled: true
     web_enabled: true
     web_search_backend: disabled
+  max_concurrent_model_calls: 2
   max_context_tokens: 200000
   max_running_subagents: 5
   evolve_max_iterations: 500

@@ -22,6 +22,7 @@ class ModelSettings(StrictModel):
     model: str
     max_tokens: int = Field(gt=0)
     reasoning_effort: str | None = None
+    temperature: float = Field(default=0.2, ge=0.0, le=2.0)
 
     @field_validator("model")
     @classmethod
@@ -106,6 +107,7 @@ class ExploreSettings(StrictModel):
 class MetaSettings(StrictModel):
     backend: Literal["nexau", "scripted"] = "nexau"
     explore: ExploreSettings = Field(default_factory=ExploreSettings)
+    max_concurrent_model_calls: int = Field(default=2, gt=0)
     max_context_tokens: int = Field(default=200_000, gt=0)
     max_running_subagents: int = Field(default=5, gt=0)
     evolve_max_iterations: int = Field(default=500, gt=0)

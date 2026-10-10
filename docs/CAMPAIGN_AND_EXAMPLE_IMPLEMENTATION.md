@@ -1,5 +1,9 @@
 # Campaign Controller and Executable Example
 
+> Historical implementation note: the production NexAU backend described as
+> future work below was added in the subsequent real-meta-backend change. The
+> scripted backend remains the deterministic server-free integration fixture.
+
 This change turns the committed core substrate into an executable tool.
 
 ## Operator interface
@@ -50,8 +54,7 @@ The example needs no model server. Its purpose is to prove the complete
 controller, artifact layout, checkpoint history, validation selection, final
 export, and resume behavior before an operator connects a real benchmark.
 
-## Remaining logical change
+## Production backend
 
-The default real-world backend still needs to be added. It will use NexAU for
-Source Explore, Web Explore, Debugger, and Evolve while preserving the same
-controller and recovery contracts demonstrated by the scripted example.
+The model-backed implementation is documented in
+`docs/REAL_META_BACKEND_IMPLEMENTATION.md`.

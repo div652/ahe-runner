@@ -166,10 +166,12 @@ models:
     model: exact-agent-model-id
     max_tokens: 16384
     reasoning_effort: provider-default
+    temperature: 0.2
   meta:
     model: exact-meta-model-id
     max_tokens: 32000
     reasoning_effort: high
+    temperature: 0.2
 
 transport:
   base_url: http://127.0.0.1:3141/v1
@@ -191,6 +193,18 @@ debugger:
 recovery:
   maximum_stage_attempts: 3
   archive_incomplete_attempts: true
+
+meta:
+  backend: nexau
+  max_concurrent_model_calls: 2
+  max_context_tokens: 200000
+  max_running_subagents: 5
+  evolve_max_iterations: 500
+  explore_max_iterations: 200
+  explore:
+    source_enabled: true
+    web_enabled: true
+    web_search_backend: ddgs
 ```
 
 The resolved config, environment-independent hashes, installed NexAU version,

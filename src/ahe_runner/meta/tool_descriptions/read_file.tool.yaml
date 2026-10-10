@@ -1,0 +1,20 @@
+type: tool
+name: read_file
+description: Read a bounded line range from a file in an exposed virtual root.
+input_schema:
+  type: object
+  properties:
+    root:
+      type: string
+    relative_path:
+      type: string
+    start_line:
+      type: integer
+      minimum: 1
+      default: 1
+    end_line:
+      type: integer
+      minimum: 1
+      default: 400
+  required: [root, relative_path]
+  additionalProperties: false
