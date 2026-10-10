@@ -82,7 +82,7 @@ def test_harness_validation_preserves_protected_and_runtime_owned_fields(
             parent_runtime_owned_hashes=parent["runtime_owned_hashes"],
             run_nexau_smoke=False,
         )
-    assert "protected field" in str(protected_error.value)
+    assert "protected agent field" in str(protected_error.value)
 
     runtime_candidate = tmp_path / "runtime-candidate"
     shutil.copytree(harness, runtime_candidate)

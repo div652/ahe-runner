@@ -14,7 +14,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field
 
 from .errors import CandidateValidationError, ConfigurationError
-from .io import sha256_json, tree_hashes
+from .io import sha256_file, sha256_json
 
 
 class HarnessModel(BaseModel):
@@ -149,7 +149,9 @@ def validate_harness(
 
     errors.extend(_reject_task_memorization(files, training_task_ids))
 
-    file_hashes = tree_hashes(root)
+    file_hashes = {
+        path.relative_to(root).as_posix(): sha256_file(path) for path in files
+    }
     runtime_owned = _match_patterns(
         set(file_hashes),
         manifest.runtime_owned,
