@@ -58,10 +58,10 @@ patch.
 
 ```text
 ahe_runner-0.1.0-py3-none-any.whl
-sha256: 5885af27b3dd16115509e5d22849205660e03cb765f7af0e8b103df9ab7999b3
+sha256: d767f009417aad8947705f5ce2b1a4a27b984e1238315ab65da9fbc1f6b0e4a5
 
 ahe_runner-0.1.0.tar.gz
-sha256: 2be6888e898dfb9e1d76d2cea3c28e6feb9ecd6f036d705945deec3428306f0a
+sha256: daadbe18f12ef6740dc429230c78b7bbbcd394fff9d5fdec7dac47e7c931b032
 ```
 
 The wheel was installed into a clean `uv` environment with the `web` extra.
