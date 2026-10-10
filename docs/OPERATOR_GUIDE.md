@@ -1,0 +1,318 @@
+# Operator Guide
+
+This is the shortest complete procedure for running AHE on your own NexAU
+harness.
+
+## 1. Install the runner
+
+From this repository:
+
+```bash
+python -m venv .venv
+. .venv/bin/activate
+pip install -e '.[web]'
+```
+
+If the system Python cannot create virtual environments, `uv` is equivalent:
+
+```bash
+uv venv .venv
+uv pip install --python .venv/bin/python -e '.[web]'
+```
+
+The `web` extra is required by the production Web Explore Agent.
+
+## 2. Create the operator project
+
+```bash
+ahe init-project /path/to/my-ahe-project
+```
+
+The project must have this boundary:
+
+```text
+my-ahe-project/
+├── ahe.yaml
+├── harness_manifest.yaml
+├── benchmark_adapter.py
+├── harness/
+│   ├── agent.yaml
+│   ├── systemprompt.md
+│   ├── LongTermMEMORY.md
+│   ├── ShortTermMEMORY.md
+│   ├── tool_descriptions/
+│   ├── tools/
+│   ├── middleware/
+│   ├── skills/
+│   └── sub_agents/
+└── campaign-artifacts/
+```
+
+Only the candidate harness belongs under `harness/`. Keep all of these outside
+it:
+
+- benchmark and evaluator code;
+- split definitions;
+- hidden task state;
+- expected answers and scoring logic;
+- model-server credentials;
+- the AHE controller;
+- environment or simulator implementations.
+
+This separation is the protected benchmark boundary.
+
+## 3. Put the base NexAU harness in `harness/`
+
+The harness is file-backed. `agent.yaml` must load through the installed
+NexAU `AgentConfig`.
+
+The generated harness is a minimal valid example. Replace its files with your
+base harness while preserving relative references. Any tool, middleware,
+skill, prompt, memory, or sub-agent that should evolve must live inside this
+directory.
+
+Do not put runtime state or task-specific knowledge in the seed.
+
+## 4. Declare what may evolve
+
+Edit `harness_manifest.yaml`.
+
+The seven supported component classes are:
+
+```yaml
+components:
+  system_prompt:
+    - systemprompt.md
+  tool_descriptions:
+    - tool_descriptions/**/*.tool.yaml
+  tool_implementations:
+    - tools/**/*.py
+  middleware:
+    - middleware/**/*.py
+  skills:
+    - skills/**/SKILL.md
+  sub_agents:
+    - sub_agents/**/agent.yaml
+  long_term_memory:
+    - LongTermMEMORY.md
+```
+
+Also declare:
+
+- `required_files`: must exist in every candidate;
+- `runtime_owned`: may be used at runtime but cannot change across checkpoints;
+- `protected_agent_fields`: exact `agent.yaml` values Evolve cannot alter;
+- file and total-tree size limits.
+
+An omitted component pattern is not an invitation to edit protected code.
+Only files inside `harness/` are candidate surfaces, and adapter validation may
+impose stricter rules.
+
+## 5. Implement the benchmark adapter
+
+`benchmark_adapter.py` exports one `BenchmarkAdapter` subclass:
+
+```python
+from my_benchmark_adapter import MyAdapter
+
+__all__ = ["MyAdapter"]
+```
+
+Configure it as:
+
+```yaml
+project:
+  adapter: benchmark_adapter:MyAdapter
+```
+
+The adapter owns native evaluation, split secrecy, metrics, trace conversion,
+infrastructure classification, and benchmark-specific candidate checks. See
+`ADAPTER_GUIDE.md`.
+
+## 6. Configure the campaign
+
+Important settings in `ahe.yaml`:
+
+```yaml
+campaign:
+  name: my-campaign
+  artifacts_dir: ./campaign-artifacts/my-campaign
+  rounds: 10
+  root_seed: 42
+
+models:
+  evaluated:
+    model: exact-evaluated-model-id
+    max_tokens: 16384
+    reasoning_effort: provider-default
+    temperature: 0.2
+  meta:
+    model: exact-meta-model-id
+    max_tokens: 32000
+    reasoning_effort: high
+    temperature: 0.2
+
+transport:
+  base_url: http://127.0.0.1:3141/v1
+  api_key_env: null
+  api_mode: chat_completions
+  stream: false
+  request_timeout_seconds: 300
+  observable_model_policy: exact
+  model_catalog: required
+  negative_control: required
+
+meta:
+  backend: nexau
+  max_concurrent_model_calls: 2
+  max_context_tokens: 200000
+  max_running_subagents: 5
+  evolve_max_iterations: 500
+  explore_max_iterations: 200
+  explore:
+    source_enabled: true
+    web_enabled: true
+    web_search_backend: ddgs
+```
+
+Model IDs sent to the endpoint are exact and unprefixed. Do not use
+`openai/<id>` or `copilot/<id>` in this file.
+
+### GH Copilot Server
+
+Before a live run, explicitly confirm:
+
+1. the exact loopback endpoint instance;
+2. the exact model ID currently returned by `GET /v1/models`;
+3. reasoning effort, including an intentional provider default;
+4. `chat_completions` and non-streaming mode;
+5. task/attempt scope and model-call concurrency.
+
+Keep the unauthenticated extension on loopback. The runner performs a fresh
+positive probe and nonexistent-model negative control for every model-backed
+stage attempt, then verifies the observable response label on every call.
+
+That label may be synthesized by a proxy from its selected model object.
+Without independent upstream telemetry, transparent upstream substitution
+cannot be ruled out.
+
+## 7. Validate before spending model calls
+
+```bash
+ahe validate --config /path/to/my-ahe-project/ahe.yaml
+```
+
+This checks the config, adapter, split separation, harness manifest, protected
+fields, Python syntax, references, and NexAU config loading.
+
+For a server-free lifecycle rehearsal, leave:
+
+```yaml
+meta:
+  backend: scripted
+```
+
+Run the deterministic example first:
+
+```bash
+ahe run --config /path/to/my-ahe-project/ahe.yaml
+```
+
+Then create a new campaign directory before switching immutable settings to
+the real backend.
+
+## 8. Run or resume
+
+Full campaign:
+
+```bash
+ahe run --config /path/to/my-ahe-project/ahe.yaml
+```
+
+Equivalent explicit script:
+
+```bash
+python /path/to/ahe-runner/run_ahe.py run \
+  --config /path/to/my-ahe-project/ahe.yaml
+```
+
+Status:
+
+```bash
+ahe status --config /path/to/my-ahe-project/ahe.yaml
+```
+
+After a timeout, model-server restart, network failure, or adapter-classified
+infrastructure failure:
+
+```bash
+ahe resume --config /path/to/my-ahe-project/ahe.yaml
+```
+
+Resume verifies and skips completed stages. Evaluation resumes only incomplete
+units. Evolve starts from the interrupted attempt's last committed Git `HEAD`
+and exposes archived dirty state as recovery evidence.
+
+Do not delete a failed attempt to make resume proceed. Its identity and
+artifacts are part of the recovery contract.
+
+## 9. Optional phase control
+
+```bash
+ahe run-round --config ahe.yaml --round 3
+ahe close-evolution --config ahe.yaml
+ahe run-validation --config ahe.yaml
+ahe run-final-test --config ahe.yaml
+```
+
+Validation evaluates every checkpoint, then the adapter selects one through
+its deterministic native key. Final test evaluates C0 and the selected
+checkpoint only. Test results never trigger further evolution.
+
+## 10. Read the outputs
+
+```text
+campaign-artifacts/<campaign>/
+├── campaign_manifest.json
+├── campaign_state.json
+├── checkpoints/C0..CN/
+├── workspaces/
+├── evaluations/
+├── evidence/
+├── debugger/
+├── evolve/
+├── explore_skills/
+├── history/
+├── attribution/
+├── stages/
+├── selection/selection.json
+└── final/
+    ├── final_test.json
+    └── selected-harness/
+```
+
+The harness to deploy or inspect is:
+
+```text
+final/selected-harness/
+```
+
+The complete lineage remains available:
+
+- immutable intermediate harnesses;
+- native evaluation artifacts and stable unit attempts;
+- training-only evidence bundles;
+- Source and Web `SKILL.md` outputs;
+- every Debugger result;
+- every Evolve attempt, call record, trace, recovery archive, and commit;
+- validation, attribution, selection, and final-test decisions.
+
+## Failure interpretation
+
+- `interrupted`: infrastructure failed and `resume` may continue.
+- `blocked`: deterministic failure, policy violation, invalid candidate, or
+  exhausted attempts; inspect the stage's `error.json`.
+- valid low or zero reward: completed benchmark evidence, never an
+  infrastructure retry.
+- campaign identity changed: use a new `artifacts_dir`; immutable inputs cannot
+  change in place.

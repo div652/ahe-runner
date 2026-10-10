@@ -16,6 +16,19 @@ ahe resume --config /path/to/my-ahe-project/ahe.yaml
 The complete architecture and input contract are specified in
 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
+Operational documentation:
+
+- [`docs/OPERATOR_GUIDE.md`](docs/OPERATOR_GUIDE.md) - prepare a harness,
+  configure a campaign, run, resume, and inspect outputs;
+- [`docs/ADAPTER_GUIDE.md`](docs/ADAPTER_GUIDE.md) - implement a new typed
+  benchmark adapter;
+- [`docs/TAU2_MIGRATION.md`](docs/TAU2_MIGRATION.md) - map the existing
+  Tau2/NexAU experiment into the reusable interface;
+- [`docs/PROMPT_FIDELITY.md`](docs/PROMPT_FIDELITY.md) - preserved AHE prompt
+  and Explore-skill mechanics;
+- [`docs/VALIDATION_RESULTS.md`](docs/VALIDATION_RESULTS.md) - exact validation
+  environment and results for this release.
+
 ## Quick start
 
 Install the runner with the web-research and development extras:
