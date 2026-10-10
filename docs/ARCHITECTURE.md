@@ -212,7 +212,9 @@ adapter identity, benchmark identity, endpoint preflights, and repository
 commits are frozen in `campaign_manifest.json`.
 
 The package pins NexAU to the upstream `v0.3.9` Git tag because that release is
-not distributed as a resolvable `nexau==0.3.9` registry artifact.
+not distributed as a resolvable `nexau==0.3.9` registry artifact. It also
+declares `greenlet` directly because NexAU imports SQLAlchemy's async layer at
+package import time without declaring that required extra transitively.
 
 Changing immutable settings requires a new campaign directory. Resume never
 silently adopts a changed model, split, seed, metric, prompt, adapter, harness
