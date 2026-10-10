@@ -594,15 +594,18 @@ class NexAUMetaBackend(MetaBackend):
             encoding="utf-8",
         )
         config = AgentConfig.from_yaml(config_path)
-        config.llm_config.update(
-            {
-                "model": settings.model,
-                "temperature": settings.temperature,
-                "max_tokens": settings.max_tokens,
-            }
-        )
+        llm_updates: dict[str, Any] = {
+            "model": settings.model,
+            "base_url": self.context.config.document.transport.base_url,
+            "api_key": self.context.config.api_key,
+            "temperature": settings.temperature,
+            "max_tokens": settings.max_tokens,
+            "stream": False,
+            "api_type": "openai_chat_completion",
+        }
         if settings.reasoning_effort is not None:
-            config.llm_config["reasoning"] = {"effort": settings.reasoning_effort}
+            llm_updates["reasoning"] = {"effort": settings.reasoning_effort}
+        config.llm_config.update(**llm_updates)
         client = self._model_client(
             settings=settings,
             log_dir=runtime_dir / "model_calls",
