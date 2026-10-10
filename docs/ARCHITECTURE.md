@@ -211,6 +211,9 @@ The resolved config, environment-independent hashes, installed NexAU version,
 adapter identity, benchmark identity, endpoint preflights, and repository
 commits are frozen in `campaign_manifest.json`.
 
+The package pins NexAU to the upstream `v0.3.9` Git tag because that release is
+not distributed as a resolvable `nexau==0.3.9` registry artifact.
+
 Changing immutable settings requires a new campaign directory. Resume never
 silently adopts a changed model, split, seed, metric, prompt, adapter, harness
 manifest, or resource limit.

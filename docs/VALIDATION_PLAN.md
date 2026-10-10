@@ -45,6 +45,9 @@ The pytest suite covers:
 7. Inspect the wheel to ensure prompts, tool YAML, templates, and method
    reference are present.
 
+Dependency installation must resolve NexAU from its exact upstream `v0.3.9`
+Git tag rather than assuming a registry package exists.
+
 ## Production backend smoke without campaign spend
 
 The installed package must:
