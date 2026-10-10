@@ -49,7 +49,7 @@ def test_harness_validation_rejects_symlinks_and_task_memorization(
             project_root=project,
             training_task_ids=("train-secret-17",),
         )
-    assert "training task identifier" in str(memorization_error.value)
+    assert "complete training task ID" in str(memorization_error.value)
 
 
 def test_harness_validation_preserves_protected_and_runtime_owned_fields(
