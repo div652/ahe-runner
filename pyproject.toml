@@ -40,6 +40,9 @@ include = [
   "src/ahe_runner/**/*.yaml",
 ]
 
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.ruff]
 line-length = 88
 target-version = "py311"
