@@ -1,0 +1,42 @@
+schema_version: 1
+
+framework:
+  name: nexau
+  version: "0.3.9"
+
+agent_config: agent.yaml
+
+components:
+  system_prompt:
+    - systemprompt.md
+  tool_descriptions:
+    - tool_descriptions/**/*.tool.yaml
+  tool_implementations:
+    - tools/**/*.py
+  middleware:
+    - middleware/**/*.py
+  skills:
+    - skills/**/SKILL.md
+  sub_agents:
+    - sub_agents/**/agent.yaml
+  long_term_memory:
+    - LongTermMEMORY.md
+
+runtime_owned:
+  - ShortTermMEMORY.md
+
+required_files:
+  - agent.yaml
+  - systemprompt.md
+  - LongTermMEMORY.md
+  - ShortTermMEMORY.md
+
+protected_agent_fields:
+  tool_call_mode: openai
+  llm_config.model: UNCONFIGURED
+  llm_config.stream: false
+  llm_config.api_type: openai_chat_completion
+
+limits:
+  maximum_file_bytes: 1000000
+  maximum_tree_bytes: 8000000
