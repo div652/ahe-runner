@@ -332,7 +332,7 @@ def test_runtime_honors_manifest_root_agent_config(tmp_path: Path) -> None:
                 artifact_dir=artifact_root / "renamed-root",
             )
         )
-        assert session._agent.config.name == "example-evaluated-agent"
+        assert session._agent.config.name == "example_agent"
         session.close()
     finally:
         runtime.close()
