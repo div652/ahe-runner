@@ -21,9 +21,7 @@ from ahe_runner.errors import IntegrityError
 
 logger = logging.getLogger(__name__)
 
-_COMPACTED_TOOL_RESULT = (
-    "[older tool result compacted; re-read the source artifact]"
-)
+_COMPACTED_TOOL_RESULT = "[older tool result compacted; re-read the source artifact]"
 _COMPACTED_TOOL_ARGUMENTS = (
     "Older tool arguments were compacted. Re-read the current source artifact "
     "when exact prior content is needed."

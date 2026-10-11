@@ -361,9 +361,7 @@ def submit_debugger_diagnosis(
             "evidence_coverage.artifacts_read includes files not read through "
             "the bounded tools: " + ", ".join(sorted(claimed - accessed))
         )
-    citations = [
-        item.citation for item in diagnosis.evidence
-    ] + [
+    citations = [item.citation for item in diagnosis.evidence] + [
         item.citation
         for item in (
             *diagnosis.paired_comparison.passing_evidence,
@@ -412,10 +410,7 @@ def submit_debugger_diagnosis(
         "debugger_artifact_classes",
     )
     artifact_classes = (
-        {
-            str(key): str(value)
-            for key, value in artifact_classes_value.items()
-        }
+        {str(key): str(value) for key, value in artifact_classes_value.items()}
         if isinstance(artifact_classes_value, Mapping)
         else {}
     )
@@ -1356,14 +1351,8 @@ def _citation_is_covered(
 
 def _citation_label(citation: Any) -> str:
     if citation.line_start is not None:
-        return (
-            f"{citation.artifact}#lines="
-            f"{citation.line_start}-{citation.line_end}"
-        )
-    return (
-        f"{citation.artifact}#bytes="
-        f"{citation.start_byte}-{citation.end_byte}"
-    )
+        return f"{citation.artifact}#lines={citation.line_start}-{citation.line_end}"
+    return f"{citation.artifact}#bytes={citation.start_byte}-{citation.end_byte}"
 
 
 def _deliverable_write_error(

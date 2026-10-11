@@ -523,9 +523,7 @@ class NexAUMetaBackend(MetaBackend):
             str(trial["diagnostic_class"]) for trial in task_detail["trials"]
         ]
         artifact_classes = {
-            f"raw_evaluation:{artifact['path']}": str(
-                trial["diagnostic_class"]
-            )
+            f"raw_evaluation:{artifact['path']}": str(trial["diagnostic_class"])
             for trial in task_detail["trials"]
             for artifact in trial["artifacts"]
         }

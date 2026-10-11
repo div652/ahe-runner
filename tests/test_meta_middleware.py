@@ -80,13 +80,9 @@ def test_write_heavy_compaction_bounds_context_and_preserves_structure() -> None
     assert [(block.id, block.name) for block in compacted_calls] == [
         (block.id, block.name) for block in original_calls
     ]
+    assert all("_ahe_compacted" in block.input for block in compacted_calls[:-retained])
     assert all(
-        "_ahe_compacted" in block.input
-        for block in compacted_calls[:-retained]
-    )
-    assert all(
-        "_ahe_compacted" not in block.input
-        for block in compacted_calls[-retained:]
+        "_ahe_compacted" not in block.input for block in compacted_calls[-retained:]
     )
     results = [
         block

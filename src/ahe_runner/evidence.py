@@ -167,9 +167,7 @@ def verify_evidence_bundle(
     if set(source_states) != {task.task_key for task in manifest.tasks}:
         raise IntegrityError("evidence tasks do not cover the source evaluation")
     units = {(unit.task_key, unit.trial): unit for unit in verified_evaluation.units}
-    trial_facts = {
-        fact.unit_id: fact for fact in verified_evaluation.trial_facts
-    }
+    trial_facts = {fact.unit_id: fact for fact in verified_evaluation.trial_facts}
     seen: set[str] = set()
     for task in manifest.tasks:
         if task.task_key in seen:
@@ -222,8 +220,7 @@ def verify_evidence_bundle(
                 or trial.diagnostic_class != fact.diagnostic_class
             ):
                 raise IntegrityError(
-                    f"evidence trial semantics mismatch: "
-                    f"{task.task_key}/{trial.trial}"
+                    f"evidence trial semantics mismatch: {task.task_key}/{trial.trial}"
                 )
             declared_artifacts: dict[tuple[str, str], str] = {}
             for artifact in trial.artifacts:

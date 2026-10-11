@@ -157,9 +157,9 @@ def test_generated_production_agent_config_loads_with_native_skill(
         if path.is_file()
     ]
     assert all(secret not in text for text in runtime_files)
-    assert "AHE_RUNTIME_INJECTED" in (
-        tmp_path / "runtime" / "agent.yaml"
-    ).read_text(encoding="utf-8")
+    assert "AHE_RUNTIME_INJECTED" in (tmp_path / "runtime" / "agent.yaml").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_meta_agents_mount_only_declared_public_adapter_roots(
