@@ -588,7 +588,9 @@ def _validate_tool_signature(
             )
             return
     schema = contract.get("schema")
-    properties = set(schema.get("properties", {})) if isinstance(schema, dict) else set()
+    properties = (
+        set(schema.get("properties", {})) if isinstance(schema, dict) else set()
+    )
     extra_kwargs = set(contract.get("extra_kwargs", []))
     exposed = (
         set(parameters)
@@ -625,7 +627,11 @@ def _skill_document(
         errors.append(f"skill lacks YAML frontmatter: {path}")
         return {}, ""
     end = next(
-        (index for index, line in enumerate(lines[1:], start=1) if line.strip() == "---"),
+        (
+            index
+            for index, line in enumerate(lines[1:], start=1)
+            if line.strip() == "---"
+        ),
         None,
     )
     if end is None:

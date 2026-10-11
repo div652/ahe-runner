@@ -18,7 +18,7 @@ from nexau.archs.main_sub.execution.hooks import (
 )
 from nexau.archs.main_sub.execution.parse_structures import ParsedResponse
 from nexau.archs.tool import Tool
-from nexau.core.messages import Message, Role, TextBlock, ToolResultBlock
+from nexau.core.messages import Message, Role, ToolResultBlock
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .adapter import BenchmarkInterface, BenchmarkToolSpec
@@ -195,11 +195,14 @@ class EvaluatedAgentSession:
                 )
             if user_messages:
                 raise IntegrityError(
-                    "resolve all outstanding benchmark actions before sending user input"
+                    "resolve all outstanding benchmark actions before sending "
+                    "user input"
                 )
             self._outstanding_actions.clear()
         elif tool_messages:
-            raise IntegrityError("received a benchmark action result with no pending call")
+            raise IntegrityError(
+                "received a benchmark action result with no pending call"
+            )
 
         result: list[Message] = []
         for message in messages:

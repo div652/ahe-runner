@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import sys
+from contextlib import suppress
 from pathlib import Path
 from types import ModuleType
 
@@ -32,10 +33,8 @@ class HarnessImportScope:
             return
         self._active = False
         _remove_modules(self._module_roots)
-        try:
+        with suppress(ValueError):
             sys.path.remove(self._path)
-        except ValueError:
-            pass
         sys.modules.update(self._saved_modules)
         self._saved_modules = {}
         importlib.invalidate_caches()
