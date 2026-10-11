@@ -3,12 +3,14 @@ from __future__ import annotations
 import shutil
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
 
 from ahe_runner.errors import CandidateValidationError
 from ahe_runner.harness import load_harness_manifest, validate_harness
+from ahe_runner.harness_imports import HarnessImportScope
 
 from .conftest import make_example_project
 
@@ -206,3 +208,37 @@ def test_v2_conformance_accepts_transitive_tool_support_modules(
         "tools/helper.py",
         "tools/record_note.py",
     ]
+
+    tool_path.write_text(
+        tool_path.read_text(encoding="utf-8")
+        .replace("from tools.helper import normalize_note\n", "")
+        .replace(
+            "    note = normalize_note(note)\n",
+            "    from tools.helper import normalize_note\n\n"
+            "    note = normalize_note(note)\n",
+        ),
+        encoding="utf-8",
+    )
+    lazy_report = validate_harness(
+        harness,
+        manifest,
+        project_root=project,
+        run_nexau_smoke=False,
+    )
+    assert lazy_report["conformance"]["registrations"]["tool_implementations"] == [
+        "tools/helper.py",
+        "tools/record_note.py",
+    ]
+
+    values: dict[str, object] = {}
+    state = SimpleNamespace(
+        get_global_value=lambda key, default=None: values.get(key, default),
+        set_global_value=lambda key, value: values.__setitem__(key, value),
+    )
+    with HarnessImportScope(harness):
+        from tools.record_note import record_note
+
+        assert record_note(" padded ", state) == {
+            "recorded": "padded",
+            "note_count": 1,
+        }

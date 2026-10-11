@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import importlib
 import importlib.metadata
 import inspect
@@ -480,7 +481,11 @@ def _resolve_import_contract(
         errors.append(f"{label} import must resolve inside the harness: {reference!r}")
         return
     relative = source.relative_to(root).as_posix()
-    imported_sources = (_local_import_sources(root) - prior_sources) | {relative}
+    imported_sources = (
+        (_local_import_sources(root) - prior_sources)
+        | _static_local_import_sources(root, source)
+        | {relative}
+    )
 
     if contract["kind"] == "tool":
         registrations["tool_implementations"].update(imported_sources)
@@ -517,6 +522,68 @@ def _local_import_sources(root: Path) -> set[str]:
         if _inside(root, source):
             sources.add(source.relative_to(root).as_posix())
     return sources
+
+
+def _static_local_import_sources(root: Path, source: Path) -> set[str]:
+    pending = [source]
+    discovered: set[str] = set()
+    while pending:
+        current = pending.pop()
+        relative = current.relative_to(root).as_posix()
+        if relative in discovered:
+            continue
+        discovered.add(relative)
+        try:
+            tree = ast.parse(current.read_text(encoding="utf-8"), filename=str(current))
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        for module_name in _local_import_names(root, current, tree):
+            dependency = _resolve_local_module(root, module_name)
+            if dependency is not None:
+                pending.append(dependency)
+    return discovered
+
+
+def _local_import_names(
+    root: Path,
+    source: Path,
+    tree: ast.AST,
+) -> set[str]:
+    relative = source.relative_to(root)
+    package_parts = list(relative.parent.parts)
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            names.update(alias.name for alias in node.names)
+            continue
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        if node.level:
+            parent_count = node.level - 1
+            if parent_count > len(package_parts):
+                continue
+            base_parts = package_parts[: len(package_parts) - parent_count]
+        else:
+            base_parts = []
+        if node.module:
+            base_parts = [*base_parts, *node.module.split(".")]
+            names.add(".".join(base_parts))
+        for alias in node.names:
+            if alias.name == "*":
+                continue
+            names.add(".".join([*base_parts, *alias.name]))
+    return {name for name in names if name}
+
+
+def _resolve_local_module(root: Path, module_name: str) -> Path | None:
+    parts = module_name.split(".")
+    module_path = root.joinpath(*parts).with_suffix(".py")
+    if module_path.is_file() and _inside(root, module_path.resolve()):
+        return module_path.resolve()
+    package_path = root.joinpath(*parts, "__init__.py")
+    if package_path.is_file() and _inside(root, package_path.resolve()):
+        return package_path.resolve()
+    return None
 
 
 def _validate_tool_schema(

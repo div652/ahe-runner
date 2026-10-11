@@ -2,21 +2,31 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
+from typing import Any
 
 from nexau.archs.main_sub.execution.hooks import (
     BeforeModelHookInput,
     HookResult,
     Middleware,
+    ModelCallFn,
+    ModelCallParams,
 )
 from nexau.archs.main_sub.utils.token_counter import TokenCounter
-from nexau.core.messages import Message, Role, ToolResultBlock
+from nexau.core.messages import Message, Role, ToolResultBlock, ToolUseBlock
+
+from ahe_runner.errors import IntegrityError
 
 logger = logging.getLogger(__name__)
 
 _COMPACTED_TOOL_RESULT = (
-    "This older tool result was compacted after its evidence had been consumed. "
-    "Re-read the source artifact if exact content is needed."
+    "[older tool result compacted; re-read the source artifact]"
+)
+_COMPACTED_TOOL_ARGUMENTS = (
+    "Older tool arguments were compacted. Re-read the current source artifact "
+    "when exact prior content is needed."
 )
 
 
@@ -38,8 +48,10 @@ class MetaContextCompactionMiddleware(Middleware):
         self.threshold = threshold
         self.keep_iterations = keep_iterations
         self._token_counter = TokenCounter()
+        self._pending_budget_error: str | None = None
 
     def before_model(self, hook_input: BeforeModelHookInput) -> HookResult:
+        self._pending_budget_error = None
         try:
             token_count = self._token_counter.count_tokens(hook_input.messages)
         except (AttributeError, KeyError, TypeError, ValueError) as exc:
@@ -54,9 +66,15 @@ class MetaContextCompactionMiddleware(Middleware):
             target_tokens=target,
             keep_iterations=self.keep_iterations,
         )
+        if compacted_count > target:
+            self._pending_budget_error = (
+                "meta-agent context remains above the configured compaction target "
+                f"after preserving the latest iteration: {compacted_count} > {target}"
+            )
+            logger.error(self._pending_budget_error)
         if not changed:
             logger.warning(
-                "meta-agent context is %d tokens but no old tool result can compact",
+                "meta-agent context is %d tokens but no older payload can compact",
                 token_count,
             )
             return HookResult.no_changes()
@@ -67,6 +85,17 @@ class MetaContextCompactionMiddleware(Middleware):
             retained,
         )
         return HookResult.with_modifications(messages=compacted)
+
+    def wrap_model_call(
+        self,
+        params: ModelCallParams,
+        call_next: ModelCallFn,
+    ) -> Any:
+        if self._pending_budget_error is not None:
+            message = self._pending_budget_error
+            self._pending_budget_error = None
+            raise IntegrityError(message)
+        return call_next(params)
 
 
 def _compact_to_budget(
@@ -88,7 +117,16 @@ def _compact_to_budget(
         if iteration_changed:
             changed = True
             count = token_counter.count_tokens(compacted)
-        if count < target_tokens:
+        if count <= target_tokens:
+            break
+        compacted, argument_changed = _compact_old_tool_arguments(
+            compacted,
+            keep_iterations=retained,
+        )
+        if argument_changed:
+            changed = True
+            count = token_counter.count_tokens(compacted)
+        if count <= target_tokens:
             break
     return compacted, changed, count, retained
 
@@ -118,6 +156,7 @@ def _compact_old_tool_results(
             if (
                 isinstance(block, ToolResultBlock)
                 and block.content != _COMPACTED_TOOL_RESULT
+                and _payload_size(block.content) > len(_COMPACTED_TOOL_RESULT)
             ):
                 blocks.append(
                     block.model_copy(update={"content": _COMPACTED_TOOL_RESULT})
@@ -132,3 +171,80 @@ def _compact_old_tool_results(
         )
         changed = changed or message_changed
     return result, changed
+
+
+def _compact_old_tool_arguments(
+    messages: list[Message],
+    *,
+    keep_iterations: int,
+) -> tuple[list[Message], bool]:
+    assistant_indices = [
+        index
+        for index, message in enumerate(messages)
+        if message.role == Role.ASSISTANT
+    ]
+    if len(assistant_indices) <= keep_iterations:
+        return messages, False
+    protected_start = assistant_indices[-keep_iterations]
+    changed = False
+    result: list[Message] = []
+    for index, message in enumerate(messages):
+        if message.role != Role.ASSISTANT or index >= protected_start:
+            result.append(message)
+            continue
+        blocks = []
+        message_changed = False
+        for block in message.content:
+            if not isinstance(block, ToolUseBlock):
+                blocks.append(block)
+                continue
+            compacted_input = _compact_tool_input(block.input)
+            if compacted_input is block.input:
+                blocks.append(block)
+                continue
+            blocks.append(
+                block.model_copy(
+                    update={
+                        "input": compacted_input,
+                        "raw_input": None,
+                    }
+                )
+            )
+            message_changed = True
+        result.append(
+            message.model_copy(update={"content": blocks})
+            if message_changed
+            else message
+        )
+        changed = changed or message_changed
+    return result, changed
+
+
+def _compact_tool_input(value: dict[str, Any]) -> dict[str, Any]:
+    serialized = json.dumps(
+        value,
+        sort_keys=True,
+        ensure_ascii=False,
+        default=repr,
+    )
+    payload = {
+        "_ahe_compacted": _COMPACTED_TOOL_ARGUMENTS,
+        "original_bytes": len(serialized.encode("utf-8")),
+        "sha256": hashlib.sha256(serialized.encode("utf-8")).hexdigest(),
+    }
+    if _payload_size(payload) >= len(serialized):
+        return value
+    return payload
+
+
+def _payload_size(value: Any) -> int:
+    if isinstance(value, str):
+        return len(value)
+    return len(
+        json.dumps(
+            value,
+            sort_keys=True,
+            ensure_ascii=False,
+            default=repr,
+        )
+    )
