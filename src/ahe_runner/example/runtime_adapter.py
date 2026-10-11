@@ -16,6 +16,7 @@ from ahe_runner.adapter import (
     CandidateValidationRequest,
     EvaluationRequest,
     EvaluationResult,
+    EvaluationTrialFact,
     EvidenceBundle,
     EvidenceRequest,
     MetaPromptContext,
@@ -225,6 +226,7 @@ class RuntimeExampleAdapter(BenchmarkAdapterV2):
             checkpoint=request.checkpoint,
             split=request.split.name,
             summary=summary,
+            trial_facts=_trial_facts(request.output_dir, request.split.name),
             artifact_hashes=_evaluation_artifact_hashes(request.output_dir),
         )
         store.finalize(payload.model_dump(mode="json"))
@@ -249,6 +251,10 @@ class RuntimeExampleAdapter(BenchmarkAdapterV2):
                 evaluation.output_dir,
                 evaluation.split.name,
             ),
+            trial_facts=_trial_facts(
+                evaluation.output_dir,
+                evaluation.split.name,
+            ),
             artifact_hashes=_evaluation_artifact_hashes(evaluation.output_dir),
         )
 
@@ -267,7 +273,7 @@ class RuntimeExampleAdapter(BenchmarkAdapterV2):
                 task_key=state.task_key,
             )
             detail = {
-                "schema_version": 2,
+                "schema_version": 3,
                 "task_key": state.task_key,
                 "task_id": state.task_id,
                 "state": state.state,
@@ -289,7 +295,7 @@ class RuntimeExampleAdapter(BenchmarkAdapterV2):
             )
         source_result = request.evaluation_dir / "adapter_result.json"
         manifest = {
-            "schema_version": 2,
+            "schema_version": 3,
             "checkpoint": request.checkpoint,
             "supervision_policy": "dense",
             "true_task_ids_exposed": True,
@@ -628,6 +634,7 @@ def _evidence_trials(
                 "outcome": "pass" if reward else "fail",
                 "score": reward,
                 "termination_reason": result["termination_reason"],
+                "diagnostic_class": "passing" if reward else "failing",
                 "artifacts": [
                     {
                         "kind": "result",
@@ -645,6 +652,34 @@ def _evidence_trials(
         )
     trials.sort(key=lambda row: int(row["trial"]))
     return trials
+
+
+def _trial_facts(
+    output_dir: Path,
+    split_name: SplitName,
+) -> list[EvaluationTrialFact]:
+    facts: list[EvaluationTrialFact] = []
+    for unit_dir in sorted((output_dir / "units").iterdir()):
+        unit = read_json(unit_dir / "unit.json")
+        completion = read_json(unit_dir / "complete.json")
+        result = read_json(Path(completion["result_path"]))
+        task = _TASKS[split_name][str(unit["task_id"])]
+        reward = _score_task(
+            task,
+            final_text=str(result["final_text"]),
+            actions=list(result["protected_actions"]),
+            termination_reason=str(result["termination_reason"]),
+        )
+        facts.append(
+            EvaluationTrialFact(
+                unit_id=str(unit["unit_id"]),
+                outcome="pass" if reward else "fail",
+                score=reward,
+                termination_reason=str(result["termination_reason"]),
+                diagnostic_class="passing" if reward else "failing",
+            )
+        )
+    return facts
 
 
 def _trial_seeds(root_seed: int, trials: int) -> list[int]:

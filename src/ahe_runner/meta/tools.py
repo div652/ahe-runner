@@ -9,6 +9,7 @@ import re
 import shutil
 import socket
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urljoin, urlsplit
@@ -120,7 +121,14 @@ def read_file(
         with path.open("rb") as handle:
             handle.seek(start_byte)
             content_bytes = handle.read(min(requested, max(file_size - start_byte, 0)))
-        _record_debugger_artifact(agent_state, root, relative_path)
+        if content_bytes:
+            _record_debugger_access(
+                agent_state,
+                artifact=f"{root}:{Path(relative_path).as_posix()}",
+                mode="bytes",
+                start=start_byte,
+                end=start_byte + len(content_bytes),
+            )
         return _json(
             {
                 "ok": True,
@@ -170,7 +178,14 @@ def read_file(
             last_line = line_number
         else:
             total_lines = lines_seen
-    _record_debugger_artifact(agent_state, root, relative_path)
+    if bytes_returned and last_line >= start_line:
+        _record_debugger_access(
+            agent_state,
+            artifact=f"{root}:{Path(relative_path).as_posix()}",
+            mode="lines",
+            start=start_line,
+            end=last_line,
+        )
     return _json(
         {
             "ok": True,
@@ -237,7 +252,13 @@ def search_text(
             searched_files += 1
             for line_number, line in enumerate(handle, start=1):
                 if pattern.search(line):
-                    _record_debugger_artifact(agent_state, root, root_relative)
+                    _record_debugger_access(
+                        agent_state,
+                        artifact=f"{root}:{root_relative}",
+                        mode="lines",
+                        start=line_number,
+                        end=line_number,
+                    )
                     matches.append(
                         {
                             "path": relative,
@@ -326,7 +347,8 @@ def submit_debugger_diagnosis(
         return _completion_error(
             f"invalid debugger diagnosis: {type(exc).__name__}: {exc}"
         )
-    accessed = set(_storage_get(agent_state, "debugger_artifacts_read", []))
+    accesses = _debugger_accesses(agent_state)
+    accessed = {str(item["artifact"]) for item in accesses}
     claimed = set(diagnosis.evidence_coverage.artifacts_read)
     primary = str(_context_value(agent_state, "debugger_primary_artifact"))
     if primary not in claimed:
@@ -339,6 +361,80 @@ def submit_debugger_diagnosis(
             "evidence_coverage.artifacts_read includes files not read through "
             "the bounded tools: " + ", ".join(sorted(claimed - accessed))
         )
+    citations = [
+        item.citation for item in diagnosis.evidence
+    ] + [
+        item.citation
+        for item in (
+            *diagnosis.paired_comparison.passing_evidence,
+            *diagnosis.paired_comparison.failing_evidence,
+        )
+    ]
+    uncovered = [
+        _citation_label(citation)
+        for citation in citations
+        if not _citation_is_covered(citation, accesses)
+    ]
+    if uncovered:
+        return _completion_error(
+            "debugger citations were not covered by nonempty bounded reads or "
+            "search hits: " + ", ".join(uncovered)
+        )
+    citation_artifacts = {citation.artifact for citation in citations}
+    if not citation_artifacts <= claimed:
+        return _completion_error(
+            "evidence_coverage.artifacts_read omits cited artifacts: "
+            + ", ".join(sorted(citation_artifacts - claimed))
+        )
+    trial_classes_value = _context_value(agent_state, "debugger_trial_classes")
+    trial_classes = (
+        {
+            str(value)
+            for value in trial_classes_value
+            if str(value) in {"passing", "failing", "other"}
+        }
+        if isinstance(trial_classes_value, (list, tuple, set))
+        else set()
+    )
+    paired_available = {"passing", "failing"} <= trial_classes
+    paired = diagnosis.paired_comparison
+    if paired_available and paired.status != "performed":
+        return _completion_error(
+            "a passing and failing trial are available; paired comparison is required"
+        )
+    if not paired_available and paired.status != "unavailable":
+        return _completion_error(
+            "paired comparison cannot be performed without verified passing and "
+            "failing trials"
+        )
+    artifact_classes_value = _context_value(
+        agent_state,
+        "debugger_artifact_classes",
+    )
+    artifact_classes = (
+        {
+            str(key): str(value)
+            for key, value in artifact_classes_value.items()
+        }
+        if isinstance(artifact_classes_value, Mapping)
+        else {}
+    )
+    for expected_class, items in (
+        ("passing", paired.passing_evidence),
+        ("failing", paired.failing_evidence),
+    ):
+        mismatched = sorted(
+            {
+                item.citation.artifact
+                for item in items
+                if artifact_classes.get(item.citation.artifact) != expected_class
+            }
+        )
+        if mismatched:
+            return _completion_error(
+                f"{expected_class} paired evidence does not cite verified "
+                f"{expected_class} trial artifacts: " + ", ".join(mismatched)
+            )
     output_dir = Path(str(_context_value(agent_state, "meta_output_dir"))).resolve()
     path = output_dir / "submitted_diagnosis.json"
     atomic_write_json(path, diagnosis.model_dump(mode="json"))
@@ -1165,17 +1261,109 @@ def _record_mutation(agent_state: AgentState | None) -> None:
     _store_progress(agent_state, key, progress)
 
 
-def _record_debugger_artifact(
+def _record_debugger_access(
     agent_state: AgentState | None,
-    root: str,
-    relative_path: str,
+    *,
+    artifact: str,
+    mode: str,
+    start: int,
+    end: int,
 ) -> None:
     if str(_context_value(agent_state, "meta_role")) != "debugger":
         return
-    value = _storage_get(agent_state, "debugger_artifacts_read", [])
-    artifacts = {str(item) for item in value if str(item).strip()}
-    artifacts.add(f"{root}:{Path(relative_path).as_posix()}")
-    _storage_set(agent_state, "debugger_artifacts_read", sorted(artifacts))
+    if end <= start and mode == "bytes":
+        return
+    if end < start and mode == "lines":
+        return
+    accesses = _debugger_accesses(agent_state)
+    record = {
+        "artifact": artifact,
+        "mode": mode,
+        "start": start,
+        "end": end,
+    }
+    if record not in accesses:
+        accesses.append(record)
+    _storage_set(
+        agent_state,
+        "debugger_artifact_accesses",
+        sorted(
+            accesses,
+            key=lambda item: (
+                str(item["artifact"]),
+                str(item["mode"]),
+                int(item["start"]),
+                int(item["end"]),
+            ),
+        ),
+    )
+
+
+def _debugger_accesses(
+    agent_state: AgentState | None,
+) -> list[dict[str, str | int]]:
+    value = _storage_get(agent_state, "debugger_artifact_accesses", [])
+    if not isinstance(value, list):
+        return []
+    accesses: list[dict[str, str | int]] = []
+    for item in value:
+        if not isinstance(item, Mapping):
+            continue
+        artifact = str(item.get("artifact", "")).strip()
+        mode = str(item.get("mode", ""))
+        start = item.get("start")
+        end = item.get("end")
+        if (
+            not artifact
+            or mode not in {"lines", "bytes"}
+            or isinstance(start, bool)
+            or not isinstance(start, int)
+            or isinstance(end, bool)
+            or not isinstance(end, int)
+        ):
+            continue
+        accesses.append(
+            {
+                "artifact": artifact,
+                "mode": mode,
+                "start": start,
+                "end": end,
+            }
+        )
+    return accesses
+
+
+def _citation_is_covered(
+    citation: Any,
+    accesses: list[dict[str, str | int]],
+) -> bool:
+    if citation.line_start is not None:
+        mode = "lines"
+        start = citation.line_start
+        end = citation.line_end
+    else:
+        mode = "bytes"
+        start = citation.start_byte
+        end = citation.end_byte
+    return any(
+        access["artifact"] == citation.artifact
+        and access["mode"] == mode
+        and int(access["start"]) <= int(start)
+        and int(access["end"]) >= int(end)
+        for access in accesses
+    )
+
+
+def _citation_label(citation: Any) -> str:
+    if citation.line_start is not None:
+        return (
+            f"{citation.artifact}#lines="
+            f"{citation.line_start}-{citation.line_end}"
+        )
+    return (
+        f"{citation.artifact}#bytes="
+        f"{citation.start_byte}-{citation.end_byte}"
+    )
 
 
 def _deliverable_write_error(

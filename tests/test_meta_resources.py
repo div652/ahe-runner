@@ -349,6 +349,10 @@ def test_debugger_submission_requires_read_evidence_and_paired_analysis(
     evidence.mkdir()
     detail = evidence / "task.json"
     detail.write_text('{"trials": ["pass", "fail"]}\n', encoding="utf-8")
+    passing_trace = evidence / "passing.jsonl"
+    passing_trace.write_text('{"event": "verified before acting"}\n', encoding="utf-8")
+    failing_trace = evidence / "failing.jsonl"
+    failing_trace.write_text('{"event": "acted before verification"}\n', encoding="utf-8")
     output = tmp_path / "output"
     state = _AgentState(
         {
@@ -359,34 +363,68 @@ def test_debugger_submission_requires_read_evidence_and_paired_analysis(
             "debugger_task": {"task_id": "task-1", "task_key": "opaque-1"},
             "debugger_task_key": "opaque-1",
             "debugger_primary_artifact": "evidence:task.json",
+            "debugger_trial_classes": ["passing", "failing"],
+            "debugger_artifact_classes": {
+                "evidence:passing.jsonl": "passing",
+                "evidence:failing.jsonl": "failing",
+            },
         }
     )
-    json.loads(
-        tools.read_file(
-            root="evidence",
-            relative_path="task.json",
-            agent_state=state,  # type: ignore[arg-type]
+    for relative_path in ("task.json", "passing.jsonl", "failing.jsonl"):
+        json.loads(
+            tools.read_file(
+                root="evidence",
+                relative_path=relative_path,
+                start_line=1,
+                end_line=1,
+                agent_state=state,  # type: ignore[arg-type]
+            )
         )
-    )
 
     result = tools.submit_debugger_diagnosis(
         primary_failure_class="prompt",
         earliest_failure="The failing trial acts before verification.",
         evidence=[
             {
-                "location": "evidence:task.json",
+                "citation": {
+                    "artifact": "evidence:task.json",
+                    "line_start": 1,
+                    "line_end": 1,
+                },
                 "observation": "The task detail exposes one pass and one failure.",
                 "implication": "A paired comparison is possible.",
             }
         ],
         evidence_coverage={
-            "artifacts_read": ["evidence:task.json"],
+            "artifacts_read": [
+                "evidence:task.json",
+                "evidence:passing.jsonl",
+                "evidence:failing.jsonl",
+            ],
             "limitations": [],
         },
         paired_comparison={
             "status": "performed",
-            "passing_evidence": ["pass trial verifies before acting"],
-            "failing_evidence": ["fail trial acts immediately"],
+            "passing_evidence": [
+                {
+                    "citation": {
+                        "artifact": "evidence:passing.jsonl",
+                        "line_start": 1,
+                        "line_end": 1,
+                    },
+                    "observation": "The passing trial verifies before acting.",
+                }
+            ],
+            "failing_evidence": [
+                {
+                    "citation": {
+                        "artifact": "evidence:failing.jsonl",
+                        "line_start": 1,
+                        "line_end": 1,
+                    },
+                    "observation": "The failing trial acts immediately.",
+                }
+            ],
             "earliest_divergence": "verification before the first action",
             "limitation": "",
         },
@@ -418,7 +456,11 @@ def test_debugger_submission_requires_read_evidence_and_paired_analysis(
         earliest_failure="No failure was observed.",
         evidence=[
             {
-                "location": "evidence:missing.json",
+                "citation": {
+                    "artifact": "evidence:missing.json",
+                    "line_start": 1,
+                    "line_end": 1,
+                },
                 "observation": "Claimed observation.",
                 "implication": "Claimed implication.",
             }
@@ -448,6 +490,102 @@ def test_debugger_submission_requires_read_evidence_and_paired_analysis(
     assert rejected["status"] == "error"
     assert "not read" in rejected["error"]
 
+    false_unavailable = tools.submit_debugger_diagnosis(
+        primary_failure_class="none",
+        earliest_failure="No comparison was attempted.",
+        evidence=[
+            {
+                "citation": {
+                    "artifact": "evidence:task.json",
+                    "line_start": 1,
+                    "line_end": 1,
+                },
+                "observation": "The task detail was read.",
+                "implication": "The available trials must be compared.",
+            }
+        ],
+        evidence_coverage={
+            "artifacts_read": ["evidence:task.json"],
+            "limitations": [],
+        },
+        paired_comparison={
+            "status": "unavailable",
+            "passing_evidence": [],
+            "failing_evidence": [],
+            "earliest_divergence": "",
+            "limitation": "Comparison was incorrectly declared unavailable.",
+        },
+        root_cause="No comparison was attempted.",
+        contributing_factors=[],
+        recommended_changes=[],
+        recurrent_pattern_key="",
+        confidence=0.1,
+        falsifier="A valid paired comparison.",
+        agent_state=state,  # type: ignore[arg-type]
+    )
+    assert false_unavailable["status"] == "error"
+    assert "paired comparison is required" in false_unavailable["error"]
+
+    empty_state = _AgentState(
+        {
+            "meta_role": "debugger",
+            "meta_read_roots": {"evidence": str(evidence)},
+            "meta_write_roots": {},
+            "meta_output_dir": str(tmp_path / "empty-output"),
+            "debugger_task": {"task_id": "task-1", "task_key": "opaque-1"},
+            "debugger_task_key": "opaque-1",
+            "debugger_primary_artifact": "evidence:task.json",
+            "debugger_trial_classes": ["other"],
+            "debugger_artifact_classes": {},
+        }
+    )
+    size = detail.stat().st_size
+    empty = json.loads(
+        tools.read_file(
+            root="evidence",
+            relative_path="task.json",
+            start_byte=size + 10,
+            end_byte=size + 20,
+            agent_state=empty_state,  # type: ignore[arg-type]
+        )
+    )
+    assert empty["bytes_returned"] == 0
+    empty_rejected = tools.submit_debugger_diagnosis(
+        primary_failure_class="none",
+        earliest_failure="No evidence was returned.",
+        evidence=[
+            {
+                "citation": {
+                    "artifact": "evidence:task.json",
+                    "start_byte": size + 10,
+                    "end_byte": size + 20,
+                },
+                "observation": "An empty range was claimed as evidence.",
+                "implication": "The claim is unsupported.",
+            }
+        ],
+        evidence_coverage={
+            "artifacts_read": ["evidence:task.json"],
+            "limitations": ["The requested range returned no bytes."],
+        },
+        paired_comparison={
+            "status": "unavailable",
+            "passing_evidence": [],
+            "failing_evidence": [],
+            "earliest_divergence": "",
+            "limitation": "No comparable passing and failing trials exist.",
+        },
+        root_cause="No supported root cause.",
+        contributing_factors=[],
+        recommended_changes=[],
+        recurrent_pattern_key="",
+        confidence=0.0,
+        falsifier="Any nonempty direct evidence.",
+        agent_state=empty_state,  # type: ignore[arg-type]
+    )
+    assert empty_rejected["status"] == "error"
+    assert "not read" in empty_rejected["error"]
+
 
 def test_debugger_task_runs_as_read_only_nexau_agent(
     tmp_path: Path,
@@ -466,7 +604,41 @@ def test_debugger_task_runs_as_read_only_nexau_agent(
     evidence_dir = tmp_path / "evidence"
     detail = evidence_dir / "tasks" / "opaque.json"
     detail.parent.mkdir(parents=True)
-    detail.write_text('{"trials": []}\n', encoding="utf-8")
+    detail.write_text(
+        json.dumps(
+            {
+                "schema_version": 3,
+                "task_key": "opaque",
+                "task_id": None,
+                "state": "insufficient",
+                "trials": [
+                    {
+                        "unit_id": "unit-1",
+                        "trial": 0,
+                        "seed": 7,
+                        "outcome": "unknown",
+                        "score": None,
+                        "termination_reason": "complete",
+                        "diagnostic_class": "other",
+                        "artifacts": [
+                            {
+                                "kind": "result",
+                                "path": "units/unit-1/result.json",
+                                "sha256": "a" * 64,
+                            },
+                            {
+                                "kind": "trace",
+                                "path": "units/unit-1/trace.jsonl",
+                                "sha256": "b" * 64,
+                            },
+                        ],
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     task = EvidenceTask(
         task_key="opaque",
         task_id=None,
@@ -493,13 +665,17 @@ def test_debugger_task_runs_as_read_only_nexau_agent(
         atomic_write_json(
             Path(kwargs["runtime_dir"]).parent / "submitted_diagnosis.json",
             {
-                "schema_version": 2,
+                "schema_version": 3,
                 "task_id": None,
                 "primary_failure_class": "none",
                 "earliest_failure": "No consequential failure is observable.",
                 "evidence": [
                     {
-                        "location": "evidence:tasks/opaque.json",
+                        "citation": {
+                            "artifact": "evidence:tasks/opaque.json",
+                            "line_start": 1,
+                            "line_end": 1,
+                        },
                         "observation": "The detail contains no comparable trials.",
                         "implication": "The diagnosis is evidence-limited.",
                     }

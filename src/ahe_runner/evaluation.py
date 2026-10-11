@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .adapter import EvaluationRequest, EvaluationResult
+from .adapter import EvaluationRequest, EvaluationResult, EvaluationTrialFact
 from .errors import IntegrityError
 from .io import read_json, sha256_file, sha256_json, tree_hashes
 
@@ -33,6 +33,7 @@ class VerifiedEvaluationUnit:
 class VerifiedEvaluation:
     request_sha256: str
     units: tuple[VerifiedEvaluationUnit, ...]
+    trial_facts: tuple[EvaluationTrialFact, ...]
 
 
 def evaluation_request_payload(request: EvaluationRequest) -> dict[str, Any]:
@@ -96,8 +97,13 @@ def verify_evaluation_output(
         trial_seeds=trial_seeds,
     )
     _verify_summary(request, result, units)
+    trial_facts = _verify_trial_facts(result, units)
     _verify_artifact_map(request.output_dir, result.artifact_hashes)
-    return VerifiedEvaluation(request_sha256=request_sha, units=tuple(units))
+    return VerifiedEvaluation(
+        request_sha256=request_sha,
+        units=tuple(units),
+        trial_facts=tuple(trial_facts),
+    )
 
 
 def _verify_units(
@@ -262,6 +268,43 @@ def _verify_summary(
         state_keys.add(state.task_key)
     if set(states_by_id) != expected_tasks:
         raise IntegrityError("evaluation task states do not cover the requested split")
+
+
+def _verify_trial_facts(
+    result: EvaluationResult,
+    units: list[VerifiedEvaluationUnit],
+) -> list[EvaluationTrialFact]:
+    units_by_id = {unit.unit_id: unit for unit in units}
+    facts_by_id: dict[str, EvaluationTrialFact] = {}
+    for fact in result.trial_facts:
+        if fact.unit_id in facts_by_id:
+            raise IntegrityError(f"duplicate evaluation trial fact: {fact.unit_id}")
+        if fact.unit_id not in units_by_id:
+            raise IntegrityError(
+                f"evaluation trial fact references an unknown unit: {fact.unit_id}"
+            )
+        facts_by_id[fact.unit_id] = fact
+    if set(facts_by_id) != set(units_by_id):
+        raise IntegrityError("evaluation trial facts do not cover every unit")
+
+    facts_by_task: dict[str, list[EvaluationTrialFact]] = {}
+    for unit_id, fact in facts_by_id.items():
+        facts_by_task.setdefault(units_by_id[unit_id].task_key, []).append(fact)
+    for state in result.summary.task_states:
+        facts = facts_by_task.get(state.task_key, [])
+        if len(facts) != state.trials:
+            raise IntegrityError("evaluation trial facts disagree with task coverage")
+        if state.successes is None:
+            continue
+        passing = sum(fact.diagnostic_class == "passing" for fact in facts)
+        classified = sum(
+            fact.diagnostic_class in {"passing", "failing"} for fact in facts
+        )
+        if passing != state.successes or classified != state.trials:
+            raise IntegrityError(
+                "evaluation diagnostic classes disagree with task successes"
+            )
+    return [facts_by_id[unit.unit_id] for unit in units]
 
 
 def _verify_artifact_map(

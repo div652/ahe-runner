@@ -27,13 +27,30 @@ input_schema:
       items:
         type: object
         properties:
-          location:
-            type: string
+          citation:
+            type: object
+            properties:
+              artifact:
+                type: string
+              line_start:
+                type: integer
+                minimum: 1
+              line_end:
+                type: integer
+                minimum: 1
+              start_byte:
+                type: integer
+                minimum: 0
+              end_byte:
+                type: integer
+                minimum: 1
+            required: [artifact]
+            additionalProperties: false
           observation:
             type: string
           implication:
             type: string
-        required: [location, observation, implication]
+        required: [citation, observation, implication]
         additionalProperties: false
     evidence_coverage:
       type: object
@@ -58,11 +75,59 @@ input_schema:
         passing_evidence:
           type: array
           items:
-            type: string
+            type: object
+            properties:
+              citation:
+                type: object
+                properties:
+                  artifact:
+                    type: string
+                  line_start:
+                    type: integer
+                    minimum: 1
+                  line_end:
+                    type: integer
+                    minimum: 1
+                  start_byte:
+                    type: integer
+                    minimum: 0
+                  end_byte:
+                    type: integer
+                    minimum: 1
+                required: [artifact]
+                additionalProperties: false
+              observation:
+                type: string
+            required: [citation, observation]
+            additionalProperties: false
         failing_evidence:
           type: array
           items:
-            type: string
+            type: object
+            properties:
+              citation:
+                type: object
+                properties:
+                  artifact:
+                    type: string
+                  line_start:
+                    type: integer
+                    minimum: 1
+                  line_end:
+                    type: integer
+                    minimum: 1
+                  start_byte:
+                    type: integer
+                    minimum: 0
+                  end_byte:
+                    type: integer
+                    minimum: 1
+                required: [artifact]
+                additionalProperties: false
+              observation:
+                type: string
+            required: [citation, observation]
+            additionalProperties: false
         earliest_divergence:
           type: string
         limitation:

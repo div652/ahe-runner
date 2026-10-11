@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import StrEnum
@@ -148,19 +149,43 @@ class MetricSummary(AdapterModel):
     resource_totals: dict[str, int | float] = Field(default_factory=dict)
 
 
+class EvaluationTrialFact(AdapterModel):
+    unit_id: str
+    outcome: str
+    score: float | None = None
+    termination_reason: str
+    diagnostic_class: Literal["passing", "failing", "other"]
+
+    @field_validator("unit_id", "outcome", "termination_reason")
+    @classmethod
+    def require_trial_text(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("evaluation trial fact fields must not be empty")
+        return normalized
+
+    @field_validator("score")
+    @classmethod
+    def require_finite_trial_score(cls, value: float | None) -> float | None:
+        if value is not None and not math.isfinite(value):
+            raise ValueError("evaluation trial fact score must be finite")
+        return value
+
+
 class EvaluationResult(AdapterModel):
-    schema_version: int = 1
+    schema_version: Literal[2] = 2
     evaluation_id: str
     request_sha256: str
     checkpoint: str
     split: SplitName
     summary: MetricSummary
+    trial_facts: list[EvaluationTrialFact]
     artifact_hashes: dict[str, str]
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class EvidenceBundle(AdapterModel):
-    schema_version: int = 2
+    schema_version: Literal[3] = 3
     checkpoint: str
     manifest_path: str
     manifest_sha256: str

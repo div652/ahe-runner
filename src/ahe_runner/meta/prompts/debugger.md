@@ -25,8 +25,10 @@ structured `submit_debugger_diagnosis` stop tool.
 - Use line ranges for normal text and byte ranges for oversized single-line
   JSON or logs. Continue from returned range metadata instead of requesting an
   unbounded file.
-- Record every artifact actually used as `root:relative/path`. The completion
-  tool rejects claimed artifacts that were not read or searched.
+- Record every artifact actually used as `root:relative/path`. Every diagnosis
+  and paired-comparison claim must include a structured citation to a nonempty
+  line range, byte range, or search hit returned by the bounded tools. The
+  completion tool rejects unread artifacts and uncovered ranges.
 - Treat `benchmark_interface` as immutable campaign context. Protected
   structured actions are runtime-injected benchmark capabilities, not harness
   files; diagnose their use without recommending changes to their names,
@@ -73,7 +75,11 @@ complete. Its arguments have this shape:
   "earliest_failure": "concise description",
   "evidence": [
     {
-      "location": "artifact field, event, or turn",
+      "citation": {
+        "artifact": "raw_evaluation:units/.../trace.jsonl",
+        "line_start": 12,
+        "line_end": 12
+      },
       "observation": "what is directly visible",
       "implication": "why it matters"
     }
@@ -90,10 +96,24 @@ complete. Its arguments have this shape:
   "paired_comparison": {
     "status": "performed or unavailable",
     "passing_evidence": [
-      "location and concise observation from a passing trial"
+      {
+        "citation": {
+          "artifact": "raw_evaluation:units/.../trace.jsonl",
+          "line_start": 8,
+          "line_end": 8
+        },
+        "observation": "concise observation from a passing trial"
+      }
     ],
     "failing_evidence": [
-      "location and concise observation from a failing trial"
+      {
+        "citation": {
+          "artifact": "raw_evaluation:units/.../trace.jsonl",
+          "start_byte": 1200,
+          "end_byte": 1450
+        },
+        "observation": "concise observation from a failing trial"
+      }
     ],
     "earliest_divergence": "first meaningful pass/fail divergence, or empty",
     "limitation": "required explanation when status is unavailable, or empty"
@@ -122,7 +142,10 @@ component-class identifiers: `system_prompt`, `tool_description`,
 
 For `paired_comparison.status=performed`, both evidence lists and
 `earliest_divergence` must be non-empty. For `status=unavailable`, `limitation`
-must be non-empty. An empty recurrent-pattern key is stored as `null`.
+must be non-empty. The tool independently knows whether verified passing and
+failing trials exist and rejects a false `unavailable` claim. A citation must
+set exactly one complete range pair: `line_start`/`line_end` or
+`start_byte`/`end_byte`. An empty recurrent-pattern key is stored as `null`.
 
 Do not end with prose or a hand-written JSON response. The stage is complete
 only when `submit_debugger_diagnosis` validates and persists the diagnosis.

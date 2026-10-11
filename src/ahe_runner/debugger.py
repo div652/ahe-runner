@@ -11,12 +11,46 @@ class DebuggerModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class DebuggerCitation(DebuggerModel):
+    artifact: str
+    line_start: int | None = Field(default=None, ge=1)
+    line_end: int | None = Field(default=None, ge=1)
+    start_byte: int | None = Field(default=None, ge=0)
+    end_byte: int | None = Field(default=None, ge=1)
+
+    @field_validator("artifact")
+    @classmethod
+    def require_artifact(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized or ":" not in normalized:
+            raise ValueError("citation artifact must use root:relative/path")
+        return normalized
+
+    @model_validator(mode="after")
+    def require_one_range(self) -> DebuggerCitation:
+        has_lines = self.line_start is not None or self.line_end is not None
+        has_bytes = self.start_byte is not None or self.end_byte is not None
+        if has_lines == has_bytes:
+            raise ValueError("citation requires exactly one line or byte range")
+        if has_lines:
+            if self.line_start is None or self.line_end is None:
+                raise ValueError("line citations require line_start and line_end")
+            if self.line_end < self.line_start:
+                raise ValueError("line_end must be greater than or equal to line_start")
+        else:
+            if self.start_byte is None or self.end_byte is None:
+                raise ValueError("byte citations require start_byte and end_byte")
+            if self.end_byte <= self.start_byte:
+                raise ValueError("end_byte must be greater than start_byte")
+        return self
+
+
 class DebuggerEvidence(DebuggerModel):
-    location: str
+    citation: DebuggerCitation
     observation: str
     implication: str
 
-    @field_validator("location", "observation", "implication")
+    @field_validator("observation", "implication")
     @classmethod
     def require_text(cls, value: str) -> str:
         normalized = value.strip()
@@ -64,23 +98,25 @@ class DebuggerEvidenceCoverage(DebuggerModel):
         return normalized
 
 
+class DebuggerPairedEvidence(DebuggerModel):
+    citation: DebuggerCitation
+    observation: str
+
+    @field_validator("observation")
+    @classmethod
+    def require_observation(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("paired evidence observation must not be empty")
+        return normalized
+
+
 class DebuggerPairedComparison(DebuggerModel):
     status: Literal["performed", "unavailable"]
-    passing_evidence: list[str] = Field(default_factory=list)
-    failing_evidence: list[str] = Field(default_factory=list)
+    passing_evidence: list[DebuggerPairedEvidence] = Field(default_factory=list)
+    failing_evidence: list[DebuggerPairedEvidence] = Field(default_factory=list)
     earliest_divergence: str
     limitation: str
-
-    @field_validator(
-        "passing_evidence",
-        "failing_evidence",
-    )
-    @classmethod
-    def normalize_evidence_lists(cls, values: list[str]) -> list[str]:
-        normalized = [value.strip() for value in values]
-        if any(not value for value in normalized):
-            raise ValueError("paired evidence entries must not be empty")
-        return normalized
 
     @model_validator(mode="after")
     def validate_status_contract(self) -> DebuggerPairedComparison:
@@ -100,7 +136,7 @@ class DebuggerPairedComparison(DebuggerModel):
 
 
 class DebuggerDiagnosis(DebuggerModel):
-    schema_version: Literal[2] = 2
+    schema_version: Literal[3] = 3
     task_id: str | None
     primary_failure_class: Literal[
         "reasoning",

@@ -139,6 +139,7 @@ def test_runtime_example_uses_public_session_and_protected_action_api(
     result = adapter.evaluate(request, runtime)  # type: ignore[arg-type]
     assert result.summary.primary.value == 1.0
     assert result.summary.rollout_count == 2
+    assert {fact.diagnostic_class for fact in result.trial_facts} == {"passing"}
     assert result.summary.resource_totals["model_activations"] == 3
     assert all(session.closed for session in runtime.sessions)
     protected = next(
@@ -178,5 +179,5 @@ def test_runtime_example_uses_public_session_and_protected_action_api(
         json.loads(
             (evidence_dir / "evidence_manifest.json").read_text(encoding="utf-8")
         )["schema_version"]
-        == 2
+        == 3
     )

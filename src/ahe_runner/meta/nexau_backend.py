@@ -19,7 +19,11 @@ from nexau.archs.main_sub.config import AgentConfig
 
 from ahe_runner.debugger import validate_debugger_diagnosis
 from ahe_runner.errors import ConfigurationError, IntegrityError
-from ahe_runner.evidence import EvidenceTask, load_evidence_manifest
+from ahe_runner.evidence import (
+    EvidenceTask,
+    load_evidence_manifest,
+    load_task_detail,
+)
 from ahe_runner.harness import validate_harness
 from ahe_runner.io import (
     atomic_write_json,
@@ -484,7 +488,7 @@ class NexAUMetaBackend(MetaBackend):
             self.context.config.campaign_dir / "evaluations" / f"{checkpoint}-train"
         )
         request_payload = {
-            "schema_version": 2,
+            "schema_version": 3,
             "checkpoint": checkpoint,
             "task": task.model_dump(mode="json"),
             "read_roots": {
@@ -514,6 +518,17 @@ class NexAUMetaBackend(MetaBackend):
         diagnosis_path = task_dir / "submitted_diagnosis.json"
         if diagnosis_path.exists():
             diagnosis_path.unlink()
+        task_detail = load_task_detail(evidence_dir, task)
+        trial_classes = [
+            str(trial["diagnostic_class"]) for trial in task_detail["trials"]
+        ]
+        artifact_classes = {
+            f"raw_evaluation:{artifact['path']}": str(
+                trial["diagnostic_class"]
+            )
+            for trial in task_detail["trials"]
+            for artifact in trial["artifacts"]
+        }
         context = {
             "meta_role": "debugger",
             "debugger_task": {
@@ -522,6 +537,8 @@ class NexAUMetaBackend(MetaBackend):
             },
             "debugger_task_key": task.task_key,
             "debugger_primary_artifact": f"evidence:{task.detail_path}",
+            "debugger_trial_classes": trial_classes,
+            "debugger_artifact_classes": artifact_classes,
             "meta_output_dir": str(task_dir),
             "meta_read_roots": {
                 "evidence": str(evidence_dir),
@@ -534,6 +551,7 @@ class NexAUMetaBackend(MetaBackend):
             f"Task key: {task.task_key}\n"
             f"Task state: {task.state}\n"
             f"Primary detail: evidence/{task.detail_path}\n"
+            f"Verified trial diagnostic classes: {trial_classes}\n"
             'Available read roots: ["evidence", "raw_evaluation"]\n\n'
             "Benchmark-family diagnostic context:\n"
             + json.dumps(
@@ -578,7 +596,7 @@ class NexAUMetaBackend(MetaBackend):
             expected_task_id=task.task_id,
         ).model_dump(mode="json")
         result = {
-            "schema_version": 2,
+            "schema_version": 3,
             "task_key": task_key,
             "request_sha256": request_hash,
             "diagnosis": diagnosis,

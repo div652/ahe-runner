@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -60,6 +60,7 @@ class EvidenceTrial(EvidenceModel):
     outcome: str
     score: float | None = None
     termination_reason: str
+    diagnostic_class: Literal["passing", "failing", "other"]
     artifacts: list[EvidenceArtifact] = Field(min_length=2)
 
     @field_validator("unit_id", "outcome", "termination_reason")
@@ -130,7 +131,7 @@ def verify_evidence_bundle(
         manifest = EvidenceManifest.model_validate(value)
     except ValidationError as exc:
         raise IntegrityError(f"invalid evidence manifest: {exc}") from exc
-    if bundle.schema_version != 2 or manifest.schema_version != 2:
+    if bundle.schema_version != 3 or manifest.schema_version != 3:
         raise IntegrityError("unsupported evidence schema")
     if manifest.checkpoint != expected_checkpoint:
         raise IntegrityError("evidence checkpoint identity mismatch")
@@ -166,6 +167,9 @@ def verify_evidence_bundle(
     if set(source_states) != {task.task_key for task in manifest.tasks}:
         raise IntegrityError("evidence tasks do not cover the source evaluation")
     units = {(unit.task_key, unit.trial): unit for unit in verified_evaluation.units}
+    trial_facts = {
+        fact.unit_id: fact for fact in verified_evaluation.trial_facts
+    }
     seen: set[str] = set()
     for task in manifest.tasks:
         if task.task_key in seen:
@@ -184,7 +188,7 @@ def verify_evidence_bundle(
             raise IntegrityError(
                 f"invalid evidence task detail {task.task_key}: {exc}"
             ) from exc
-        if detail_value.schema_version != 2:
+        if detail_value.schema_version != 3:
             raise IntegrityError("unsupported evidence task detail schema")
         state = source_states[task.task_key]
         expected_task_id = state.task_id if manifest.true_task_ids_exposed else None
@@ -209,6 +213,17 @@ def verify_evidence_bundle(
             if unit is None or trial.unit_id != unit.unit_id or trial.seed != unit.seed:
                 raise IntegrityError(
                     f"evidence trial lineage mismatch: {task.task_key}/{trial.trial}"
+                )
+            fact = trial_facts[unit.unit_id]
+            if (
+                trial.outcome != fact.outcome
+                or trial.score != fact.score
+                or trial.termination_reason != fact.termination_reason
+                or trial.diagnostic_class != fact.diagnostic_class
+            ):
+                raise IntegrityError(
+                    f"evidence trial semantics mismatch: "
+                    f"{task.task_key}/{trial.trial}"
                 )
             declared_artifacts: dict[tuple[str, str], str] = {}
             for artifact in trial.artifacts:

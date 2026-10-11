@@ -14,6 +14,7 @@ from ahe_runner.adapter import (
     CandidateValidationRequest,
     EvaluationRequest,
     EvaluationResult,
+    EvaluationTrialFact,
     EvidenceBundle,
     EvidenceRequest,
     MetaPromptContext,
@@ -164,6 +165,7 @@ class ExampleAdapter(BenchmarkAdapterV2):
             checkpoint=request.checkpoint,
             split=request.split.name,
             summary=summary,
+            trial_facts=_trial_facts(request.output_dir),
             artifact_hashes=_evaluation_artifact_hashes(request.output_dir),
         )
         store.finalize(payload.model_dump(mode="json"))
@@ -185,6 +187,7 @@ class ExampleAdapter(BenchmarkAdapterV2):
             checkpoint=evaluation.checkpoint,
             split=evaluation.split.name,
             summary=_summarize_output(evaluation.output_dir),
+            trial_facts=_trial_facts(evaluation.output_dir),
             artifact_hashes=_evaluation_artifact_hashes(evaluation.output_dir),
         )
 
@@ -215,6 +218,9 @@ class ExampleAdapter(BenchmarkAdapterV2):
                         "outcome": "pass" if result["reward"] else "fail",
                         "score": result["reward"],
                         "termination_reason": result["termination_reason"],
+                        "diagnostic_class": (
+                            "passing" if result["reward"] else "failing"
+                        ),
                         "artifacts": [
                             {
                                 "kind": "result",
@@ -236,7 +242,7 @@ class ExampleAdapter(BenchmarkAdapterV2):
                 )
             source_units.sort(key=lambda row: int(row["trial"]))
             detail = {
-                "schema_version": 2,
+                "schema_version": 3,
                 "task_key": state.task_key,
                 "task_id": state.task_id,
                 "state": state.state,
@@ -256,7 +262,7 @@ class ExampleAdapter(BenchmarkAdapterV2):
             )
         source_result = request.evaluation_dir / "adapter_result.json"
         manifest = {
-            "schema_version": 2,
+            "schema_version": 3,
             "checkpoint": request.checkpoint,
             "supervision_policy": "dense",
             "true_task_ids_exposed": True,
@@ -383,6 +389,25 @@ def _summarize_output(output_dir: Path) -> MetricSummary:
         task_states=states,
         resource_totals={"calls": total_rollouts},
     )
+
+
+def _trial_facts(output_dir: Path) -> list[EvaluationTrialFact]:
+    facts: list[EvaluationTrialFact] = []
+    for unit_dir in sorted((output_dir / "units").iterdir()):
+        unit = read_json(unit_dir / "unit.json")
+        completion = read_json(unit_dir / "complete.json")
+        result = read_json(Path(completion["result_path"]))
+        reward = float(result["reward"])
+        facts.append(
+            EvaluationTrialFact(
+                unit_id=str(unit["unit_id"]),
+                outcome="pass" if reward else "fail",
+                score=reward,
+                termination_reason=str(result["termination_reason"]),
+                diagnostic_class="passing" if reward else "failing",
+            )
+        )
+    return facts
 
 
 def _evaluation_artifact_hashes(output_dir: Path) -> dict[str, str]:

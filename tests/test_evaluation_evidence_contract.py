@@ -58,6 +58,10 @@ def test_evaluation_contract_rejects_foreign_identity_and_artifacts(
     with pytest.raises(IntegrityError, match="artifact coverage/hash mismatch"):
         verify_evaluation_output(request, missing_artifact)
 
+    missing_fact = result.model_copy(update={"trial_facts": result.trial_facts[1:]})
+    with pytest.raises(IntegrityError, match="trial facts do not cover every unit"):
+        verify_evaluation_output(request, missing_fact)
+
     first_unit = next((request.output_dir / "units").iterdir())
     shutil.rmtree(first_unit)
     with pytest.raises(IntegrityError, match="unit coverage mismatch"):
@@ -188,3 +192,47 @@ def test_evidence_contract_allows_sanitized_task_ids(tmp_path: Path) -> None:
         source_evaluation=result,
         source_request=request,
     )
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("outcome", "contradictory-outcome"),
+        ("score", -7.0),
+        ("termination_reason", "contradictory-termination"),
+        ("diagnostic_class", "other"),
+    ],
+)
+def test_evidence_contract_rejects_contradictory_trial_semantics(
+    tmp_path: Path,
+    field: str,
+    replacement: object,
+) -> None:
+    controller = CampaignController(
+        load_config(make_example_project(tmp_path, rounds=0))
+    )
+    controller.prepare()
+    result = controller._ensure_training_evaluation(0)
+    evidence_dir = controller._ensure_evidence(0)
+    request = controller._evaluation_request(0, SplitName.TRAIN)
+    corrupted = tmp_path / f"semantic-{field}"
+    shutil.copytree(evidence_dir, corrupted)
+    manifest_path = corrupted / "evidence_manifest.json"
+    manifest = read_json(manifest_path)
+    task = manifest["tasks"][0]
+    detail_path = corrupted / task["detail_path"]
+    detail = read_json(detail_path)
+    detail["trials"][0][field] = replacement
+    atomic_write_json(detail_path, detail)
+    task["detail_sha256"] = sha256_file(detail_path)
+    atomic_write_json(manifest_path, manifest)
+
+    with pytest.raises(IntegrityError, match="trial semantics mismatch"):
+        verify_evidence_bundle(
+            _bundle(corrupted),
+            evidence_dir=corrupted,
+            expected_checkpoint="C0",
+            evaluation_dir=request.output_dir,
+            source_evaluation=result,
+            source_request=request,
+        )
