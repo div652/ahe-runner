@@ -47,13 +47,15 @@ round.
 The Source Explore Agent can read:
 
 - installed NexAU source;
-- the benchmark adapter implementation;
+- only operator-declared public adapter documentation/source roots;
 - the immutable seed harness;
 - the harness manifest;
 - the packaged AHE method reference.
 
-The Web Explore Agent uses benchmark-safe context and public research tools
-with configured leakage-term guards.
+The Web Explore Agent uses the resolved benchmark-family context, explicit
+research seed URLs, public research tools, and configured leakage-term guards.
+Source, Web, Debugger, and Evolve each receive an optional hashed append-only
+domain supplement after the protected core prompt.
 
 Each agent must write and validate a substantial `SKILL.md` with YAML
 frontmatter. The runner then removes write permission and records file/tree
@@ -66,18 +68,21 @@ and skipped when only the other explorer needs to resume.
 
 ## Debugger lifecycle
 
-The Debugger operates only on adapter-materialized training evidence. Each task
-has a stable hash-derived directory containing:
+The Debugger is a bounded read-only NexAU investigator operating only on
+adapter-materialized training evidence. Each task has a stable hash-derived
+directory containing:
 
 - the exact request and request hash;
 - all recorded model calls;
 - the validated structured diagnosis;
 - the raw final response.
 
-The output contract identifies the earliest failure, direct evidence, root
-cause, recurrent-pattern key, confidence, falsifier, and bounded
-component-level recommendations. Invalid JSON receives at most two explicit
-correction turns; transport calls themselves have no hidden retries.
+It can list, search, and read ranged portions of authorized task detail and raw
+training artifacts. The output contract identifies evidence coverage, paired
+pass/fail analysis when available, earliest failure, root cause,
+recurrent-pattern key, confidence, falsifier, and bounded component-level
+recommendations. A failed diagnosis submission returns NexAU's repairable
+error shape; transport calls themselves have no hidden retries.
 
 Task results resume independently. A result is reused only when its internal
 request hash matches the current prompt, evidence, model settings, checkpoint,
@@ -94,16 +99,18 @@ Evolve receives:
 - both native Explore skills;
 - the current workspace and parent checkpoint;
 - archived evidence from an interrupted prior attempt;
-- installed framework and adapter source;
+- installed framework source and operator-declared public adapter roots;
 - the method reference.
 
 Only the Git workspace is writable. Validation/test artifacts are never
 mounted.
 
-The full system prompt requires evidence synthesis, one coherent intervention,
-early durable Git progress, final candidate validation, an accurate committed
-`change_manifest.json`, a clean workspace, and explicit completion through the
-stop tool.
+The full system prompt requires evidence synthesis, explicit `KEEP`,
+`IMPROVE`, or `ROLLBACK + PIVOT` decisions, one coherent intervention, early
+durable Git progress, final candidate validation, an accurate per-change
+committed `change_manifest.json`, a clean workspace, and explicit completion
+through the stop tool. Evolve can inspect immutable checkpoint history and
+selectively restore authorized component paths.
 
 If an attempt loses the endpoint or times out, the controller archives dirty
 state and call evidence. The next attempt starts from the prior attempt's last
@@ -121,6 +128,11 @@ Path traversal and unknown roots are rejected. The tool surface provides:
 - generic candidate validation;
 - leakage-guarded public web search/read;
 - role-specific completion validation.
+
+File-tool roots are an access boundary for runner-owned tools, not a kernel
+sandbox for imported Python. Candidate components and adapter code execute in
+the trusted host process unless the operator adds process/container/VM
+isolation.
 
 The Evolve progress gate counts research after mutations and directs the agent
 to commit coherent work before continuing indefinitely. It does not treat a
@@ -149,3 +161,8 @@ Each meta-agent runtime preserves:
 
 These artifacts support exact recovery and post-run diagnosis without turning
 partial output into a successful checkpoint.
+
+The campaign manifest additionally freezes the complete runner package,
+protected prompts/tools/method reference, resolved benchmark context, role
+supplements, research seeds, public source roots, and declared adapter
+dependencies. Resume fails if any protected input changes.
