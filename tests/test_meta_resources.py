@@ -448,7 +448,7 @@ def test_debugger_submission_requires_read_evidence_and_paired_analysis(
     diagnosis = json.loads(
         (output / "submitted_diagnosis.json").read_text(encoding="utf-8")
     )
-    assert diagnosis["schema_version"] == 2
+    assert diagnosis["schema_version"] == 3
     assert diagnosis["paired_comparison"]["status"] == "performed"
 
     rejected = tools.submit_debugger_diagnosis(
