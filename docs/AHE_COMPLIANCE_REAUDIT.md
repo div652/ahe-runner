@@ -1,9 +1,13 @@
 # AHE Compliance Follow-Up Audit
 
-> **Latest check:** Release `0.3.0` at `25f8c09` closes the major failures
-> described below, but two narrower F05/F06 cases and a version-label mismatch
-> remain. See [Release 0.3.0 closure check](#release-030-closure-check).
-> The original assessment below still refers to `5380f65`.
+> **Repair closure:** Implementation commit `fe9c03e` closes the two retained
+> F05/F06 boundary cases and the release-version mismatch described in the
+> [Release 0.3.0 closure check](#release-030-closure-check). Focused
+> regressions, the 63-test suite, static checks, and a clean-wheel campaign
+> passed. See
+> [`F05_F06_VERSION_REPAIR.md`](F05_F06_VERSION_REPAIR.md). The original
+> assessment below still refers to `5380f65`, and the closure check preserves
+> the pre-fix reproductions.
 
 **Audited implementation:** `5380f65058a970e8e8ecfca00bf1f0a7045becea`.
 

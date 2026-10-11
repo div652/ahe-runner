@@ -89,3 +89,38 @@ After this implementation and its tests are committed:
 4. install the wheel into a clean environment;
 5. verify wheel metadata, packaged runtime version, and a fresh campaign
    manifest all report `0.3.0`.
+
+## Validation result
+
+Validated from implementation commit `fe9c03e`:
+
+```text
+Focused F05/F06/version regressions: 6 passed in 5.68s
+Complete suite:                       63 passed in 83.56s
+Ruff:                                 all checks passed
+Format:                               100 files already formatted
+Compileall:                           exit 0
+```
+
+Release artifacts:
+
+```text
+ahe_runner-0.3.0-py3-none-any.whl
+sha256: 3fa5ea8d924f5f7aa1e39bc127c3aa9f6b87039c11d47a6df1559d6bf2149b1b
+
+ahe_runner-0.3.0.tar.gz
+sha256: 6ab493bba29f33993aa96583df974accff7a22f98bc16dc81c35524cb06c7d9b
+```
+
+The wheel was installed into a new Python 3.14.7 environment. A zero-round
+scripted campaign created from the installed CLI recorded:
+
+```json
+{
+  "campaign_runner_version": "0.3.0",
+  "runtime_version": "0.3.0",
+  "wheel_metadata": "0.3.0"
+}
+```
+
+No live model endpoint was contacted.

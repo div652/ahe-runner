@@ -1,9 +1,11 @@
 # AHE Follow-Up: Plain-Language Summary
 
-> **Latest independent check:** `0.3.0` at `25f8c09` fixes the major failures.
-> Two smaller edge cases and a release-version mismatch remain; see
-> [Current 0.3.0 verdict](#current-030-verdict). The earlier assessment below is
-> preserved as history.
+> **Repair closure:** Commit `fe9c03e` fixes the two smaller citation/import
+> edge cases and the release-version mismatch retained by the independent
+> `25f8c09` check. Focused regressions, all 63 tests, static checks, and a
+> clean-wheel campaign passed. See
+> [`F05_F06_VERSION_REPAIR.md`](F05_F06_VERSION_REPAIR.md). The earlier
+> assessment below is preserved as history.
 
 > **Repair status:** This document is the historical summary of the audit of
 > `5380f65`. Findings F01-F07 and the bundled-Debugger historical correction

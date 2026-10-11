@@ -1,5 +1,37 @@
 # Validation Results
 
+## F05, F06, and version closure
+
+Validated from implementation commit
+`fe9c03e` after the release 0.3.0 closure audit:
+
+```text
+Focused citation/import/version regressions: 6 passed in 5.68s
+Complete suite:                              63 passed in 83.56s
+ruff check .:                                all checks passed
+ruff format --check .:                       100 files already formatted
+python -m compileall -q src tests run_ahe.py: exit 0
+```
+
+Clean release artifacts:
+
+```text
+ahe_runner-0.3.0-py3-none-any.whl
+sha256: 3fa5ea8d924f5f7aa1e39bc127c3aa9f6b87039c11d47a6df1559d6bf2149b1b
+
+ahe_runner-0.3.0.tar.gz
+sha256: 6ab493bba29f33993aa96583df974accff7a22f98bc16dc81c35524cb06c7d9b
+```
+
+The wheel was installed into a clean Python 3.14.7 environment. A fresh
+zero-round scripted campaign confirmed that wheel metadata,
+`ahe_runner.__version__`, and `campaign_manifest.json` all report `0.3.0`.
+The exact procedure and repaired contracts are recorded in
+[`F05_F06_VERSION_REPAIR.md`](F05_F06_VERSION_REPAIR.md). No live model
+endpoint was contacted.
+
+## Earlier 0.3.0 validation
+
 Validated at `2026-10-11T19:08:29Z`.
 
 ## Source identity
