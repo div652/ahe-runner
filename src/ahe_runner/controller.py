@@ -13,12 +13,16 @@ from typing import Any
 from . import __version__
 from .adapter import (
     BenchmarkAdapter,
+    BenchmarkAdapterBase,
+    BenchmarkAdapterV2,
     CandidateValidationRequest,
     EvaluationRequest,
     EvaluationResult,
     EvidenceRequest,
     SplitName,
     VerificationRequest,
+    adapter_api_generation,
+    benchmark_interface_for,
 )
 from .config import ResolvedConfig
 from .errors import CandidateValidationError, ConfigurationError, IntegrityError
@@ -34,6 +38,7 @@ from .io import (
 )
 from .loading import load_adapter
 from .meta import MetaBackendContext, create_meta_backend
+from .runtime import EvaluatedAgentRuntime
 from .state import StageContext, StageResult, StageStore
 from .workspace import (
     freeze_checkpoint,
@@ -47,7 +52,8 @@ from .workspace import (
 class CampaignController:
     def __init__(self, config: ResolvedConfig) -> None:
         self.config = config
-        self.adapter: BenchmarkAdapter = load_adapter(config)
+        self.adapter: BenchmarkAdapterBase = load_adapter(config)
+        self.benchmark_interface = benchmark_interface_for(self.adapter)
         self.harness_manifest: HarnessManifest = load_harness_manifest(
             config.harness_manifest_path
         )
@@ -67,6 +73,7 @@ class CampaignController:
             MetaBackendContext(
                 config=config,
                 prompt_context=self.adapter.meta_prompt_context(),
+                benchmark_interface=self.benchmark_interface,
                 harness_manifest=self.harness_manifest,
                 method_reference=method_reference,
             )
@@ -82,6 +89,8 @@ class CampaignController:
         return {
             "config": self.config.immutable_snapshot(),
             "adapter": self.adapter.identity().model_dump(mode="json"),
+            "adapter_api_generation": adapter_api_generation(self.adapter),
+            "benchmark_interface": self.benchmark_interface.model_dump(mode="json"),
             "splits": {
                 name.value: {
                     "identity": split.identity,
@@ -326,7 +335,26 @@ class CampaignController:
 
         def action(context: StageContext) -> StageResult:
             del context
-            result = self.adapter.evaluate(request)
+            if isinstance(self.adapter, BenchmarkAdapterV2):
+                runtime = EvaluatedAgentRuntime(
+                    harness_dir=request.harness_dir,
+                    manifest=self.harness_manifest,
+                    benchmark_interface=self.benchmark_interface,
+                    model=request.model,
+                    transport=request.transport,
+                    api_key=request.api_key,
+                    artifact_root=output_dir / "runtime",
+                )
+                try:
+                    result = self.adapter.evaluate(request, runtime)
+                finally:
+                    runtime.close()
+            elif isinstance(self.adapter, BenchmarkAdapter):
+                result = self.adapter.evaluate(request)
+            else:
+                raise TypeError(
+                    f"unsupported adapter generation: {type(self.adapter).__name__}"
+                )
             verified = self.adapter.verify_evaluation(
                 VerificationRequest(evaluation=request)
             )
@@ -355,6 +383,10 @@ class CampaignController:
                 ),
                 "transport": self.config.document.transport.model_dump(mode="json"),
                 "adapter": self.adapter.identity().model_dump(mode="json"),
+                "adapter_api_generation": adapter_api_generation(self.adapter),
+                "benchmark_interface": self.benchmark_interface.model_dump(
+                    mode="json"
+                ),
             },
             action=action,
         )
@@ -755,6 +787,8 @@ class CampaignController:
             "harness_manifest_sha256": sha256_file(self.config.harness_manifest_path),
             "base_harness_sha256": sha256_json(tree_hashes(self.config.harness_dir)),
             "adapter": self.adapter.identity().model_dump(mode="json"),
+            "adapter_api_generation": adapter_api_generation(self.adapter),
+            "benchmark_interface": self.benchmark_interface.model_dump(mode="json"),
             "adapter_source": {
                 "path": adapter_source,
                 "sha256": sha256_file(Path(adapter_source)) if adapter_source else None,

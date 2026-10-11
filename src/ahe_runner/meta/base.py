@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ahe_runner.adapter import MetaPromptContext
+from ahe_runner.adapter import BenchmarkInterface, MetaPromptContext
 from ahe_runner.config import ResolvedConfig
 from ahe_runner.harness import HarnessManifest
 
@@ -16,6 +16,7 @@ from ahe_runner.harness import HarnessManifest
 class MetaBackendContext:
     config: ResolvedConfig
     prompt_context: MetaPromptContext
+    benchmark_interface: BenchmarkInterface
     harness_manifest: HarnessManifest
     method_reference: Path
 

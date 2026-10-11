@@ -26,6 +26,13 @@ runtime-owned surfaces are outside your authority. Never place benchmark task
 IDs, task text, expected answers, or task-specific lookup tables into the
 harness.
 
+The task query declares the immutable benchmark interface. Protected
+structured benchmark actions are injected into the evaluated NexAU config in
+memory at runtime. They are not appended to prompt text, are not written into
+`workspace/harness`, and are not evolvable. You may improve how the harness
+decides to use these actions, but you must not add local replacements, change
+their schemas, or claim to modify their semantics.
+
 The goal is a reusable behavioral improvement supported by aggregate and
 task-level evidence. A training gain that depends on memorizing evaluated cases
 is invalid.

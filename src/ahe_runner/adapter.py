@@ -1,4 +1,4 @@
-"""Typed benchmark-adapter boundary."""
+"""Typed benchmark-adapter boundaries."""
 
 from __future__ import annotations
 
@@ -6,11 +6,14 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .config import ModelSettings, TransportSettings
+
+if TYPE_CHECKING:
+    from .runtime import EvaluatedAgentRuntime
 
 
 class AdapterModel(BaseModel):
@@ -31,6 +34,75 @@ class AdapterIdentity(AdapterModel):
     protocol_description: str
     native_metric_description: str
     supervision_policy: str
+
+
+class BenchmarkToolSpec(AdapterModel):
+    """Protected structured action exposed by the benchmark at runtime."""
+
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        if not value or len(value) > 64:
+            raise ValueError("tool name must contain between 1 and 64 characters")
+        if not all(character.isalnum() or character in "_-" for character in value):
+            raise ValueError(
+                "tool name may contain only letters, numbers, underscores, and hyphens"
+            )
+        return value
+
+    @field_validator("input_schema")
+    @classmethod
+    def validate_input_schema(cls, value: dict[str, Any]) -> dict[str, Any]:
+        if value.get("type") != "object":
+            raise ValueError("benchmark tool input_schema.type must be 'object'")
+        properties = value.get("properties")
+        if properties is not None and not isinstance(properties, dict):
+            raise ValueError("benchmark tool input_schema.properties must be an object")
+        return value
+
+
+class BenchmarkInterface(AdapterModel):
+    """Immutable benchmark inputs and protected action surface."""
+
+    description: str
+    input_kinds: tuple[
+        Literal["prompt", "data", "repository", "environment", "legacy"],
+        ...,
+    ] = ("prompt",)
+    tool_delivery: Literal["none", "prompt", "structured", "legacy"] = "none"
+    protected_tools: tuple[BenchmarkToolSpec, ...] = ()
+    notes: tuple[str, ...] = ()
+
+    @field_validator("input_kinds")
+    @classmethod
+    def validate_input_kinds(
+        cls,
+        value: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        if not value:
+            raise ValueError("input_kinds must contain at least one input kind")
+        if len(value) != len(set(value)):
+            raise ValueError("input_kinds must not contain duplicates")
+        return value
+
+    @model_validator(mode="after")
+    def validate_tool_delivery(self) -> BenchmarkInterface:
+        names = [tool.name for tool in self.protected_tools]
+        if len(names) != len(set(names)):
+            raise ValueError("protected benchmark tool names must be unique")
+        if self.tool_delivery == "structured" and not self.protected_tools:
+            raise ValueError(
+                "structured tool delivery requires at least one protected tool"
+            )
+        if self.tool_delivery != "structured" and self.protected_tools:
+            raise ValueError(
+                "protected_tools are valid only when tool_delivery is 'structured'"
+            )
+        return self
 
 
 class SplitDefinition(AdapterModel):
@@ -145,8 +217,8 @@ class CandidateValidationRequest:
     training_task_ids: tuple[str, ...]
 
 
-class BenchmarkAdapter(ABC):
-    """Protected benchmark integration implemented by the operator."""
+class BenchmarkAdapterBase(ABC):
+    """Shared protected benchmark integration implemented by the operator."""
 
     def __init__(
         self,
@@ -164,10 +236,6 @@ class BenchmarkAdapter(ABC):
     @abstractmethod
     def split(self, name: SplitName) -> SplitDefinition:
         """Return one immutable split definition."""
-
-    @abstractmethod
-    def evaluate(self, request: EvaluationRequest) -> EvaluationResult:
-        """Run or resume one protected benchmark evaluation."""
 
     @abstractmethod
     def verify_evaluation(
@@ -205,3 +273,51 @@ class BenchmarkAdapter(ABC):
     @abstractmethod
     def meta_prompt_context(self) -> MetaPromptContext:
         """Describe benchmark-specific translation for the meta-agents."""
+
+
+class BenchmarkAdapter(BenchmarkAdapterBase):
+    """Legacy V1 adapter that constructs the evaluated agent itself."""
+
+    @abstractmethod
+    def evaluate(self, request: EvaluationRequest) -> EvaluationResult:
+        """Run or resume one protected benchmark evaluation."""
+
+
+class BenchmarkAdapterV2(BenchmarkAdapterBase):
+    """V2 adapter that evaluates through the runner-owned NexAU runtime."""
+
+    @abstractmethod
+    def benchmark_interface(self) -> BenchmarkInterface:
+        """Declare immutable benchmark inputs and protected runtime actions."""
+
+    @abstractmethod
+    def evaluate(
+        self,
+        request: EvaluationRequest,
+        runtime: EvaluatedAgentRuntime,
+    ) -> EvaluationResult:
+        """Run or resume one evaluation using the supplied NexAU runtime."""
+
+
+def benchmark_interface_for(adapter: BenchmarkAdapterBase) -> BenchmarkInterface:
+    """Return the immutable interface declaration for any adapter generation."""
+
+    if isinstance(adapter, BenchmarkAdapterV2):
+        return adapter.benchmark_interface()
+    return BenchmarkInterface(
+        description=(
+            "Legacy V1 adapter owns evaluated-agent construction and its benchmark "
+            "interaction surface."
+        ),
+        input_kinds=("legacy",),
+        tool_delivery="legacy",
+        notes=(
+            "Migrate to BenchmarkAdapterV2 to expose a runner-owned NexAU runtime.",
+        ),
+    )
+
+
+def adapter_api_generation(adapter: BenchmarkAdapterBase) -> Literal["v1", "v2"]:
+    if isinstance(adapter, BenchmarkAdapterV2):
+        return "v2"
+    return "v1"

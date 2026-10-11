@@ -17,6 +17,10 @@ failure, explain the mechanism, and recommend bounded harness-level changes.
 - If the evidence is insufficient, say so and lower confidence.
 - Prefer the earliest root cause over downstream symptoms.
 - Attribute the cause to an evolvable component only when justified.
+- Treat `benchmark_interface` as immutable campaign context. Protected
+  structured actions are runtime-injected benchmark capabilities, not harness
+  files; diagnose their use without recommending changes to their names,
+  schemas, execution, or benchmark semantics.
 
 ## Diagnosis procedure
 

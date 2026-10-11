@@ -290,6 +290,9 @@ class NexAUMetaBackend(MetaBackend):
             evidence=evidence.model_dump(mode="json"),
             roots=sorted(read_roots),
             recovery_present=(recovery_dir is not None and any(recovery_dir.iterdir())),
+            benchmark_interface=self.context.benchmark_interface.model_dump(
+                mode="json"
+            ),
         )
         final_response = self._run_agent(
             name="AHE-Evolve",
@@ -389,6 +392,9 @@ class NexAUMetaBackend(MetaBackend):
             kind=kind,
             roots=sorted(read_roots),
             benchmark_context=self.context.prompt_context.model_dump(mode="json"),
+            benchmark_interface=self.context.benchmark_interface.model_dump(
+                mode="json"
+            ),
         )
         self._run_agent(
             name="AHE-Source-Explore" if kind == "source" else "AHE-Web-Explore",
@@ -435,6 +441,9 @@ class NexAUMetaBackend(MetaBackend):
             "task": task.model_dump(mode="json"),
             "detail": detail,
             "benchmark_context": self.context.prompt_context.model_dump(mode="json"),
+            "benchmark_interface": self.context.benchmark_interface.model_dump(
+                mode="json"
+            ),
             "model": self.context.config.document.models.meta.model_dump(mode="json"),
             "system_prompt_sha256": sha256_file(
                 _resource_path("meta", "prompts", "debugger.md")
@@ -868,6 +877,7 @@ def _explorer_query(
     kind: str,
     roots: list[str],
     benchmark_context: dict[str, Any],
+    benchmark_interface: dict[str, Any],
 ) -> str:
     deliverable = (
         "knowledge/source-exploration/SKILL.md"
@@ -880,6 +890,8 @@ def _explorer_query(
         "Writable root: knowledge\n"
         "Benchmark-family context (not task answers):\n"
         f"{json.dumps(benchmark_context, sort_keys=True, indent=2)}\n\n"
+        "Immutable benchmark interface and protected runtime actions:\n"
+        f"{json.dumps(benchmark_interface, sort_keys=True, indent=2)}\n\n"
         "Follow the system prompt's investigation and deliverable contract. "
         "Call complete_task only after the SKILL.md is complete."
     )
@@ -891,6 +903,7 @@ def _evolve_query(
     evidence: dict[str, Any],
     roots: list[str],
     recovery_present: bool,
+    benchmark_interface: dict[str, Any],
 ) -> str:
     return (
         f"Execute evolution round {round_label}.\n\n"
@@ -899,6 +912,8 @@ def _evolve_query(
         f"Recovery evidence present: {str(recovery_present).lower()}\n"
         "Current training evidence manifest:\n"
         f"{json.dumps(evidence, sort_keys=True, indent=2)}\n\n"
+        "Immutable benchmark interface and protected runtime actions:\n"
+        f"{json.dumps(benchmark_interface, sort_keys=True, indent=2)}\n\n"
         "Load both Explore skills, synthesize the complete evidence set, "
         "implement one coherent reusable improvement, commit it, validate it, "
         "commit change_manifest.json, validate again, and call complete_task."

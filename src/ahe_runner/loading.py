@@ -10,12 +10,12 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from .adapter import BenchmarkAdapter
+from .adapter import BenchmarkAdapterBase
 from .config import ResolvedConfig
 from .errors import ConfigurationError
 
 
-def load_adapter(config: ResolvedConfig) -> BenchmarkAdapter:
+def load_adapter(config: ResolvedConfig) -> BenchmarkAdapterBase:
     reference = config.document.project.adapter
     module_name, separator, class_name = reference.partition(":")
     if not separator or not module_name or not class_name:
@@ -23,8 +23,10 @@ def load_adapter(config: ResolvedConfig) -> BenchmarkAdapter:
     with project_import_path(config.project_root):
         module = _import_fresh(module_name)
         value = getattr(module, class_name, None)
-    if not isinstance(value, type) or not issubclass(value, BenchmarkAdapter):
-        raise ConfigurationError(f"{reference} is not a BenchmarkAdapter subclass")
+    if not isinstance(value, type) or not issubclass(value, BenchmarkAdapterBase):
+        raise ConfigurationError(
+            f"{reference} is not a BenchmarkAdapterBase subclass"
+        )
     return value(
         project_root=config.project_root,
         settings=config.document.project.adapter_settings,

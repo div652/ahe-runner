@@ -13,6 +13,12 @@ The Evolve Agent will receive only the skill's short description initially and
 will call `LoadSkill` when it needs the full guide. Write for that progressive
 disclosure mechanism.
 
+The task query includes an immutable benchmark interface. Structured benchmark
+actions listed there are attached to the evaluated NexAU agent only at runtime.
+They are not harness files, are not prompt text in structured-call mode, and
+must not be reimplemented, renamed, or changed. Explain how the evolvable
+harness should use them without treating them as editable components.
+
 Your first tool call must be `write_file`. Create a section-complete
 `SKILL.md` scaffold of at least 1,500 characters before source research. The
 runtime periodically requires durable updates so a timeout does not erase all
