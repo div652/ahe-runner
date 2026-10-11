@@ -1,5 +1,10 @@
 # AHE Follow-Up: Plain-Language Summary
 
+> **Latest independent check:** `0.3.0` at `25f8c09` fixes the major failures.
+> Two smaller edge cases and a release-version mismatch remain; see
+> [Current 0.3.0 verdict](#current-030-verdict). The earlier assessment below is
+> preserved as history.
+
 > **Repair status:** This document is the historical summary of the audit of
 > `5380f65`. Findings F01-F07 and the bundled-Debugger historical correction
 > were accepted and repaired on `main`; implementation choices are recorded in
@@ -160,3 +165,40 @@ central NexAU loop.
 gaps first; then tighten trial evidence and Debugger checks. Preserve the
 working architecture. The remaining work is making its promises hold across
 supported paths, not starting over.
+
+## Current 0.3.0 verdict
+
+**Very close, but not quite a complete all-clear.** I checked the repaired
+implementation at `25f8c09`. The major model-setting, premature-action,
+credential, trial-label, and long-context failures are fixed, and the original
+Debugger history is now described correctly. I found no new core AHE-method
+deviation in these repairs.
+
+Three localized items remain:
+
+1. **The Debugger can still cite a line it never received at a read boundary.**
+   If the byte allowance ends exactly after line 1, the read tool can mark line
+   2 as read as well. I reproduced an accepted citation to that entirely unread
+   second line. The normal unread-file and empty-read checks work; this is a
+   narrower bookkeeping error.
+2. **Lazy imports work for simple modules, but not every normal package.**
+   Importing a nested helper inside a tool function can make conformance reject
+   the package's `__init__.py` as unused, even though Python executes it and the
+   NexAU tool works correctly. The dependency scan needs to include those
+   package initialization files.
+3. **The release identifies itself inconsistently.** The built wheel says
+   `0.3.0`, but the runtime constant and fresh campaign records still say
+   `0.2.0`. This is a small metadata fix, not a broken evolution algorithm.
+
+The evidence is stronger than a passing test count: I exercised the actual
+NexAU runtime and SDK with locally generated responses, including a Debugger
+that first submitted unread citations, received an error, then read the files
+and successfully repaired its submission.
+
+**My recommendation:** fix these three items, then proceed to a small,
+explicitly scoped live pilot rather than redesigning anything. The remaining
+live uncertainty is whether the agents produce useful research, diagnoses,
+and improvements on your benchmark; offline checks cannot establish that.
+
+Exact source locations, reproductions, and completion criteria are in the
+[detailed closure check](AHE_COMPLIANCE_REAUDIT.md#release-030-closure-check).

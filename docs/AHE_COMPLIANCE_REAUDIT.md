@@ -1,5 +1,10 @@
 # AHE Compliance Follow-Up Audit
 
+> **Latest check:** Release `0.3.0` at `25f8c09` closes the major failures
+> described below, but two narrower F05/F06 cases and a version-label mismatch
+> remain. See [Release 0.3.0 closure check](#release-030-closure-check).
+> The original assessment below still refers to `5380f65`.
+
 **Audited implementation:** `5380f65058a970e8e8ecfca00bf1f0a7045becea`.
 
 **Verdict:** The major architectural repairs are real. The runner now follows
@@ -559,3 +564,159 @@ converted into regression tests when repairs are implemented.
 These are local reproduction artifacts, not committed regression tests.
 The report records the fixtures, observed outcomes, source locations, and
 acceptance criteria so the findings do not depend on trusting a test count.
+
+## Release 0.3.0 closure check
+
+**Reviewed implementation:** `25f8c09ae45fef0d8839148400a37107edce8430`,
+clean before this documentation update. NexAU remains `0.3.9` with the same
+runtime source hashes as the previous review.
+
+**Verdict:** No additional core AHE-method deviation was found in these
+repairs. The major request, action-handoff, credential, trial-semantics, and
+compaction failures are fixed. The release is close, but F05 and F06 still have
+specific supported-path gaps, and the runtime reports the wrong release
+version. These are localized repairs, not a reason to redesign the system.
+
+### Confirmed repairs
+
+The targeted contract and campaign-integration suite passed **47 tests in
+81.55 seconds**. Independent local probes additionally confirmed:
+
+| Area | Observed behavior on the repaired implementation |
+|---|---|
+| F01 request policy | Eight original override/alias cases were rejected with zero HTTP requests. Explicit high reasoning and campaign token/temperature settings worked through actual NexAU and OpenAI SDK serialization. |
+| F02 action handoff | The real runtime-backed example, with the previously problematic legacy continuation hook, made the expected six requests for four trials. No model continuation occurred before the adapter supplied the action result. |
+| F03 credential handling | An actual Debugger run wrote only the placeholder to its readable YAML. The synthetic credential marker was absent from the entire generated Debugger output tree. |
+| F04 canonical facts | Rehashing evidence after changing outcome, score, termination, or diagnostic class no longer hides a contradiction: all four mutations were rejected. |
+| F05 ordinary grounding | A real Debugger submission citing unread artifacts was rejected; the agent could read them and successfully resubmit using the new structured schema. The boundary case below remains. |
+| F06 ordinary lazy helper | The committed regression accepts function-local imports of a simple helper module. Package initializers remain a gap below. |
+| F07 compaction | The original write-heavy fixture fell from 157,759 to 126,304 tokens under the 144,000 target, preserving the latest turn. Actual NexAU blocked an irreducible 3,014-token request against a 2,500 target, below its 5,000 hard ceiling, with zero provider requests. |
+| Historical Debugger claim | The fidelity and repair documents now correctly describe the bundled original tool-using Debugger and its 25-iteration default. |
+
+All model responses were generated locally by deterministic fixtures. This
+does not establish live research quality, diagnosis quality, or benchmark
+improvement. No provider endpoint was contacted.
+
+### C1 / F05: an unread final line can enter the citation ledger
+
+**Priority:** P2.
+
+**Source:** [`meta/tools.py:159-189`](../src/ahe_runner/meta/tools.py#L159-L189).
+
+When a line-mode read exhausts `max_bytes`, the truncation branch assigns
+`last_line = line_number` even if the remaining byte allowance is zero. The
+ledger then marks that unread line as returned, provided an earlier line
+contributed some bytes.
+
+Concrete reproduction:
+
+```text
+trace.jsonl:
+{"event":"setup"}
+{"event":"UNREAD_FAILURE"}
+
+read_file(root="evidence", relative_path="trace.jsonl",
+          end_line=2, max_bytes=18)
+```
+
+Only the 18-byte first line was returned. The tool reported `end_line: 2`,
+and `submit_debugger_diagnosis` accepted a citation specifically to line 2.
+A control that read only line 1 without crossing the byte boundary correctly
+rejected the identical citation.
+
+**Fix:** credit only lines actually returned. Do not credit a wholly unread
+next line, and do not treat a partially returned final line as a complete
+line-range read; represent its actual byte coverage instead.
+
+**Acceptance:** the exact-boundary and partial-line cases must reject citations
+outside returned content, while a subsequent complete read permits the same
+valid citation. This concerns access enforcement, not proving the model's
+interpretation correct.
+
+### C2 / F06: lazy submodule imports omit their package initializers
+
+**Priority:** P2.
+
+**Source:** [`conformance.py:527-588`](../src/ahe_runner/conformance.py#L527-L588).
+
+The static graph resolves the final module file but does not include the
+`__init__.py` files Python executes along its package path. For example:
+
+```text
+tools/helpers/__init__.py
+tools/helpers/normalize.py
+```
+
+```python
+def record_note(...):
+    from tools.helpers.normalize import normalize_note
+    ...
+```
+
+The same import at module scope passed conformance. Inside the tool function,
+it failed with:
+
+```text
+declared tool_implementations component is not runtime-attached: tools/helpers/__init__.py
+```
+
+The actual NexAU tool executed successfully and returned
+`{"note_count": 1, "recorded": "padded"}`. This is an ordinary static Python
+import, not the intentionally unsupported dynamic-import case.
+
+**Fix:** include each local ancestor package initializer and its dependencies
+when resolving a static import. Preserve containment and unreferenced-file
+checks rather than blanket-whitelisting every initializer.
+
+**Acceptance:** eager and function-local imports through a regular nested
+package both conform and execute, including absolute and relative forms.
+
+### C3: the 0.3.0 wheel and campaigns still report runtime version 0.2.0
+
+**Priority:** P3; release metadata rather than an AHE algorithm defect.
+
+**Sources:** [`__init__.py:3`](../src/ahe_runner/__init__.py#L3),
+[`controller.py:833`](../src/ahe_runner/controller.py#L833), and
+[`pyproject.toml`](../pyproject.toml).
+
+The project and built wheel metadata say `0.3.0`, but the wheel's
+`ahe_runner/__init__.py` still sets `__version__ = "0.2.0"`. A fresh campaign
+therefore records `"runner_version": "0.2.0"` while using the new contracts.
+This was verified in both source and the built wheel, not inferred from stale
+editable-install metadata.
+
+**Fix:** synchronize or derive the runtime release version and verify that
+wheel metadata, the runtime value, and campaign metadata agree. Also update
+the runtime-example guide's remaining "schema-V2 evidence" wording to schema
+V3.
+
+The separate full-package content hash still identifies code changes, so this
+does not demonstrate unsafe campaign reuse. It does make release reporting
+incorrect.
+
+### Readiness and retained evidence
+
+Fix C1-C3 before declaring the `0.3.0` repair completely closed. The reviewed
+architecture is otherwise a sound basis for a scoped text/tool benchmark
+pilot. Preserve agent-mediated rollback, immutable Explore seeds, benchmark
+ownership, and the existing evolution procedure. There is no newly identified
+need to change those methodology decisions.
+
+The new probes and results are stored alongside the previous local audit
+artifacts:
+
+```text
+/home/agarwaldi/.copilot/session-state/4710795b-04b8-4bad-ba06-5ff58da62939/files/
+  ahe_closure_probes.py
+  ahe_closure_probe_results.json
+```
+
+Run `ahe_closure_probes.py` with the runner's `.venv/bin/python`; it imports
+fixture helpers from the adjacent original `ahe_reaudit_probes.py`. It creates
+and cleans isolated temporary projects, uses only synthetic credentials and
+local response fixtures, and does not change implementation files.
+
+| Artifact | SHA-256 |
+|---|---|
+| Closure probes | `5731f6c64a0eb8090bb1e30d508140616c819ea88bbf22313c8477a4f8565db8` |
+| Captured results | `eb8791f14846925c66ee9c12fd7d45de11b0c307e7124744445c7096e0987947` |
