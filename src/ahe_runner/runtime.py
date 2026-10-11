@@ -150,9 +150,7 @@ class EvaluatedAgentSession:
             raise IntegrityError(self._boundary.violation)
 
         actions = self._boundary.take_actions()
-        self._outstanding_actions = {
-            action.tool_call_id: action for action in actions
-        }
+        self._outstanding_actions = {action.tool_call_id: action for action in actions}
         output = AgentOutput(
             final_text=str(result),
             external_actions=actions,
@@ -382,8 +380,7 @@ class EvaluatedAgentRuntime:
         if mismatched:
             raise ConfigurationError(
                 "session benchmark tool declarations differ from the frozen "
-                "benchmark interface: "
-                + ", ".join(mismatched)
+                "benchmark interface: " + ", ".join(mismatched)
             )
 
 
@@ -413,9 +410,7 @@ class _ProtectedBenchmarkBoundary(Middleware):
                 "a model response mixed protected benchmark actions with harness "
                 "tools or sub-agent calls; mixed execution is prohibited"
             )
-            return HookResult.with_modifications(
-                parsed_response=_without_calls(parsed)
-            )
+            return HookResult.with_modifications(parsed_response=_without_calls(parsed))
         try:
             actions = tuple(
                 BenchmarkActionCall(
@@ -427,15 +422,11 @@ class _ProtectedBenchmarkBoundary(Middleware):
             )
         except Exception as exc:
             self.violation = f"invalid protected benchmark action: {exc}"
-            return HookResult.with_modifications(
-                parsed_response=_without_calls(parsed)
-            )
+            return HookResult.with_modifications(parsed_response=_without_calls(parsed))
         call_ids = [action.tool_call_id for action in actions]
         if len(call_ids) != len(set(call_ids)):
             self.violation = "protected benchmark action call IDs must be unique"
-            return HookResult.with_modifications(
-                parsed_response=_without_calls(parsed)
-            )
+            return HookResult.with_modifications(parsed_response=_without_calls(parsed))
         self._actions = actions
         return HookResult.with_modifications(parsed_response=_without_calls(parsed))
 
@@ -511,9 +502,7 @@ def _override_model_settings(
         updates["reasoning"] = {"effort": model.reasoning_effort}
     config.llm_config.update(**updates)
     if config.sandbox_config is None:
-        config.sandbox_config = LocalSandboxConfig(
-            work_dir=str(working_directory)
-        )
+        config.sandbox_config = LocalSandboxConfig(work_dir=str(working_directory))
     elif isinstance(config.sandbox_config, LocalSandboxConfig):
         config.sandbox_config = config.sandbox_config.model_copy(
             update={"work_dir": str(working_directory)}
@@ -550,12 +539,9 @@ def _attach_long_term_memory(
     harness_dir: Path,
     manifest: HarnessManifest,
 ) -> None:
-    if (
-        manifest.schema_version == 2
-        and (
-            manifest.attachments is None
-            or manifest.attachments.long_term_memory != "system_prompt_suffix"
-        )
+    if manifest.schema_version == 2 and (
+        manifest.attachments is None
+        or manifest.attachments.long_term_memory != "system_prompt_suffix"
     ):
         raise ConfigurationError(
             "V2 long-term memory requires system_prompt_suffix attachment"

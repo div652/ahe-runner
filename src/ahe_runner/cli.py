@@ -73,9 +73,7 @@ def init_project(path: Path) -> dict[str, Any]:
     return {
         "project_dir": str(destination),
         "config": str(destination / "ahe.yaml"),
-        "next_command": (
-            f"ahe conformance --config {destination / 'ahe.yaml'}"
-        ),
+        "next_command": (f"ahe conformance --config {destination / 'ahe.yaml'}"),
     }
 
 
@@ -104,6 +102,8 @@ def _dispatch(controller: CampaignController, args: argparse.Namespace) -> Any:
 def _copy_resource_tree(source: Any, destination: Path) -> None:
     destination.mkdir(parents=True, exist_ok=True)
     for entry in source.iterdir():
+        if entry.name == "__pycache__" or entry.name.endswith((".pyc", ".pyo")):
+            continue
         target = destination / entry.name
         if entry.is_dir():
             _copy_resource_tree(entry, target)

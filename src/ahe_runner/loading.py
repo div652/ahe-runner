@@ -24,9 +24,7 @@ def load_adapter(config: ResolvedConfig) -> BenchmarkAdapterBase:
         module = _import_fresh(module_name)
         value = getattr(module, class_name, None)
     if not isinstance(value, type) or not issubclass(value, BenchmarkAdapterBase):
-        raise ConfigurationError(
-            f"{reference} is not a BenchmarkAdapterBase subclass"
-        )
+        raise ConfigurationError(f"{reference} is not a BenchmarkAdapterBase subclass")
     return value(
         project_root=config.project_root,
         settings=config.document.project.adapter_settings,

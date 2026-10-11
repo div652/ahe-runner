@@ -395,9 +395,7 @@ class CampaignController:
                 "transport": self.config.document.transport.model_dump(mode="json"),
                 "adapter": self.adapter.identity().model_dump(mode="json"),
                 "adapter_api_generation": adapter_api_generation(self.adapter),
-                "benchmark_interface": self.benchmark_interface.model_dump(
-                    mode="json"
-                ),
+                "benchmark_interface": self.benchmark_interface.model_dump(mode="json"),
             },
             action=action,
         )

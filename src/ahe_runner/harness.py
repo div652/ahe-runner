@@ -76,10 +76,7 @@ def load_harness_manifest(path: Path) -> HarnessManifest:
             raise ConfigurationError(
                 "schema 1 cannot declare abi_version or attachments"
             )
-    elif (
-        manifest.abi_version != "ahe.harness/v2"
-        or manifest.attachments is None
-    ):
+    elif manifest.abi_version != "ahe.harness/v2" or manifest.attachments is None:
         raise ConfigurationError(
             "schema 2 requires abi_version 'ahe.harness/v2' and attachments"
         )

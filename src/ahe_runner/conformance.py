@@ -23,9 +23,7 @@ _HOOK_FIELDS = (
     "before_tool_hooks",
     "after_tool_hooks",
 )
-_INJECTED_TOOL_PARAMETERS = frozenset(
-    {"agent_state", "global_storage", "sandbox"}
-)
+_INJECTED_TOOL_PARAMETERS = frozenset({"agent_state", "global_storage", "sandbox"})
 
 
 def validate_v2_conformance(
@@ -39,9 +37,7 @@ def validate_v2_conformance(
     root = harness_dir.resolve()
     errors: list[str] = []
     warnings: list[str] = []
-    registrations: dict[str, set[str]] = {
-        name: set() for name in component_matches
-    }
+    registrations: dict[str, set[str]] = {name: set() for name in component_matches}
     tool_contracts: list[dict[str, Any]] = []
     import_contracts: list[dict[str, Any]] = []
 
@@ -62,13 +58,10 @@ def validate_v2_conformance(
         else None
     )
     if attachment_mode == "system_prompt_suffix":
-        registrations["long_term_memory"].update(
-            component_matches["long_term_memory"]
-        )
+        registrations["long_term_memory"].update(component_matches["long_term_memory"])
     else:
         errors.append(
-            "V2 long-term memory must use attachment mode "
-            "'system_prompt_suffix'"
+            "V2 long-term memory must use attachment mode 'system_prompt_suffix'"
         )
 
     records = _collect_agent_tree(
@@ -82,9 +75,7 @@ def validate_v2_conformance(
         config = record["config"]
         label = record["label"]
         if config.get("tool_call_mode", "openai") != "openai":
-            errors.append(
-                f"{label}.tool_call_mode must be 'openai' for ABI V2"
-            )
+            errors.append(f"{label}.tool_call_mode must be 'openai' for ABI V2")
         _collect_system_prompt(
             root=root,
             config_path=config_path,
@@ -131,13 +122,9 @@ def validate_v2_conformance(
         declared = set(declared_paths)
         active = registrations[name]
         for path in sorted(declared - active):
-            errors.append(
-                f"declared {name} component is not runtime-attached: {path}"
-            )
+            errors.append(f"declared {name} component is not runtime-attached: {path}")
         for path in sorted(active - declared):
-            errors.append(
-                f"runtime-attached {name} component is not declared: {path}"
-            )
+            errors.append(f"runtime-attached {name} component is not declared: {path}")
 
     return {
         "schema_version": 1,
@@ -146,9 +133,7 @@ def validate_v2_conformance(
         "attachment_mode": attachment_mode,
         "errors": errors,
         "warnings": warnings,
-        "registrations": {
-            name: sorted(paths) for name, paths in registrations.items()
-        },
+        "registrations": {name: sorted(paths) for name, paths in registrations.items()},
         "tool_contracts": tool_contracts,
         "agent_configs": [
             record["path"].relative_to(root).as_posix() for record in records
@@ -181,9 +166,7 @@ def _collect_agent_tree(
         try:
             value = yaml.safe_load(resolved.read_text(encoding="utf-8"))
         except Exception as exc:
-            errors.append(
-                f"{label} config parse failed: {type(exc).__name__}: {exc}"
-            )
+            errors.append(f"{label} config parse failed: {type(exc).__name__}: {exc}")
             visiting.remove(resolved)
             return
         if not isinstance(value, dict):
@@ -232,9 +215,7 @@ def _collect_agent_tree(
             )
             if sub_path is None:
                 continue
-            registrations["sub_agents"].add(
-                sub_path.relative_to(root).as_posix()
-            )
+            registrations["sub_agents"].add(sub_path.relative_to(root).as_posix())
             visit(sub_path, f"sub-agent {name!r}", expected_name=name)
         visiting.remove(resolved)
         visited.add(resolved)
@@ -264,9 +245,7 @@ def _collect_system_prompt(
     prompt_type = config.get("system_prompt_type", "string")
     prompt = config.get("system_prompt")
     if prompt_type not in {"file", "jinja"} or not isinstance(prompt, str):
-        errors.append(
-            f"{label}.system_prompt must reference a file for ABI V2"
-        )
+        errors.append(f"{label}.system_prompt must reference a file for ABI V2")
         return
     path = _resolve_harness_path(
         root=root,
@@ -328,8 +307,7 @@ def _collect_tools(
             tool_yaml = yaml.safe_load(path.read_text(encoding="utf-8"))
         except Exception as exc:
             errors.append(
-                f"{entry_label} tool YAML parse failed: "
-                f"{type(exc).__name__}: {exc}"
+                f"{entry_label} tool YAML parse failed: {type(exc).__name__}: {exc}"
             )
             continue
         if not isinstance(tool_yaml, dict):
@@ -488,8 +466,7 @@ def _resolve_import_contract(
         symbol = getattr(module, symbol_name)
     except Exception as exc:
         errors.append(
-            f"{label} import failed for {reference!r}: "
-            f"{type(exc).__name__}: {exc}"
+            f"{label} import failed for {reference!r}: {type(exc).__name__}: {exc}"
         )
         return
     source_value = inspect.getsourcefile(symbol)
@@ -498,9 +475,7 @@ def _resolve_import_contract(
         return
     source = Path(source_value).resolve()
     if not _inside(root, source):
-        errors.append(
-            f"{label} import must resolve inside the harness: {reference!r}"
-        )
+        errors.append(f"{label} import must resolve inside the harness: {reference!r}")
         return
     relative = source.relative_to(root).as_posix()
 
@@ -542,9 +517,7 @@ def _validate_tool_schema(
     if schema.get("type") != "object":
         errors.append(f"{label}.input_schema.type must be 'object'")
     if schema.get("additionalProperties") is not False:
-        errors.append(
-            f"{label}.input_schema.additionalProperties must be false"
-        )
+        errors.append(f"{label}.input_schema.additionalProperties must be false")
     properties = schema.get("properties", {})
     required = schema.get("required", [])
     if not isinstance(properties, dict):
@@ -592,11 +565,7 @@ def _validate_tool_signature(
         set(schema.get("properties", {})) if isinstance(schema, dict) else set()
     )
     extra_kwargs = set(contract.get("extra_kwargs", []))
-    exposed = (
-        set(parameters)
-        - _INJECTED_TOOL_PARAMETERS
-        - extra_kwargs
-    )
+    exposed = set(parameters) - _INJECTED_TOOL_PARAMETERS - extra_kwargs
     if exposed != properties:
         errors.append(
             f"{label} schema properties {sorted(properties)} do not match "

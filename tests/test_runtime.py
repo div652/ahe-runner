@@ -30,9 +30,7 @@ class FakeRecordedClient:
     def __init__(self, **_kwargs: Any) -> None:
         self.responses = self.scenarios.pop(0)
         self.calls: list[dict[str, Any]] = []
-        self.chat = SimpleNamespace(
-            completions=SimpleNamespace(create=self._create)
-        )
+        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
         self.instances.append(self)
 
     def _create(self, **kwargs: Any) -> ChatCompletion:
@@ -151,8 +149,7 @@ def test_runtime_intercepts_protected_actions_and_preserves_sessions(
         root_config = protected_session._agent.config
         assert root_config.llm_config.model == config.document.models.evaluated.model
         assert {
-            sub_agent.llm_config.model
-            for sub_agent in root_config.sub_agents.values()
+            sub_agent.llm_config.model for sub_agent in root_config.sub_agents.values()
         } == {config.document.models.evaluated.model}
 
         first = protected_session.run(
@@ -174,9 +171,7 @@ def test_runtime_intercepts_protected_actions_and_preserves_sessions(
             }
         ]
         first_call = FakeRecordedClient.instances[0].calls[0]
-        tool_names = {
-            tool["function"]["name"] for tool in first_call["tools"]
-        }
+        tool_names = {tool["function"]["name"] for tool in first_call["tools"]}
         assert "lookup_account" in tool_names
         serialized_messages = json.dumps(first_call["messages"])
         assert "lookup_account" not in serialized_messages
@@ -207,9 +202,7 @@ def test_runtime_intercepts_protected_actions_and_preserves_sessions(
             )
         )
         assert second.final_text == "The protected result was accepted."
-        second_call_messages = FakeRecordedClient.instances[0].calls[1][
-            "messages"
-        ]
+        second_call_messages = FakeRecordedClient.instances[0].calls[1]["messages"]
         assert any(
             message.get("role") == "tool"
             and message.get("tool_call_id") == "call-protected"
