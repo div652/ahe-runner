@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ def test_harness_validation_rejects_symlinks_and_task_memorization(
     project = config_path.parent
     manifest = load_harness_manifest(project / "harness_manifest.yaml")
     harness = project / "harness"
+    original_dont_write_bytecode = sys.dont_write_bytecode
 
     report = validate_harness(
         harness,
@@ -36,6 +38,8 @@ def test_harness_validation_rejects_symlinks_and_task_memorization(
     assert report["conformance"]["registrations"]["sub_agents"] == [
         "sub_agents/reviewer/agent.yaml"
     ]
+    assert not list(harness.rglob("__pycache__"))
+    assert sys.dont_write_bytecode is original_dont_write_bytecode
 
     symlink_harness = tmp_path / "symlink-harness"
     shutil.copytree(harness, symlink_harness)

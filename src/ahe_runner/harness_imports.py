@@ -17,6 +17,7 @@ class HarnessImportScope:
         self._path = str(self._root)
         self._module_roots = _module_roots(self._root)
         self._saved_modules: dict[str, ModuleType] = {}
+        self._saved_dont_write_bytecode = sys.dont_write_bytecode
         self._active = False
 
     def __enter__(self) -> HarnessImportScope:
@@ -24,6 +25,8 @@ class HarnessImportScope:
             raise RuntimeError("harness import scope is already active")
         self._active = True
         self._saved_modules = _remove_modules(self._module_roots)
+        self._saved_dont_write_bytecode = sys.dont_write_bytecode
+        sys.dont_write_bytecode = True
         sys.path.insert(0, self._path)
         importlib.invalidate_caches()
         return self
@@ -37,6 +40,7 @@ class HarnessImportScope:
             sys.path.remove(self._path)
         sys.modules.update(self._saved_modules)
         self._saved_modules = {}
+        sys.dont_write_bytecode = self._saved_dont_write_bytecode
         importlib.invalidate_caches()
 
 

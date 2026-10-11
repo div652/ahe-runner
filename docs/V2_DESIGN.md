@@ -262,7 +262,9 @@ component.
 Checkpoint-local Python bindings are loaded with the harness root temporarily
 isolated on `sys.path`, so the same relative import works in the operator seed,
 an Evolve workspace, and an immutable checkpoint. V2 local tool bindings must
-resolve when the session opens rather than using NexAU lazy imports.
+resolve when the session opens rather than using NexAU lazy imports. Import
+validation suppresses Python bytecode writes, and checkpoint copies exclude
+bytecode caches, so loading a candidate cannot dirty or alter its Git snapshot.
 
 ## Artifact policy
 

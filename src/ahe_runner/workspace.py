@@ -17,6 +17,12 @@ from .io import atomic_write_json, read_json, sha256_json, tree_hashes
 _COPILOT_TRAILER = (
     "Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>"
 )
+_HARNESS_COPY_IGNORE = shutil.ignore_patterns(
+    ".git",
+    "__pycache__",
+    "*.pyc",
+    "*.pyo",
+)
 
 
 def initialize_baseline_checkpoint(
@@ -34,7 +40,11 @@ def initialize_baseline_checkpoint(
     if temporary.exists():
         shutil.rmtree(temporary)
     temporary.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(source_harness, temporary / "harness")
+    shutil.copytree(
+        source_harness,
+        temporary / "harness",
+        ignore=_HARNESS_COPY_IGNORE,
+    )
     manifest = _checkpoint_manifest(
         checkpoint="C0",
         parent_checkpoint=None,
@@ -71,7 +81,11 @@ def prepare_evolve_workspace(
     if temporary.exists():
         shutil.rmtree(temporary)
     if attempt == 1:
-        shutil.copytree(parent_harness_dir, temporary)
+        shutil.copytree(
+            parent_harness_dir,
+            temporary,
+            ignore=_HARNESS_COPY_IGNORE,
+        )
         _make_tree_writable(temporary)
         _git(temporary, "init", "--quiet")
         _configure_git(temporary)
@@ -208,7 +222,7 @@ def freeze_checkpoint(
     shutil.copytree(
         workspace,
         temporary / "harness",
-        ignore=shutil.ignore_patterns(".git", "__pycache__"),
+        ignore=_HARNESS_COPY_IGNORE,
     )
     head = git_output(workspace, "rev-parse", "HEAD").strip()
     manifest = _checkpoint_manifest(

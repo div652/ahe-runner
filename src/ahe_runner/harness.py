@@ -109,17 +109,20 @@ def validate_harness(
     files: list[Path] = []
     total_bytes = 0
     for path in sorted(root.rglob("*")):
-        if ".git" in path.relative_to(root).parts:
+        relative = path.relative_to(root)
+        if ".git" in relative.parts or "__pycache__" in relative.parts:
             continue
         if path.is_symlink():
-            errors.append(f"symlink is prohibited: {path.relative_to(root)}")
+            errors.append(f"symlink is prohibited: {relative}")
             continue
         if path.is_file():
+            if path.suffix in {".pyc", ".pyo"}:
+                continue
             files.append(path)
             size = path.stat().st_size
             total_bytes += size
             if size > manifest.limits.maximum_file_bytes:
-                errors.append(f"file exceeds maximum size: {path.relative_to(root)}")
+                errors.append(f"file exceeds maximum size: {relative}")
     if total_bytes > manifest.limits.maximum_tree_bytes:
         errors.append("harness exceeds maximum tree size")
 
