@@ -1,6 +1,6 @@
 type: agent
 name: example_agent
-description: Minimal file-backed NexAU harness for the AHE Runner example.
+description: File-backed NexAU Harness ABI V2 example.
 max_context_tokens: 200000
 system_prompt: ./systemprompt.md
 system_prompt_type: file
@@ -16,7 +16,12 @@ llm_config:
   stream: false
   api_type: openai_chat_completion
 
-tools: []
-skills: []
-sub_agents: []
+tools:
+  - name: record_note
+    yaml_path: ./tool_descriptions/record_note.tool.yaml
+skills:
+  - ./skills/evidence-first
+sub_agents:
+  - name: reviewer
+    config_path: ./sub_agents/reviewer/agent.yaml
 middlewares: []

@@ -23,6 +23,7 @@ def main(argv: list[str] | None = None) -> int:
     init_parser = subparsers.add_parser("init-project")
     init_parser.add_argument("path", type=Path)
     for command in (
+        "conformance",
         "validate",
         "run",
         "resume",
@@ -73,12 +74,14 @@ def init_project(path: Path) -> dict[str, Any]:
         "project_dir": str(destination),
         "config": str(destination / "ahe.yaml"),
         "next_command": (
-            f"python -m ahe_runner validate --config {destination / 'ahe.yaml'}"
+            f"ahe conformance --config {destination / 'ahe.yaml'}"
         ),
     }
 
 
 def _dispatch(controller: CampaignController, args: argparse.Namespace) -> Any:
+    if args.command == "conformance":
+        return controller.conformance()
     if args.command == "validate":
         return controller.validate_project()
     if args.command == "run":

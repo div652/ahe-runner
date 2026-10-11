@@ -7,6 +7,7 @@ The intended operator interface is:
 
 ```bash
 ahe init-project /path/to/my-ahe-project
+ahe conformance --config /path/to/my-ahe-project/ahe.yaml
 ahe validate --config /path/to/my-ahe-project/ahe.yaml
 ahe run --config /path/to/my-ahe-project/ahe.yaml
 ahe status --config /path/to/my-ahe-project/ahe.yaml
@@ -20,6 +21,8 @@ Operational documentation:
 
 - [`docs/V2_DESIGN.md`](docs/V2_DESIGN.md) - approved V2 evaluated-agent,
   adapter, harness ABI, and protected benchmark-tool overlay contract;
+- [`docs/HARNESS_ABI.md`](docs/HARNESS_ABI.md) - exact file schemas,
+  signatures, attachment rules, and conformance checks inside `harness/`;
 - [`docs/FUTURE_FEATURES.md`](docs/FUTURE_FEATURES.md) - intentionally deferred
   partial-episode and Explore-seed features;
 - [`docs/OPERATOR_GUIDE.md`](docs/OPERATOR_GUIDE.md) - prepare a harness,
@@ -38,7 +41,7 @@ Operational documentation:
 Install the runner with the web-research and development extras:
 
 ```bash
-python -m venv .venv
+python3.12 -m venv .venv
 . .venv/bin/activate
 pip install -e '.[web,dev]'
 ```
@@ -47,10 +50,13 @@ Create an operator project:
 
 ```bash
 ahe init-project ./my-ahe-project
+ahe conformance --config ./my-ahe-project/ahe.yaml
 ```
 
-The generated project uses the deterministic `scripted` meta backend so the
-complete lifecycle can be exercised without a model server:
+The generated project uses Harness ABI V2 and `BenchmarkAdapterV2`, with an
+actively registered internal tool, skill, reviewer sub-agent, and explicit
+long-term-memory attachment. Its deterministic `scripted` meta backend lets
+the complete lifecycle run without a model server:
 
 ```bash
 ahe run --config ./my-ahe-project/ahe.yaml

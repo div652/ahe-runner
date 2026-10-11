@@ -1,4 +1,5 @@
-schema_version: 1
+schema_version: 2
+abi_version: ahe.harness/v2
 
 framework:
   name: nexau
@@ -9,6 +10,7 @@ agent_config: agent.yaml
 components:
   system_prompt:
     - systemprompt.md
+    - sub_agents/**/systemprompt.md
   tool_descriptions:
     - tool_descriptions/**/*.tool.yaml
   tool_implementations:
@@ -21,6 +23,9 @@ components:
     - sub_agents/**/agent.yaml
   long_term_memory:
     - LongTermMEMORY.md
+
+attachments:
+  long_term_memory: system_prompt_suffix
 
 runtime_owned:
   - ShortTermMEMORY.md

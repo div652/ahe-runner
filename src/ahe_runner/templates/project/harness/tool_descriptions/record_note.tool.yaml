@@ -1,0 +1,16 @@
+type: tool
+name: record_note
+description: >-
+  Preserve one concise observation in the current agent state so later
+  reasoning can distinguish confirmed evidence from assumptions.
+input_schema:
+  type: object
+  additionalProperties: false
+  properties:
+    note:
+      type: string
+      description: A concise evidence-backed observation.
+      minLength: 1
+  required:
+    - note
+binding: tools.record_note:record_note

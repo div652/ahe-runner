@@ -9,7 +9,8 @@ from typing import Any
 
 from ahe_runner.adapter import (
     AdapterIdentity,
-    BenchmarkAdapter,
+    BenchmarkAdapterV2,
+    BenchmarkInterface,
     CandidateValidationRequest,
     EvaluationRequest,
     EvaluationResult,
@@ -32,6 +33,7 @@ from ahe_runner.io import (
     sha256_file,
     tree_hashes,
 )
+from ahe_runner.runtime import EvaluatedAgentRuntime
 
 _TASKS = {
     SplitName.TRAIN: {
@@ -54,11 +56,11 @@ _TASKS = {
 }
 
 
-class ExampleAdapter(BenchmarkAdapter):
+class ExampleAdapter(BenchmarkAdapterV2):
     def identity(self) -> AdapterIdentity:
         return AdapterIdentity(
             name="ahe-runner-example",
-            version="1",
+            version="2",
             benchmark_name="deterministic-reliability-example",
             benchmark_version="1",
             protocol_description=(
@@ -72,11 +74,30 @@ class ExampleAdapter(BenchmarkAdapter):
     def split(self, name: SplitName) -> SplitDefinition:
         return SplitDefinition(
             name=name,
-            identity=f"example-{name.value}-v1",
+            identity=f"example-{name.value}-v2",
             task_ids=list(_TASKS[name]),
         )
 
-    def evaluate(self, request: EvaluationRequest) -> EvaluationResult:
+    def benchmark_interface(self) -> BenchmarkInterface:
+        return BenchmarkInterface(
+            description=(
+                "Synthetic prompt-inspection tasks with no benchmark-owned "
+                "structured actions."
+            ),
+            input_kinds=("prompt",),
+            tool_delivery="none",
+            notes=(
+                "The deterministic example does not spend evaluated-model calls; "
+                "production V2 adapters open sessions through the supplied runtime.",
+            ),
+        )
+
+    def evaluate(
+        self,
+        request: EvaluationRequest,
+        runtime: EvaluatedAgentRuntime,
+    ) -> EvaluationResult:
+        del runtime
         seeds = _trial_seeds(request.root_seed, request.trials)
         semantic_inputs = {
             "adapter": self.identity().model_dump(mode="json"),

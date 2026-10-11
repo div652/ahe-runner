@@ -30,16 +30,20 @@ decision, and recovery event.
 
 ## Scope
 
-Version 1 supports:
+Version 2 supports:
 
 - NexAU harnesses;
-- typed Python benchmark adapters;
+- runner-owned evaluated NexAU `Agent`/`Executor` sessions;
+- typed Python `BenchmarkAdapterV2` plugins;
+- runtime-only protected structured benchmark actions;
+- executable harness ABI conformance;
 - configurable OpenAI-compatible chat-completions endpoints;
 - a complete evolution, validation-selection, and final-test lifecycle;
 - durable stage recovery from the last verified checkpoint.
 
-Version 1 intentionally does not claim to support arbitrary agent frameworks.
-The benchmark protocol is pluggable; the harness runtime is NexAU-specific.
+Legacy `BenchmarkAdapter` plugins remain loadable. Version 2 intentionally
+does not claim to support arbitrary agent frameworks. The benchmark protocol
+is pluggable; the harness runtime is NexAU-specific.
 
 ## Core AHE invariants
 
@@ -99,7 +103,9 @@ execution, secrets, and model routing must live outside `harness/`.
 `harness_manifest.yaml` defines the observable evolution surface:
 
 ```yaml
-schema_version: 1
+schema_version: 2
+abi_version: ahe.harness/v2
+
 framework:
   name: nexau
   version: "0.3.9"
@@ -109,6 +115,7 @@ agent_config: agent.yaml
 components:
   system_prompt:
     - systemprompt.md
+    - sub_agents/**/systemprompt.md
   tool_descriptions:
     - tool_descriptions/**/*.tool.yaml
   tool_implementations:
@@ -121,6 +128,9 @@ components:
     - sub_agents/**/agent.yaml
   long_term_memory:
     - LongTermMEMORY.md
+
+attachments:
+  long_term_memory: system_prompt_suffix
 
 runtime_owned:
   - ShortTermMEMORY.md
@@ -142,7 +152,19 @@ All regular harness files are hashed; symlinks and path escapes are rejected.
 The runner verifies that every registered prompt, tool descriptor, tool
 implementation, middleware, skill, sub-agent, and memory path resolves inside
 the harness. A file is not considered an active component merely because it
-exists; runtime registration must also be valid.
+exists; every declared file must be attached, and every attached evolvable
+file must be declared.
+
+Tool schemas must be strict JSON Schema objects, schema properties and required
+fields must match explicit keyword-compatible Python parameters, middleware
+constructor arguments must bind, skills need valid substantive frontmatter,
+and sub-agent configs recursively conform. The installed NexAU version must
+equal the manifest version.
+
+Long-term memory is injected by the runner into the root
+`system_prompt_suffix` at session construction. `ShortTermMEMORY.md` is
+runtime-owned example state; actual short-term agent memory is NexAU session
+history.
 
 ## Campaign configuration
 
@@ -220,18 +242,23 @@ Changing immutable settings requires a new campaign directory. Resume never
 silently adopts a changed model, split, seed, metric, prompt, adapter, harness
 manifest, or resource limit.
 
-## Typed benchmark adapter
+## Typed benchmark adapter and evaluated runtime
 
 The adapter is loaded from the configured `module:Class` reference and must
-implement `BenchmarkAdapter`.
+implement `BenchmarkAdapterV2`.
 
 Its responsibilities are deliberately benchmark-native:
 
 ```python
-class BenchmarkAdapter(ABC):
+class BenchmarkAdapterV2(ABC):
     def identity(self) -> AdapterIdentity: ...
     def split(self, name: SplitName) -> SplitDefinition: ...
-    def evaluate(self, request: EvaluationRequest) -> EvaluationResult: ...
+    def benchmark_interface(self) -> BenchmarkInterface: ...
+    def evaluate(
+        self,
+        request: EvaluationRequest,
+        runtime: EvaluatedAgentRuntime,
+    ) -> EvaluationResult: ...
     def verify_evaluation(self, request: VerificationRequest) -> EvaluationResult: ...
     def materialize_training_evidence(
         self, request: EvidenceRequest
@@ -259,6 +286,11 @@ The adapter owns:
 
 The runner owns:
 
+- construction of the evaluated NexAU `Agent` and native `Executor`;
+- one isolated agent/history per trial and stateful repeated activations;
+- exact evaluated-model routing for root and sub-agents;
+- runtime-only protected benchmark tool schemas and call-ID integrity;
+- structured action capture before NexAU tool execution;
 - immutable checkpoint identity;
 - stage identity and recovery;
 - exact meta-model transport checks;
@@ -268,6 +300,17 @@ The runner owns:
 - evidence and output hashing;
 - campaign history and attribution;
 - final checkpoint export.
+
+The immutable `BenchmarkInterface` declares prompt/data/repository/environment
+inputs and the complete protected structured-action surface. It is frozen into
+campaign identity and shown to Source Explore, Debugger, and Evolve.
+
+Protected action schemas extend only the in-memory NexAU config. In OpenAI
+structured mode they are sent through the API `tools` field, not appended to
+prompt text or written into the base harness. The adapter executes official
+actions and resumes the same session with exact `ToolResultBlock` call IDs.
+Evolve may improve how the harness chooses actions but cannot modify or
+reimplement the benchmark interface.
 
 ## Standard evidence bundle
 
@@ -436,7 +479,7 @@ For every model-calling role, the runner records:
 - response or error;
 - timeout and retry classification.
 
-Before a model-backed stage, a fresh preflight checks:
+Before a model-backed meta stage, a fresh preflight checks:
 
 1. endpoint availability;
 2. model catalog membership when `/models` exists;
@@ -449,6 +492,10 @@ changing checkpoint or evaluation identities.
 
 The client has no hidden nested retry multiplier. Request retries and complete
 stage attempts are explicit, separately bounded, and recorded.
+
+Evaluated sessions use the same recorded exact-model client and native NexAU
+loop. Model settings are recursively overridden in every configured
+sub-agent, while each session preserves its own `HistoryList`.
 
 ## Evaluation recovery contract
 
@@ -526,6 +573,7 @@ The initial CLI is:
 
 ```text
 ahe init-project PATH
+ahe conformance --config PATH
 ahe validate --config PATH
 ahe run --config PATH
 ahe resume --config PATH

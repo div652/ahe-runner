@@ -8,7 +8,7 @@ harness.
 From this repository:
 
 ```bash
-python -m venv .venv
+python3.12 -m venv .venv
 . .venv/bin/activate
 pip install -e '.[web]'
 ```
@@ -77,6 +77,16 @@ Do not put runtime state or task-specific knowledge in the seed.
 
 Edit `harness_manifest.yaml`.
 
+V2 projects declare:
+
+```yaml
+schema_version: 2
+abi_version: ahe.harness/v2
+
+attachments:
+  long_term_memory: system_prompt_suffix
+```
+
 The seven supported component classes are:
 
 ```yaml
@@ -104,13 +114,21 @@ Also declare:
 - `protected_agent_fields`: exact `agent.yaml` values Evolve cannot alter;
 - file and total-tree size limits.
 
+Conformance checks that every matched file is actually registered at runtime.
+Tool schema properties must match explicit Python callable parameters,
+middleware constructors must accept their configured parameters, skills need
+substantive frontmatter, sub-agents recursively load, and the installed NexAU
+version must match.
+
+The exact per-file schemas and Python signatures are in `HARNESS_ABI.md`.
+
 An omitted component pattern is not an invitation to edit protected code.
 Only files inside `harness/` are candidate surfaces, and adapter validation may
 impose stricter rules.
 
 ## 5. Implement the benchmark adapter
 
-`benchmark_adapter.py` exports one `BenchmarkAdapter` subclass:
+`benchmark_adapter.py` exports one `BenchmarkAdapterV2` subclass:
 
 ```python
 from my_benchmark_adapter import MyAdapter
@@ -126,8 +144,18 @@ project:
 ```
 
 The adapter owns native evaluation, split secrecy, metrics, trace conversion,
-infrastructure classification, and benchmark-specific candidate checks. See
-`ADAPTER_GUIDE.md`.
+infrastructure classification, official benchmark actions, and
+benchmark-specific candidate checks. The runner supplies the evaluated NexAU
+runtime. See `ADAPTER_GUIDE.md`.
+
+For data/repository benchmarks, send tasks, files, and workspace paths through
+the session input; a protected tool list may be empty. When a benchmark has an
+official structured action API, declare its immutable schemas in
+`BenchmarkInterface` and attach them through `AgentSessionRequest`.
+
+Those schemas extend the in-memory NexAU config only. They are sent through the
+structured model API `tools` field, not appended to prompt text, written into
+`harness/`, or made editable by Evolve.
 
 ## 6. Configure the campaign
 
@@ -199,11 +227,13 @@ cannot be ruled out.
 ## 7. Validate before spending model calls
 
 ```bash
+ahe conformance --config /path/to/my-ahe-project/ahe.yaml
 ahe validate --config /path/to/my-ahe-project/ahe.yaml
 ```
 
-This checks the config, adapter, split separation, harness manifest, protected
-fields, Python syntax, references, and NexAU config loading.
+`conformance` reports the adapter API generation, frozen benchmark interface,
+active ABI registrations, and NexAU load smoke. `validate` additionally
+returns the full resolved project and split report.
 
 For a server-free lifecycle rehearsal, leave:
 

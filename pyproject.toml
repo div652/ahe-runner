@@ -4,10 +4,10 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ahe-runner"
-version = "0.1.0"
+version = "0.2.0"
 description = "Checkpointed Agentic Harness Engineering for NexAU harnesses"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 dependencies = [
   "nexau @ git+https://github.com/nex-agi/NexAU.git@v0.3.9",

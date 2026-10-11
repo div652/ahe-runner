@@ -102,6 +102,17 @@ class CampaignController:
             "harness": report,
         }
 
+    def conformance(self) -> dict[str, Any]:
+        validation = self.validate_project()
+        return {
+            "adapter": validation["adapter"],
+            "adapter_api_generation": validation["adapter_api_generation"],
+            "benchmark_interface": validation["benchmark_interface"],
+            "harness_abi": validation["harness"]["conformance"],
+            "nexau_smoke": validation["harness"]["nexau_smoke"],
+            "valid": validation["harness"]["valid"],
+        }
+
     def run(self) -> dict[str, Any]:
         self.prepare()
         self._ensure_training_evaluation(0)
