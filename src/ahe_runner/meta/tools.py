@@ -153,15 +153,20 @@ def read_file(
     total_lines: int | None = None
     content_truncated = False
     has_more_after_range = False
-    with path.open("r", encoding="utf-8", errors="replace") as handle:
-        for line_number, line in enumerate(handle, start=1):
+    partial_line: int | None = None
+    partial_start_byte: int | None = None
+    partial_end_byte: int | None = None
+    byte_offset = 0
+    with path.open("rb") as handle:
+        for line_number, encoded in enumerate(handle, start=1):
             lines_seen = line_number
+            line_start_byte = byte_offset
+            byte_offset += len(encoded)
             if line_number < start_line:
                 continue
             if line_number > end_line:
                 has_more_after_range = True
                 break
-            encoded = line.encode("utf-8")
             remaining = max_bytes - bytes_returned
             if len(encoded) > remaining:
                 if remaining:
@@ -169,22 +174,33 @@ def read_file(
                         encoded[:remaining].decode("utf-8", errors="replace")
                     )
                     bytes_returned += remaining
-                last_line = line_number
+                    partial_line = line_number
+                    partial_start_byte = line_start_byte
+                    partial_end_byte = line_start_byte + remaining
                 content_truncated = True
                 has_more_after_range = True
                 break
-            selected.append(line)
+            selected.append(encoded.decode("utf-8", errors="replace"))
             bytes_returned += len(encoded)
             last_line = line_number
         else:
             total_lines = lines_seen
+    artifact = f"{root}:{Path(relative_path).as_posix()}"
     if bytes_returned and last_line >= start_line:
         _record_debugger_access(
             agent_state,
-            artifact=f"{root}:{Path(relative_path).as_posix()}",
+            artifact=artifact,
             mode="lines",
             start=start_line,
             end=last_line,
+        )
+    if partial_start_byte is not None and partial_end_byte is not None:
+        _record_debugger_access(
+            agent_state,
+            artifact=artifact,
+            mode="bytes",
+            start=partial_start_byte,
+            end=partial_end_byte,
         )
     return _json(
         {
@@ -198,6 +214,9 @@ def read_file(
             "file_size": file_size,
             "bytes_returned": bytes_returned,
             "content_truncated": content_truncated,
+            "partial_line": partial_line,
+            "partial_start_byte": partial_start_byte,
+            "partial_end_byte": partial_end_byte,
             "has_more_after_range": has_more_after_range,
             "content": "".join(selected),
             "sha256": sha256_file(path),

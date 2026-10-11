@@ -590,6 +590,150 @@ def test_debugger_submission_requires_read_evidence_and_paired_analysis(
     assert "not read" in empty_rejected["error"]
 
 
+def test_debugger_line_citations_require_complete_returned_lines(
+    tmp_path: Path,
+) -> None:
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    first_line = b'{"event":"setup"}\n'
+    second_line = b'{"event":"UNREAD_FAILURE"}\n'
+    trace = evidence / "trace.jsonl"
+    trace.write_bytes(first_line + second_line)
+
+    def make_state(name: str) -> _AgentState:
+        return _AgentState(
+            {
+                "meta_role": "debugger",
+                "meta_read_roots": {"evidence": str(evidence)},
+                "meta_write_roots": {},
+                "meta_output_dir": str(tmp_path / name),
+                "debugger_task": {"task_id": "task-1", "task_key": "opaque-1"},
+                "debugger_task_key": "opaque-1",
+                "debugger_primary_artifact": "evidence:trace.jsonl",
+                "debugger_trial_classes": ["other"],
+                "debugger_artifact_classes": {},
+            }
+        )
+
+    def submit(
+        state: _AgentState,
+        citation: dict[str, int | str],
+    ) -> dict[str, object]:
+        return tools.submit_debugger_diagnosis(
+            primary_failure_class="none",
+            earliest_failure="The cited range is the only asserted evidence.",
+            evidence=[
+                {
+                    "citation": citation,
+                    "observation": "The cited range contains the observation.",
+                    "implication": "Only returned content may support this claim.",
+                }
+            ],
+            evidence_coverage={
+                "artifacts_read": ["evidence:trace.jsonl"],
+                "limitations": [],
+            },
+            paired_comparison={
+                "status": "unavailable",
+                "passing_evidence": [],
+                "failing_evidence": [],
+                "earliest_divergence": "",
+                "limitation": "No comparable passing and failing trials exist.",
+            },
+            root_cause="No root cause is inferred beyond the cited content.",
+            contributing_factors=[],
+            recommended_changes=[],
+            recurrent_pattern_key="",
+            confidence=0.0,
+            falsifier="A complete read could change the observation.",
+            agent_state=state,  # type: ignore[arg-type]
+        )
+
+    exact_state = make_state("exact-boundary")
+    exact = json.loads(
+        tools.read_file(
+            root="evidence",
+            relative_path="trace.jsonl",
+            start_line=1,
+            end_line=2,
+            max_bytes=len(first_line),
+            agent_state=exact_state,  # type: ignore[arg-type]
+        )
+    )
+    assert exact["content"] == first_line.decode()
+    assert exact["end_line"] == 1
+    assert exact["partial_line"] is None
+    exact_rejected = submit(
+        exact_state,
+        {
+            "artifact": "evidence:trace.jsonl",
+            "line_start": 2,
+            "line_end": 2,
+        },
+    )
+    assert exact_rejected["status"] == "error"
+    assert "not covered" in str(exact_rejected["error"])
+
+    partial_state = make_state("partial-line")
+    partial_byte_count = 5
+    partial = json.loads(
+        tools.read_file(
+            root="evidence",
+            relative_path="trace.jsonl",
+            start_line=1,
+            end_line=2,
+            max_bytes=len(first_line) + partial_byte_count,
+            agent_state=partial_state,  # type: ignore[arg-type]
+        )
+    )
+    assert partial["end_line"] == 1
+    assert partial["partial_line"] == 2
+    assert partial["partial_start_byte"] == len(first_line)
+    assert partial["partial_end_byte"] == len(first_line) + partial_byte_count
+    partial_line_rejected = submit(
+        partial_state,
+        {
+            "artifact": "evidence:trace.jsonl",
+            "line_start": 2,
+            "line_end": 2,
+        },
+    )
+    assert partial_line_rejected["status"] == "error"
+    assert "not covered" in str(partial_line_rejected["error"])
+
+    partial_bytes_accepted = submit(
+        partial_state,
+        {
+            "artifact": "evidence:trace.jsonl",
+            "start_byte": len(first_line),
+            "end_byte": len(first_line) + partial_byte_count,
+        },
+    )
+    assert partial_bytes_accepted["ok"] is True
+
+    complete = json.loads(
+        tools.read_file(
+            root="evidence",
+            relative_path="trace.jsonl",
+            start_line=2,
+            end_line=2,
+            max_bytes=len(second_line),
+            agent_state=partial_state,  # type: ignore[arg-type]
+        )
+    )
+    assert complete["content"] == second_line.decode()
+    assert complete["end_line"] == 2
+    complete_line_accepted = submit(
+        partial_state,
+        {
+            "artifact": "evidence:trace.jsonl",
+            "line_start": 2,
+            "line_end": 2,
+        },
+    )
+    assert complete_line_accepted["ok"] is True
+
+
 def test_debugger_task_runs_as_read_only_nexau_agent(
     tmp_path: Path,
     monkeypatch,

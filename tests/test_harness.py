@@ -242,3 +242,83 @@ def test_v2_conformance_accepts_transitive_tool_support_modules(
             "recorded": "padded",
             "note_count": 1,
         }
+
+
+@pytest.mark.parametrize("import_scope", ["eager", "lazy"])
+@pytest.mark.parametrize("import_style", ["absolute", "relative"])
+def test_v2_conformance_attaches_nested_package_initializers(
+    tmp_path: Path,
+    import_scope: str,
+    import_style: str,
+) -> None:
+    config_path = make_example_project(tmp_path)
+    project = config_path.parent
+    manifest = load_harness_manifest(project / "harness_manifest.yaml")
+    harness = project / "harness"
+    tools = harness / "tools"
+    helpers = tools / "helpers"
+    helpers.mkdir()
+    (tools / "__init__.py").write_text("", encoding="utf-8")
+    (helpers / "__init__.py").write_text(
+        "from .settings import STRIP_NOTES\n",
+        encoding="utf-8",
+    )
+    (helpers / "settings.py").write_text(
+        "STRIP_NOTES = True\n",
+        encoding="utf-8",
+    )
+    (helpers / "normalize.py").write_text(
+        "from . import STRIP_NOTES\n\n"
+        "def normalize_note(value: str) -> str:\n"
+        "    return value.strip() if STRIP_NOTES else value\n",
+        encoding="utf-8",
+    )
+    import_line = (
+        "from tools.helpers.normalize import normalize_note"
+        if import_style == "absolute"
+        else "from .helpers.normalize import normalize_note"
+    )
+    tool_path = tools / "record_note.py"
+    source = tool_path.read_text(encoding="utf-8")
+    if import_scope == "eager":
+        source = source.replace(
+            "from typing import Any\n",
+            f"from typing import Any\n\n{import_line}\n",
+        )
+    else:
+        source = source.replace(
+            "    notes = list(",
+            f"    {import_line}\n\n    notes = list(",
+        )
+    source = source.replace(
+        "    notes = list(",
+        "    note = normalize_note(note)\n    notes = list(",
+    )
+    tool_path.write_text(source, encoding="utf-8")
+
+    report = validate_harness(
+        harness,
+        manifest,
+        project_root=project,
+        run_nexau_smoke=False,
+    )
+    assert report["conformance"]["registrations"]["tool_implementations"] == [
+        "tools/__init__.py",
+        "tools/helpers/__init__.py",
+        "tools/helpers/normalize.py",
+        "tools/helpers/settings.py",
+        "tools/record_note.py",
+    ]
+
+    values: dict[str, object] = {}
+    state = SimpleNamespace(
+        get_global_value=lambda key, default=None: values.get(key, default),
+        set_global_value=lambda key, value: values.__setitem__(key, value),
+    )
+    with HarnessImportScope(harness):
+        from tools.record_note import record_note
+
+        assert record_note(" padded ", state) == {
+            "recorded": "padded",
+            "note_count": 1,
+        }

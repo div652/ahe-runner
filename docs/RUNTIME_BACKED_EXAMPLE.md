@@ -31,7 +31,7 @@ Each trial persists:
 - a JSONL trace with user input, model outputs, action arguments/results, and
   final text;
 - an independently recomputed exact-match reward;
-- schema-V2 evidence linked to the verified evaluation artifacts.
+- schema-V3 evidence linked to the verified evaluation artifacts.
 
 Validation and test prompts, protected code values, and verifier fixtures are
 not exposed through meta-agent source roots.

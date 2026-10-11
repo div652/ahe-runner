@@ -538,9 +538,7 @@ def _static_local_import_sources(root: Path, source: Path) -> set[str]:
         except (OSError, SyntaxError, UnicodeDecodeError):
             continue
         for module_name in _local_import_names(root, current, tree):
-            dependency = _resolve_local_module(root, module_name)
-            if dependency is not None:
-                pending.append(dependency)
+            pending.extend(_resolve_local_module_paths(root, module_name))
     return discovered
 
 
@@ -575,15 +573,27 @@ def _local_import_names(
     return {name for name in names if name}
 
 
-def _resolve_local_module(root: Path, module_name: str) -> Path | None:
+def _resolve_local_module_paths(root: Path, module_name: str) -> tuple[Path, ...]:
     parts = module_name.split(".")
     module_path = root.joinpath(*parts).with_suffix(".py")
-    if module_path.is_file() and _inside(root, module_path.resolve()):
-        return module_path.resolve()
     package_path = root.joinpath(*parts, "__init__.py")
-    if package_path.is_file() and _inside(root, package_path.resolve()):
-        return package_path.resolve()
-    return None
+    if module_path.is_file() and _inside(root, module_path.resolve()):
+        target = module_path.resolve()
+        package_depth = len(parts) - 1
+    elif package_path.is_file() and _inside(root, package_path.resolve()):
+        target = package_path.resolve()
+        package_depth = len(parts)
+    else:
+        return ()
+
+    dependencies: list[Path] = []
+    for depth in range(1, package_depth + 1):
+        initializer = root.joinpath(*parts[:depth], "__init__.py")
+        if initializer.is_file() and _inside(root, initializer.resolve()):
+            dependencies.append(initializer.resolve())
+    if target not in dependencies:
+        dependencies.append(target)
+    return tuple(dependencies)
 
 
 def _validate_tool_schema(
