@@ -352,7 +352,10 @@ def test_debugger_submission_requires_read_evidence_and_paired_analysis(
     passing_trace = evidence / "passing.jsonl"
     passing_trace.write_text('{"event": "verified before acting"}\n', encoding="utf-8")
     failing_trace = evidence / "failing.jsonl"
-    failing_trace.write_text('{"event": "acted before verification"}\n', encoding="utf-8")
+    failing_trace.write_text(
+        '{"event": "acted before verification"}\n',
+        encoding="utf-8",
+    )
     output = tmp_path / "output"
     state = _AgentState(
         {
