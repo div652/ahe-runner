@@ -3,6 +3,9 @@
 This document records the implementation decisions taken from
 `AHE_COMPLIANCE_AUDIT.md` before changing the runner.
 
+**Status:** Implemented and validated. All accepted finding groups below are
+complete. See `AHE_COMPLIANCE_SUMMARY.md` and `VALIDATION_RESULTS.md`.
+
 The repair target is the pinned public AHE implementation at
 `8b2a55d97590363fe50c3cc6b5e833b020a4bb4c`, while retaining the approved
 general-purpose NexAU product boundaries:
@@ -120,3 +123,7 @@ The repair is complete only when deterministic reproductions show:
 - changing any frozen protected input prevents resume;
 - the runtime-backed example uses the public adapter/session API without
   patching runner internals.
+
+All acceptance items passed in the final 43-test suite. The clean wheel also
+validated both generated configurations, completed the three-round offline
+campaign through C3, and resumed without adding stage attempts.

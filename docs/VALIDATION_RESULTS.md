@@ -1,65 +1,67 @@
 # Validation Results
 
-Validated at `2026-10-11T14:10:17Z`.
+Validated at `2026-10-11T17:25:44Z`.
 
 ## Source identity
 
-- Tested Git commit: `eb7ec9838468c5f8d9ded553174ddc5b28691099`
+- Tested Git commit:
+  `646429ba9a8aed2e327db86cc215423fb599ef11`
 - Package: `ahe-runner 0.2.0`
 - Python: `3.14.7` (`ahe-runner` requires Python `>=3.12`)
-- NexAU: `0.3.9`, pinned upstream commit
-  `35ee1861546db3cb280a6e17e38a74060d7c96c3`
+- NexAU: `0.3.9`
 - OpenAI Python: `3.28.0`
 - Pydantic: `2.14.0`
 - PyYAML: `6.0.3`
 - Pytest: `9.1.1`
 - Ruff: `0.17.0`
 
-The tested commit is the complete V2 implementation before this
+The tested commit contains the complete compliance repair before this
 documentation-only validation record was added.
 
 ## Static checks
 
 ```text
-ruff check src tests run_ahe.py
+ruff check .
 All checks passed!
 
-ruff format --check src tests run_ahe.py
-57 files already formatted
-
-python -m compileall -q src tests run_ahe.py
-exit 0
+ruff format --check .
+94 files already formatted
 ```
 
 ## Automated tests
 
 ```text
 pytest -q
-20 passed in 26.22s
+43 passed in 64.02s
 ```
 
 The suite covers:
 
-- schema-2 manifest and Harness ABI V2 registration checks;
-- rejection of inactive components and tool schema/callable mismatches;
-- protected and runtime-owned candidate fields;
-- real NexAU `Agent`/`Executor` execution with a deterministic fake model
-  client;
-- recursive root/sub-agent evaluated-model overrides;
-- long-term-memory attachment;
-- internal harness-tool execution;
-- protected structured-action schema injection without prompt injection;
-- exact protected result call-ID matching;
-- fail-closed rejection of mixed protected and harness calls;
-- state preservation within a session and isolation across sessions;
-- local sandbox binding to an explicit per-trial workspace;
-- checkpoint-pure imports with no bytecode mutation;
-- deterministic campaign lifecycle, Git recovery, and idempotent resume.
+- Harness ABI V2 registrations, root-config selection, transitive support
+  modules, protected/runtime-owned fields, and short task-ID handling;
+- real NexAU evaluated-agent execution with deterministic fake model clients;
+- protected action capture before candidate continuation, exact call-ID
+  results, failed-completion repair, and mixed-call rejection;
+- exact model/reasoning/temperature/output/retry enforcement;
+- strict per-change manifests, heuristic prediction/risk observations, and
+  unattributed/unanticipated task changes;
+- bounded Debugger reads/searches over large traces and mandatory paired
+  analysis or explicit evidence limitations;
+- checkpoint history/diff inspection and selective rollback preserving an
+  unrelated improvement;
+- evaluation request identity, exact task/trial coverage, artifact maps,
+  independent adapter verification, evidence lineage, stale-metric rejection,
+  and sanitized task IDs;
+- explicit public adapter roots, hidden-sentinel isolation, append-only role
+  supplements, Web research seeds, and protected-input resume invalidation;
+- atomic selected-harness publication and interrupted Evolve recovery;
+- the bundled runtime-backed direct task and adapter-owned protected action;
+- deterministic campaign lifecycle and idempotent resume.
 
 ## Distribution build
 
 ```text
-uv build
+uv build --out-dir dist
 Successfully built dist/ahe_runner-0.2.0.tar.gz
 Successfully built dist/ahe_runner-0.2.0-py3-none-any.whl
 ```
@@ -68,51 +70,47 @@ Artifacts:
 
 ```text
 ahe_runner-0.2.0-py3-none-any.whl
-sha256: fcda2d914152f3f558aac358f7bf892d5c1f3217c3269af95590403bf9619aa9
+sha256: f3fc7ded03a91ae3c8af409cd3b632d6751973002f0e92158994c13e7ab0762f
 
 ahe_runner-0.2.0.tar.gz
-sha256: 62b401b038af360faf6262ac1db52c17ef4a63f5a28e42ea7361674448bb5135
+sha256: eb0ce69f1da38cd33ac154f33cf905a823d5615040820c4bea315aab895db858
 ```
 
-Distribution inspection verified:
+## Clean-wheel generated-project validation
 
-- V2 runtime and conformance modules are packaged;
-- the ABI V2 generated project, internal tool, skill, and reviewer sub-agent
-  are packaged;
-- Python bytecode and `__pycache__` artifacts are absent.
+The wheel was installed with the `web` extra into a fresh temporary `uv`
+environment. Using only that installation:
 
-## Clean-wheel generated-project campaign
-
-The wheel was installed with the `web` extra into a fresh `uv` environment.
-Using only that installation:
-
-1. `ahe init-project`
-2. set `campaign.rounds: 1`
-3. `ahe conformance`
-4. `ahe run`
-5. `ahe resume`
+1. `ahe init-project`;
+2. conformance for offline `ahe.yaml`;
+3. conformance for runtime-backed `ahe.runtime.yaml`;
+4. the complete three-round offline campaign;
+5. `ahe resume`.
 
 Observed:
 
-- adapter API generation `v2`;
-- harness ABI `ahe.harness/v2`;
-- conformance valid;
-- checkpoints `C0`, `C1`;
-- selected checkpoint `C1`;
-- 18 completed stages;
-- no blocked or interrupted stages;
-- `resume` returned an identical campaign status without adding work.
+```json
+{
+  "checkpoints": ["C0", "C1", "C2", "C3"],
+  "offline_conformance": true,
+  "runtime_conformance": true,
+  "selected_checkpoint": "C3",
+  "stage_count": 34,
+  "resume_idempotent": true
+}
+```
 
-NexAU emitted its informational message that the optional E2B SDK was not
-installed. This deterministic campaign used NexAU's local execution path and
-did not require E2B.
+The second run added no stage attempts, and the selected harness was present
+under `final/selected-harness/agent.yaml`.
 
 ## Live endpoint scope
 
-No live model-backed benchmark campaign was executed. That requires an
-operator-approved endpoint, exact advertised model ID, reasoning effort,
-task/attempt scope, and concurrency.
+No live model-backed benchmark campaign was executed. Such a run requires an
+operator-approved endpoint, exact advertised model IDs, reasoning settings,
+task/attempt scope, concurrency, and spend.
 
-The protected action boundary was validated against real NexAU execution and
-OpenAI-compatible response objects with a deterministic fake client. Existing
-model-access tests cover exact observable-model checks and negative controls.
+The runtime-backed adapter was exercised through the public session API with a
+deterministic fake runtime, while the protected action boundary itself was
+tested through real NexAU execution with deterministic OpenAI-compatible
+responses. Clean-wheel conformance proves that the generated live
+configuration and adapter load without runner patches.
