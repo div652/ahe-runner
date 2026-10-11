@@ -324,7 +324,7 @@ def submit_debugger_diagnosis(
     task = dict(_context_value(agent_state, "debugger_task"))
     expected_task_id = task.get("task_id")
     payload = {
-        "schema_version": 2,
+        "schema_version": 3,
         "task_id": expected_task_id,
         "primary_failure_class": primary_failure_class,
         "earliest_failure": earliest_failure,
