@@ -118,7 +118,10 @@ def test_runtime_example_uses_public_session_and_protected_action_api(
     tmp_path: Path,
 ) -> None:
     config = load_config(make_example_project(tmp_path))
-    adapter = RuntimeExampleAdapter()
+    adapter = RuntimeExampleAdapter(
+        project_root=config.project_root,
+        settings={},
+    )
     request = EvaluationRequest(
         checkpoint="C0",
         harness_dir=config.harness_dir,
