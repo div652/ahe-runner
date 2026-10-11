@@ -24,7 +24,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from .adapter import BenchmarkInterface, BenchmarkToolSpec
 from .config import ModelSettings, TransportSettings
 from .errors import ConfigurationError, IntegrityError
-from .harness import HarnessManifest
+from .harness import HarnessManifest, matched_component_paths
+from .harness_imports import HarnessImportScope
 from .io import atomic_write_json, tree_sha256
 from .meta.model_client import RecordedExactModelClient
 
@@ -243,8 +244,13 @@ class EvaluatedAgentRuntime:
         self._artifact_root = artifact_root.resolve()
         self._artifact_root.mkdir(parents=True, exist_ok=True)
         self._sessions: dict[str, EvaluatedAgentSession] = {}
+        self._closed = False
+        self._import_scope = HarnessImportScope(self._harness_dir)
+        self._import_scope.__enter__()
 
     def open_session(self, request: AgentSessionRequest) -> EvaluatedAgentSession:
+        if self._closed:
+            raise RuntimeError("evaluated-agent runtime is closed")
         if request.session_id in self._sessions:
             raise ConfigurationError(
                 f"session_id {request.session_id!r} is already open"
@@ -332,8 +338,14 @@ class EvaluatedAgentRuntime:
         return session
 
     def close(self) -> None:
-        for session in list(self._sessions.values()):
-            session.close()
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            for session in list(self._sessions.values()):
+                session.close()
+        finally:
+            self._import_scope.__exit__(None, None, None)
 
     def _validate_benchmark_tools(
         self,
@@ -503,12 +515,25 @@ def _attach_long_term_memory(
     harness_dir: Path,
     manifest: HarnessManifest,
 ) -> None:
-    paths = manifest.components.long_term_memory
+    if (
+        manifest.schema_version == 2
+        and (
+            manifest.attachments is None
+            or manifest.attachments.long_term_memory != "system_prompt_suffix"
+        )
+    ):
+        raise ConfigurationError(
+            "V2 long-term memory requires system_prompt_suffix attachment"
+        )
+    paths = matched_component_paths(
+        harness_dir,
+        manifest.components.long_term_memory,
+    )
     if not paths:
         return
     sections: list[str] = []
-    for relative_path in paths:
-        path = harness_dir / relative_path
+    for path in paths:
+        relative_path = path.relative_to(harness_dir).as_posix()
         sections.append(
             f"## Persistent harness memory: {relative_path}\n\n"
             f"{path.read_text(encoding='utf-8').strip()}"

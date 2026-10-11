@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import fnmatch
+import importlib.metadata
 import json
 import subprocess
 import sys
 from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field
@@ -41,11 +42,17 @@ class HarnessLimits(HarnessModel):
     maximum_tree_bytes: int = Field(default=8_000_000, gt=0)
 
 
+class HarnessAttachments(HarnessModel):
+    long_term_memory: Literal["system_prompt_suffix"]
+
+
 class HarnessManifest(HarnessModel):
     schema_version: int
+    abi_version: str | None = None
     framework: FrameworkDeclaration
     agent_config: str
     components: ComponentGlobs
+    attachments: HarnessAttachments | None = None
     runtime_owned: list[str] = Field(default_factory=list)
     required_files: list[str]
     protected_agent_fields: dict[str, Any] = Field(default_factory=dict)
@@ -60,10 +67,22 @@ def load_harness_manifest(path: Path) -> HarnessManifest:
         manifest = HarnessManifest.model_validate(value)
     except Exception as exc:
         raise ConfigurationError(str(exc)) from exc
-    if manifest.schema_version != 1:
+    if manifest.schema_version not in {1, 2}:
         raise ConfigurationError("unsupported harness manifest schema")
     if manifest.framework.name != "nexau":
-        raise ConfigurationError("version 1 supports only NexAU harnesses")
+        raise ConfigurationError("AHE Runner supports only NexAU harnesses")
+    if manifest.schema_version == 1:
+        if manifest.abi_version is not None or manifest.attachments is not None:
+            raise ConfigurationError(
+                "schema 1 cannot declare abi_version or attachments"
+            )
+    elif (
+        manifest.abi_version != "ahe.harness/v2"
+        or manifest.attachments is None
+    ):
+        raise ConfigurationError(
+            "schema 2 requires abi_version 'ahe.harness/v2' and attachments"
+        )
     return manifest
 
 
@@ -133,6 +152,29 @@ def validate_harness(
             )
         )
 
+    conformance: dict[str, Any] | None = None
+    if manifest.schema_version == 2:
+        from .conformance import validate_v2_conformance
+
+        conformance = validate_v2_conformance(
+            harness_dir=root,
+            manifest=manifest,
+            component_matches=component_matches,
+        )
+        errors.extend(conformance["errors"])
+        warnings.extend(conformance["warnings"])
+    else:
+        try:
+            installed_version = importlib.metadata.version(manifest.framework.name)
+        except importlib.metadata.PackageNotFoundError:
+            installed_version = None
+        if installed_version != manifest.framework.version:
+            errors.append(
+                "installed NexAU version does not match harness manifest: "
+                f"expected {manifest.framework.version!r}, "
+                f"received {installed_version!r}"
+            )
+
     for path in files:
         if path.suffix == ".py":
             try:
@@ -165,6 +207,7 @@ def validate_harness(
     if run_nexau_smoke and not errors:
         smoke = _smoke_load_nexau_config(
             agent_path=agent_path,
+            harness_root=root,
             project_root=project_root,
         )
         if smoke.get("ok") is not True:
@@ -182,6 +225,7 @@ def validate_harness(
         "harness_files": file_hashes,
         "harness_sha256": sha256_json(file_hashes),
         "components": component_matches,
+        "conformance": conformance,
         "runtime_owned_hashes": {
             path: file_hashes[path] for path in sorted(runtime_owned)
         },
@@ -200,6 +244,20 @@ def _component_matches(
         name: sorted(_match_patterns(relative_files, patterns))
         for name, patterns in components.model_dump(mode="python").items()
     }
+
+
+def matched_component_paths(
+    root: Path,
+    patterns: Iterable[str],
+) -> tuple[Path, ...]:
+    """Resolve manifest component globs to files inside one harness."""
+
+    files = {
+        path.relative_to(root).as_posix()
+        for path in root.rglob("*")
+        if path.is_file() and not path.is_symlink()
+    }
+    return tuple(root / path for path in sorted(_match_patterns(files, patterns)))
 
 
 def _match_patterns(files: set[str], patterns: Iterable[str]) -> set[str]:
@@ -370,6 +428,7 @@ def _reject_task_memorization(
 def _smoke_load_nexau_config(
     *,
     agent_path: Path | None,
+    harness_root: Path,
     project_root: Path,
 ) -> dict[str, Any]:
     if agent_path is None:
@@ -380,6 +439,7 @@ def _smoke_load_nexau_config(
             "-m",
             "ahe_runner.harness_smoke",
             str(agent_path),
+            str(harness_root),
         ],
         cwd=project_root,
         text=True,

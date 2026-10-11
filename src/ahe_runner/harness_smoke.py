@@ -8,24 +8,28 @@ from pathlib import Path
 
 from nexau import AgentConfig
 
+from .harness_imports import HarnessImportScope
+
 
 def main() -> int:
     path = Path(sys.argv[1]).resolve()
-    config = AgentConfig.from_yaml(path)
-    print(
-        json.dumps(
-            {
-                "ok": True,
-                "name": config.name,
-                "tool_call_mode": config.tool_call_mode,
-                "tool_count": len(config.tools or []),
-                "skill_count": len(config.skills or []),
-                "sub_agent_count": len(config.sub_agents or {}),
-                "middleware_count": len(config.middlewares or []),
-            },
-            sort_keys=True,
+    harness_root = Path(sys.argv[2]).resolve()
+    with HarnessImportScope(harness_root):
+        config = AgentConfig.from_yaml(path)
+        print(
+            json.dumps(
+                {
+                    "ok": True,
+                    "name": config.name,
+                    "tool_call_mode": config.tool_call_mode,
+                    "tool_count": len(config.tools or []),
+                    "skill_count": len(config.skills or []),
+                    "sub_agent_count": len(config.sub_agents or {}),
+                    "middleware_count": len(config.middlewares or []),
+                },
+                sort_keys=True,
+            )
         )
-    )
     return 0
 
 

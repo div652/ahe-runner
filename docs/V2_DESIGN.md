@@ -236,6 +236,9 @@ its own evolvable editing/search tools.
 ```yaml
 schema_version: 2
 abi_version: ahe.harness/v2
+
+attachments:
+  long_term_memory: system_prompt_suffix
 ```
 
 The runner verifies:
@@ -255,6 +258,11 @@ The runner verifies:
 V2 long-term memory initially supports explicit system-prompt-suffix
 attachment. Short-term memory is NexAU session history, not a Markdown
 component.
+
+Checkpoint-local Python bindings are loaded with the harness root temporarily
+isolated on `sys.path`, so the same relative import works in the operator seed,
+an Evolve workspace, and an immutable checkpoint. V2 local tool bindings must
+resolve when the session opens rather than using NexAU lazy imports.
 
 ## Artifact policy
 
@@ -323,4 +331,3 @@ V2 does not add:
 - mid-episode persistence or exact partial-episode resume;
 - automatic quality scoring of Explore seeds;
 - support for agent frameworks other than NexAU.
-
