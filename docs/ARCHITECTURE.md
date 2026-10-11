@@ -302,6 +302,12 @@ The runner owns:
 - campaign history and attribution;
 - final checkpoint export.
 
+Before accepting an adapter result, the runner binds it to the exact evaluation
+request and verifies a common unit envelope: checkpoint/split identity,
+task-by-trial coverage, seeds, completion paths and hashes, task-state/rollout
+coverage, primary-metric consistency, and the complete artifact map. The
+adapter still independently recomputes benchmark-native rewards and semantics.
+
 The immutable `BenchmarkInterface` declares prompt/data/repository/environment
 inputs and the complete protected structured-action surface. It is frozen into
 campaign identity and shown to Source Explore, Debugger, and Evolve.
@@ -333,7 +339,7 @@ evidence/Ci-train/
 
 `evidence_manifest.json` records:
 
-- checkpoint and source evaluation identity;
+- checkpoint, source evaluation ID/path/hash, and source request identity;
 - supervision policy (`dense` or `sanitized`);
 - native primary metric name, value, and direction;
 - secondary metrics;
@@ -342,8 +348,13 @@ evidence/Ci-train/
 - whether true task IDs are exposed;
 - paths the Debugger may read.
 
-Each task document contains the adapter-approved task identity, trial outcomes,
-complete allowed diagnostic evidence, canonical events, and source hashes.
+Each schema-version-2 task document contains the adapter-approved task identity
+and one common envelope per expected trial: evaluation unit ID, trial index,
+seed, native outcome/score, termination reason, and hashed evaluation-relative
+trace plus result/evaluator artifacts. Benchmark-native events remain nested
+under that envelope. The runner rejects missing trials, invented artifacts,
+foreign source evaluations, and metrics that differ from the accepted source
+evaluation.
 Validation and test adapters never create an evidence bundle accessible to the
 meta-agents.
 

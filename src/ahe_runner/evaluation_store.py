@@ -28,6 +28,7 @@ class EvaluationStore:
         self,
         *,
         output_dir: Path,
+        request_sha256: str,
         semantic_inputs: dict[str, Any],
         task_ids: list[str],
         trials: int,
@@ -36,13 +37,20 @@ class EvaluationStore:
         if trials != len(trial_seeds):
             raise ValueError("trial seed count does not match trials")
         self.output_dir = output_dir.resolve()
+        self.request_sha256 = request_sha256
         self.semantic_inputs = semantic_inputs
-        self.run_id = sha256_json(semantic_inputs)[:24]
+        self.run_id = sha256_json(
+            {
+                "request_sha256": request_sha256,
+                "adapter_semantic_inputs": semantic_inputs,
+            }
+        )[:24]
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.manifest_path = self.output_dir / "run_manifest.json"
         manifest = {
             "schema_version": 1,
             "run_id": self.run_id,
+            "request_sha256": request_sha256,
             "semantic_inputs": semantic_inputs,
             "semantic_inputs_sha256": sha256_json(semantic_inputs),
             "task_ids": task_ids,

@@ -366,6 +366,7 @@ def test_debugger_task_runs_as_read_only_nexau_agent(
         state="insufficient",
         detail_path="tasks/opaque.json",
         detail_sha256=sha256_file(detail),
+        trial_count=1,
     )
 
     def fake_run_agent(**kwargs):  # type: ignore[no-untyped-def]

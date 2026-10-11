@@ -26,6 +26,7 @@ from ahe_runner.adapter import (
     ValidationResult,
     VerificationRequest,
 )
+from ahe_runner.evaluation import evaluation_request_sha256
 from ahe_runner.evaluation_store import EvaluationStore
 from ahe_runner.io import (
     atomic_write_json,
@@ -110,6 +111,7 @@ class ExampleAdapter(BenchmarkAdapterV2):
         }
         store = EvaluationStore(
             output_dir=request.output_dir,
+            request_sha256=evaluation_request_sha256(request),
             semantic_inputs=semantic_inputs,
             task_ids=request.split.task_ids,
             trials=request.trials,
@@ -158,14 +160,11 @@ class ExampleAdapter(BenchmarkAdapterV2):
         summary = _summarize(store)
         payload = EvaluationResult(
             evaluation_id=store.run_id,
+            request_sha256=evaluation_request_sha256(request),
             checkpoint=request.checkpoint,
             split=request.split.name,
             summary=summary,
-            artifact_hashes={
-                path: digest
-                for path, digest in tree_hashes(request.output_dir).items()
-                if path not in {"adapter_result.json", "evaluation_result.json"}
-            },
+            artifact_hashes=_evaluation_artifact_hashes(request.output_dir),
         )
         store.finalize(payload.model_dump(mode="json"))
         atomic_write_json(
@@ -178,8 +177,15 @@ class ExampleAdapter(BenchmarkAdapterV2):
         self,
         request: VerificationRequest,
     ) -> EvaluationResult:
-        return EvaluationResult.model_validate(
-            read_json(request.evaluation.output_dir / "adapter_result.json")
+        evaluation = request.evaluation
+        manifest = read_json(evaluation.output_dir / "run_manifest.json")
+        return EvaluationResult(
+            evaluation_id=str(manifest["run_id"]),
+            request_sha256=evaluation_request_sha256(evaluation),
+            checkpoint=evaluation.checkpoint,
+            split=evaluation.split.name,
+            summary=_summarize_output(evaluation.output_dir),
+            artifact_hashes=_evaluation_artifact_hashes(evaluation.output_dir),
         )
 
     def materialize_training_evidence(
@@ -198,18 +204,39 @@ class ExampleAdapter(BenchmarkAdapterV2):
                 if unit["task_key"] != state.task_key:
                     continue
                 completion = read_json(unit_dir / "complete.json")
-                result = read_json(Path(completion["result_path"]))
+                result_path = Path(completion["result_path"])
+                result = read_json(result_path)
                 trace_path = Path(completion["trace_path"])
                 source_units.append(
                     {
-                        "unit": unit,
-                        "result": result,
-                        "trace_path": str(trace_path),
-                        "trace_sha256": sha256_file(trace_path),
+                        "unit_id": unit["unit_id"],
+                        "trial": unit["trial"],
+                        "seed": unit["seed"],
+                        "outcome": "pass" if result["reward"] else "fail",
+                        "score": result["reward"],
+                        "termination_reason": result["termination_reason"],
+                        "artifacts": [
+                            {
+                                "kind": "result",
+                                "path": result_path.relative_to(
+                                    request.evaluation_dir
+                                ).as_posix(),
+                                "sha256": sha256_file(result_path),
+                            },
+                            {
+                                "kind": "trace",
+                                "path": trace_path.relative_to(
+                                    request.evaluation_dir
+                                ).as_posix(),
+                                "sha256": sha256_file(trace_path),
+                            },
+                        ],
+                        "native_result": result,
                     }
                 )
+            source_units.sort(key=lambda row: int(row["trial"]))
             detail = {
-                "schema_version": 1,
+                "schema_version": 2,
                 "task_key": state.task_key,
                 "task_id": state.task_id,
                 "state": state.state,
@@ -224,15 +251,18 @@ class ExampleAdapter(BenchmarkAdapterV2):
                     "state": state.state,
                     "detail_path": str(detail_path.relative_to(request.output_dir)),
                     "detail_sha256": sha256_file(detail_path),
+                    "trial_count": len(source_units),
                 }
             )
         source_result = request.evaluation_dir / "adapter_result.json"
         manifest = {
-            "schema_version": 1,
+            "schema_version": 2,
             "checkpoint": request.checkpoint,
             "supervision_policy": "dense",
             "true_task_ids_exposed": True,
             "source_evaluation": str(source_result),
+            "source_evaluation_id": evaluation.evaluation_id,
+            "source_request_sha256": evaluation.request_sha256,
             "source_evaluation_sha256": sha256_file(source_result),
             "metrics": evaluation.summary.model_dump(mode="json"),
             "tasks": task_rows,
@@ -243,6 +273,10 @@ class ExampleAdapter(BenchmarkAdapterV2):
             f"# {request.checkpoint} example training evidence\n\n"
             f"Primary score: {evaluation.summary.primary.value:.4f}\n",
             encoding="utf-8",
+        )
+        atomic_write_json(
+            request.output_dir / "metrics.json",
+            evaluation.summary.model_dump(mode="json"),
         )
         return EvidenceBundle(
             checkpoint=request.checkpoint,
@@ -310,11 +344,18 @@ def _harness_prompt_hash(harness_dir: Path) -> str:
 
 
 def _summarize(store: EvaluationStore) -> MetricSummary:
+    return _summarize_output(store.output_dir)
+
+
+def _summarize_output(output_dir: Path) -> MetricSummary:
     by_task: dict[str, list[dict[str, Any]]] = {}
-    for unit in store.units:
-        completion = read_json(unit.artifact_dir / "complete.json")
+    for unit_dir in sorted((output_dir / "units").iterdir()):
+        unit = read_json(unit_dir / "unit.json")
+        completion = read_json(unit_dir / "complete.json")
         result = read_json(Path(completion["result_path"]))
-        by_task.setdefault(unit.task_id, []).append(result)
+        if result["task_id"] != unit["task_id"]:
+            raise ValueError("result task identity does not match unit identity")
+        by_task.setdefault(str(unit["task_id"]), []).append(result)
     states: list[TaskState] = []
     total_successes = 0
     total_rollouts = 0
@@ -342,3 +383,11 @@ def _summarize(store: EvaluationStore) -> MetricSummary:
         task_states=states,
         resource_totals={"calls": total_rollouts},
     )
+
+
+def _evaluation_artifact_hashes(output_dir: Path) -> dict[str, str]:
+    return {
+        path: digest
+        for path, digest in tree_hashes(output_dir).items()
+        if path not in {"adapter_result.json", "evaluation_result.json"}
+    }

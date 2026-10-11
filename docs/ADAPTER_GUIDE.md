@@ -225,11 +225,27 @@ Use `EvaluationStore` to obtain:
 - completed-zero preservation;
 - full-completion finalization.
 
+Pass `evaluation_request_sha256(request)` into `EvaluationStore`. The runner
+independently binds the returned `EvaluationResult.request_sha256` to the exact
+checkpoint tree, split definition, trials, seed, model, transport, and
+concurrency request.
+
 Do not include fresh preflight timestamps, nonces, or process IDs in
 `semantic_inputs`. They are attempt evidence, not run identity.
 
 Return native metrics in `EvaluationResult`. `artifact_hashes` should exclude
-the result files that contain those hashes, avoiding recursive identity.
+the result files that contain those hashes, avoiding recursive identity. It
+must otherwise equal the complete output tree: every unit identity,
+completion record, result, trace, metadata artifact, runtime trace, and log.
+
+The runner verifies the common envelope before accepting adapter semantics:
+
+- result checkpoint/split/request identity;
+- exact task-by-trial unit coverage and trial seeds;
+- result/trace/metadata paths and hashes inside each unit;
+- task-state coverage and rollout counts;
+- primary metric consistency;
+- complete output artifact coverage.
 
 The adapter remains responsible for deciding whether the final text/action
 sequence is a valid benchmark outcome. The runner verifies artifact paths and
@@ -264,23 +280,28 @@ The manifest supplies:
 - checkpoint;
 - supervision policy;
 - whether true task IDs are exposed;
-- source evaluation identity and hash;
+- source evaluation ID, request identity, exact path, and hash;
 - native aggregate metrics;
 - task state;
-- detail path and hash.
+- detail path, hash, and trial count.
 
 Dense evidence may include complete allowed trajectories. Sanitized evidence
 must preserve enough causal information for Debugger while removing protected
 answers or hidden state.
 
-Every detail document should distinguish:
+Every schema-version-2 detail document contains one common trial envelope per
+expected rollout:
 
-- valid outcome, including zero reward;
-- infrastructure failure;
+- source evaluation unit ID, trial index, and seed;
+- native outcome and optional score, including valid zero reward;
 - termination reason;
-- canonical events or trace references;
-- native metric contribution;
-- source hashes.
+- at least one trace plus a result/evaluator artifact;
+- evaluation-relative artifact paths and hashes;
+- optional benchmark-native fields underneath the common envelope.
+
+The runner checks exact task/trial coverage, source evaluation/hash lineage,
+metric equality with the accepted evaluation, and every referenced artifact.
+Native event semantics and reward recomputation remain adapter-owned.
 
 ## `validate_candidate()`
 

@@ -29,6 +29,7 @@ from .adapter import (
 from .change_manifest import load_change_manifest
 from .config import ResolvedConfig
 from .errors import CandidateValidationError, ConfigurationError, IntegrityError
+from .evaluation import verify_evaluation_output
 from .evidence import verify_evidence_bundle
 from .harness import HarnessManifest, load_harness_manifest, validate_harness
 from .history import materialize_history, write_transition
@@ -325,27 +326,10 @@ class CampaignController:
         index: int,
         split_name: SplitName,
     ) -> EvaluationResult:
-        checkpoint = f"C{index}"
+        request = self._evaluation_request(index, split_name)
+        checkpoint = request.checkpoint
         checkpoint_manifest = verify_checkpoint(self._checkpoint_dir(index))
-        split = self.splits[split_name]
-        output_dir = self._evaluation_dir(index, split_name)
-        trials = {
-            SplitName.TRAIN: self.config.document.evaluation.train_trials,
-            SplitName.VALIDATION: self.config.document.evaluation.validation_trials,
-            SplitName.TEST: self.config.document.evaluation.test_trials,
-        }[split_name]
-        request = EvaluationRequest(
-            checkpoint=checkpoint,
-            harness_dir=self._checkpoint_dir(index) / "harness",
-            split=split,
-            trials=trials,
-            root_seed=self.config.document.campaign.root_seed,
-            output_dir=output_dir,
-            model=self.config.document.models.evaluated,
-            transport=self.config.document.transport,
-            api_key=self.config.api_key,
-            max_concurrency=self.config.document.evaluation.max_concurrency,
-        )
+        output_dir = request.output_dir
 
         def action(context: StageContext) -> StageResult:
             del context
@@ -369,9 +353,11 @@ class CampaignController:
                 raise TypeError(
                     f"unsupported adapter generation: {type(self.adapter).__name__}"
                 )
+            verify_evaluation_output(request, result)
             verified = self.adapter.verify_evaluation(
                 VerificationRequest(evaluation=request)
             )
+            verify_evaluation_output(request, verified)
             if verified != result:
                 raise IntegrityError("adapter verification disagrees with evaluation")
             atomic_write_json(
@@ -388,9 +374,9 @@ class CampaignController:
             semantic_inputs={
                 "checkpoint": checkpoint,
                 "harness_sha256": checkpoint_manifest["harness_sha256"],
-                "split_identity": split.identity,
-                "split_task_ids_sha256": sha256_json(split.task_ids),
-                "trials": trials,
+                "split_identity": request.split.identity,
+                "split_task_ids_sha256": sha256_json(request.split.task_ids),
+                "trials": request.trials,
                 "root_seed": self.config.document.campaign.root_seed,
                 "evaluated_model": self.config.document.models.evaluated.model_dump(
                     mode="json"
@@ -404,6 +390,29 @@ class CampaignController:
         )
         self._write_state()
         return EvaluationResult.model_validate(stage.data["evaluation"])
+
+    def _evaluation_request(
+        self,
+        index: int,
+        split_name: SplitName,
+    ) -> EvaluationRequest:
+        trials = {
+            SplitName.TRAIN: self.config.document.evaluation.train_trials,
+            SplitName.VALIDATION: self.config.document.evaluation.validation_trials,
+            SplitName.TEST: self.config.document.evaluation.test_trials,
+        }[split_name]
+        return EvaluationRequest(
+            checkpoint=f"C{index}",
+            harness_dir=self._checkpoint_dir(index) / "harness",
+            split=self.splits[split_name],
+            trials=trials,
+            root_seed=self.config.document.campaign.root_seed,
+            output_dir=self._evaluation_dir(index, split_name),
+            model=self.config.document.models.evaluated,
+            transport=self.config.document.transport,
+            api_key=self.config.api_key,
+            max_concurrency=self.config.document.evaluation.max_concurrency,
+        )
 
     def _ensure_evidence(self, index: int) -> Path:
         checkpoint = f"C{index}"
@@ -426,6 +435,9 @@ class CampaignController:
                 bundle,
                 evidence_dir=output_dir,
                 expected_checkpoint=checkpoint,
+                evaluation_dir=evaluation_dir,
+                source_evaluation=result,
+                source_request=self._evaluation_request(index, SplitName.TRAIN),
             )
             return StageResult(
                 outputs=(output_dir,),

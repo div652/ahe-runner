@@ -14,6 +14,7 @@ def test_valid_zero_completion_is_not_retried_and_attempts_are_absolute(
 ) -> None:
     store = EvaluationStore(
         output_dir=tmp_path / "evaluation",
+        request_sha256="a" * 64,
         semantic_inputs={"checkpoint": "C0", "split": "train"},
         task_ids=["task-a"],
         trials=1,
@@ -51,6 +52,7 @@ def test_valid_zero_completion_is_not_retried_and_attempts_are_absolute(
 def test_attempt_history_gaps_and_incomplete_finalization_fail(tmp_path: Path) -> None:
     store = EvaluationStore(
         output_dir=tmp_path / "evaluation",
+        request_sha256="b" * 64,
         semantic_inputs={"checkpoint": "C0"},
         task_ids=["task-a"],
         trials=1,
@@ -72,6 +74,7 @@ def test_semantic_run_identity_excludes_external_attempt_evidence(
     semantic = {"checkpoint": "C2", "split": "train", "model": "exact"}
     first = EvaluationStore(
         output_dir=tmp_path / "evaluation",
+        request_sha256="c" * 64,
         semantic_inputs=semantic,
         task_ids=["task-a"],
         trials=1,
@@ -83,6 +86,7 @@ def test_semantic_run_identity_excludes_external_attempt_evidence(
     )
     second = EvaluationStore(
         output_dir=tmp_path / "evaluation",
+        request_sha256="c" * 64,
         semantic_inputs=semantic,
         task_ids=["task-a"],
         trials=1,

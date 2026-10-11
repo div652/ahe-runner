@@ -111,6 +111,17 @@ class SplitDefinition(AdapterModel):
     task_ids: list[str]
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("task_ids")
+    @classmethod
+    def validate_task_ids(cls, values: list[str]) -> list[str]:
+        if not values:
+            raise ValueError("split task_ids must not be empty")
+        if any(not value.strip() for value in values):
+            raise ValueError("split task_ids must not contain empty values")
+        if len(values) != len(set(values)):
+            raise ValueError("split task_ids must be unique")
+        return values
+
 
 class MetricValue(AdapterModel):
     name: str
@@ -140,6 +151,7 @@ class MetricSummary(AdapterModel):
 class EvaluationResult(AdapterModel):
     schema_version: int = 1
     evaluation_id: str
+    request_sha256: str
     checkpoint: str
     split: SplitName
     summary: MetricSummary
@@ -148,7 +160,7 @@ class EvaluationResult(AdapterModel):
 
 
 class EvidenceBundle(AdapterModel):
-    schema_version: int = 1
+    schema_version: int = 2
     checkpoint: str
     manifest_path: str
     manifest_sha256: str
