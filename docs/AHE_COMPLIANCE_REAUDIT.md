@@ -1,12 +1,11 @@
 # AHE Compliance Follow-Up Audit
 
-> **Repair closure:** Implementation commit `fe9c03e` closes the two retained
-> F05/F06 boundary cases and the release-version mismatch described in the
-> [Release 0.3.0 closure check](#release-030-closure-check). Focused
-> regressions, the 63-test suite, static checks, and a clean-wheel campaign
-> passed. See
-> [`F05_F06_VERSION_REPAIR.md`](F05_F06_VERSION_REPAIR.md). The original
-> assessment below still refers to `5380f65`, and the closure check preserves
+> **Independently verified closure (`5b39c27`):** All three remaining repairs
+> from `fe9c03e` are confirmed. No further blocking issue was identified in
+> the final check for the documented trusted-local, text/tool scope.
+> Proceed to a bounded live pilot; see the
+> [final verification](#final-verification-at-5b39c27). The original assessment
+> below still refers to `5380f65`, and the earlier closure check preserves
 > the pre-fix reproductions.
 
 **Audited implementation:** `5380f65058a970e8e8ecfca00bf1f0a7045becea`.
@@ -724,3 +723,70 @@ local response fixtures, and does not change implementation files.
 |---|---|
 | Closure probes | `5731f6c64a0eb8090bb1e30d508140616c819ea88bbf22313c8477a4f8565db8` |
 | Captured results | `eb8791f14846925c66ee9c12fd7d45de11b0c307e7124744445c7096e0987947` |
+
+## Final verification at `5b39c27`
+
+**Verified source:** `5b39c27144039d607470fa65a1d0c102326fd127`, containing
+implementation repair `fe9c03e`. The worktree was clean before verification.
+The NexAU version and previously inspected native runtime hashes are unchanged.
+
+**Verdict:** C1-C3 are closed. No additional blocking AHE-method or
+plug-and-play contract issue was identified in this final repair review.
+The documented trusted-local, text/tool MVP is ready for a bounded live
+benchmark pilot, not another architectural redesign. This remains a
+documented adaptation, rather than an exact reproduction of the original
+experiment's prompts, budgets, and transport.
+
+| Repair | Independently confirmed behavior |
+|---|---|
+| C1: citation coverage | The original 18-byte reproduction reports only line 1 and rejects the unread line-2 citation. Partial-line regressions reject full-line credit, accept the exact returned byte range, and accept a later complete-line read. |
+| C2: package imports | The original eager and lazy nested-package fixtures both pass conformance; the native tool still returns the normalized note. Parameterized tests cover absolute/relative imports and dependencies imported by package initializers. |
+| C3: release identity | Source runtime, freshly built wheel metadata, packaged runtime, and fresh campaign manifests all report `0.3.0`. The new wheel matches the author's recorded repaired artifact exactly. |
+
+Independently ran:
+
+```text
+.venv/bin/python -m pytest -q \
+  tests/test_meta_resources.py tests/test_harness.py tests/test_version.py
+20 passed in 16.94s
+```
+
+The independent probes also reran the joined real NexAU/SDK path with local
+response fixtures: six evaluated-agent requests and four Debugger requests.
+Protected action ordering, explicit reasoning, eight rejected request-policy
+overrides, canonical trial-fact corruption rejection, grounded Debugger
+resubmission, readable-artifact credential isolation, and write-heavy
+compaction still pass. Irreducible context remains blocked before a provider
+request. These are runtime-contract checks, not evidence of model quality.
+
+A fresh offline build produced wheel SHA-256
+`3fa5ea8d924f5f7aa1e39bc127c3aa9f6b87039c11d47a6df1559d6bf2149b1b`.
+A separate process loaded that extracted wheel and prepared a fresh campaign,
+using the existing dependency environment. This independently verifies the
+packaged code, but does not repeat the author's clean-dependency installation
+or full 63-test run documented in
+[`F05_F06_VERSION_REPAIR.md`](F05_F06_VERSION_REPAIR.md).
+
+**Packaging housekeeping:** The ignored wheel already under `dist/` predates
+the repair and still contains the old code. Its SHA-256 starts `7488b6bf`,
+not `3fa5ea8d`. Rebuild before distributing it; this leftover artifact is not
+a defect in the current source or freshly built release. It was not replaced
+during this read-only implementation review.
+
+The final wrapper and captured results are retained in the same session
+artifact directory as the earlier probes. Run `ahe_final_verification.py`
+with the runner's `.venv/bin/python`; it imports the previous probe helpers,
+explicitly asserts the repaired outcomes, builds offline, uses synthetic
+credentials, and cleans its temporary projects. Earlier scripts and captured
+results were preserved unchanged.
+
+| Artifact | SHA-256 |
+|---|---|
+| `ahe_final_verification.py` | `551ddc02720dbf702d4de9a2d0d7dadcb1f09f2cdd32ec7ea4bdd12ed0685500` |
+| `ahe_final_verification_results.json` | `e085c4ecfcb5812eb107696753c1673aa4eabdb629b78d64846941ed946f0e25` |
+
+The remaining uncertainty is empirical: whether real Explore, Debugger, and
+Evolve agents produce useful research, diagnoses, and held-out improvements
+on the chosen benchmark. No live model endpoint was contacted. This sign-off
+does not assert guaranteed improvement, hostile-code isolation, untested
+modalities, or universal absence of bugs.

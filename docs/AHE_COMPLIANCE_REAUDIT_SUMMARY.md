@@ -1,11 +1,10 @@
 # AHE Follow-Up: Plain-Language Summary
 
-> **Repair closure:** Commit `fe9c03e` fixes the two smaller citation/import
-> edge cases and the release-version mismatch retained by the independent
-> `25f8c09` check. Focused regressions, all 63 tests, static checks, and a
-> clean-wheel campaign passed. See
-> [`F05_F06_VERSION_REPAIR.md`](F05_F06_VERSION_REPAIR.md). The earlier
-> assessment below is preserved as history.
+> **Final independent verdict (`5b39c27`):** All three remaining issues are
+> fixed. For the documented trusted-local, text/tool use case, I would now
+> move to a small live benchmark pilot rather than more redesign. See the
+> [final opinion](#final-opinion-at-5b39c27). The earlier assessments below
+> are preserved as history.
 
 > **Repair status:** This document is the historical summary of the audit of
 > `5380f65`. Findings F01-F07 and the bundled-Debugger historical correction
@@ -168,7 +167,7 @@ gaps first; then tighten trial evidence and Debugger checks. Preserve the
 working architecture. The remaining work is making its promises hold across
 supported paths, not starting over.
 
-## Current 0.3.0 verdict
+## Earlier 0.3.0 verdict (25f8c09)
 
 **Very close, but not quite a complete all-clear.** I checked the repaired
 implementation at `25f8c09`. The major model-setting, premature-action,
@@ -204,3 +203,28 @@ and improvements on your benchmark; offline checks cannot establish that.
 
 Exact source locations, reproductions, and completion criteria are in the
 [detailed closure check](AHE_COMPLIANCE_REAUDIT.md#release-030-closure-check).
+
+## Final opinion at `5b39c27`
+
+**Yes: the three remaining repairs now work.** The Debugger no longer gets
+credit for that unread or partially returned line. Nested helper packages
+work whether imported at startup or inside a tool function. A freshly built
+release and its campaign records consistently identify themselves as `0.3.0`.
+
+I repeated the earlier failure cases, ran the focused regressions, and
+rechecked the real NexAU execution path using simulated model replies.
+The larger repairs still hold. I found no further blocking issue or new
+departure from the AHE method in this final review.
+
+**One packaging detail:** the old ignored wheel in `dist/` is stale. A fresh
+build is correct and matches the documented repaired release; do not
+distribute the leftover old file.
+
+**My final recommendation:** treat this repair review as complete for the
+declared scope. Run a small real benchmark campaign next. The remaining
+question is whether the agents actually diagnose failures well and produce a
+better harness on held-out tasks, not whether these audited contracts are
+still broken. Offline checks cannot answer that performance question.
+
+The exact verification scope and retained evidence are in the
+[detailed final verification](AHE_COMPLIANCE_REAUDIT.md#final-verification-at-5b39c27).
