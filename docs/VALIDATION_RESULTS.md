@@ -1,123 +1,118 @@
 # Validation Results
 
-Validated at `2026-10-10T05:20:06Z`.
+Validated at `2026-10-11T14:10:17Z`.
 
 ## Source identity
 
-- Git commit: `92f1b79a0ec7c2defdc713f0c798b3b27cf3bd12`
-- Package: `ahe-runner 0.1.0`
-- Python: `3.12.3`
-- NexAU: `0.3.9`, upstream commit
+- Tested Git commit: `eb7ec9838468c5f8d9ded553174ddc5b28691099`
+- Package: `ahe-runner 0.2.0`
+- Python: `3.14.7` (`ahe-runner` requires Python `>=3.12`)
+- NexAU: `0.3.9`, pinned upstream commit
   `35ee1861546db3cb280a6e17e38a74060d7c96c3`
 - OpenAI Python: `3.28.0`
 - Pydantic: `2.14.0`
 - PyYAML: `6.0.3`
+- Pytest: `9.1.1`
+- Ruff: `0.17.0`
 
-The source commit above is the code tested before this documentation-only
-record was added.
+The tested commit is the complete V2 implementation before this
+documentation-only validation record was added.
 
 ## Static checks
 
 ```text
-ruff check .
+ruff check src tests run_ahe.py
 All checks passed!
 
-ruff format --check .
+ruff format --check src tests run_ahe.py
 57 files already formatted
 
 python -m compileall -q src tests run_ahe.py
 exit 0
 ```
 
-## Tests
-
-Focused invariants:
+## Automated tests
 
 ```text
-14 passed in 9.11s
+pytest -q
+20 passed in 26.22s
 ```
 
-End-to-end campaign tests:
+The suite covers:
 
-```text
-3 passed in 36.61s
-```
-
-Final complete suite after production-config regressions:
-
-```text
-18 passed in 46.83s
-```
-
-The suite includes an injected Evolve timeout after one committed partial
-change and one uncommitted change. Resume retained the commit, excluded the
-dirty edit from the next workspace, and preserved that edit in the recovery
-patch.
+- schema-2 manifest and Harness ABI V2 registration checks;
+- rejection of inactive components and tool schema/callable mismatches;
+- protected and runtime-owned candidate fields;
+- real NexAU `Agent`/`Executor` execution with a deterministic fake model
+  client;
+- recursive root/sub-agent evaluated-model overrides;
+- long-term-memory attachment;
+- internal harness-tool execution;
+- protected structured-action schema injection without prompt injection;
+- exact protected result call-ID matching;
+- fail-closed rejection of mixed protected and harness calls;
+- state preservation within a session and isolation across sessions;
+- local sandbox binding to an explicit per-trial workspace;
+- checkpoint-pure imports with no bytecode mutation;
+- deterministic campaign lifecycle, Git recovery, and idempotent resume.
 
 ## Distribution build
 
 ```text
-ahe_runner-0.1.0-py3-none-any.whl
-sha256: d767f009417aad8947705f5ce2b1a4a27b984e1238315ab65da9fbc1f6b0e4a5
-
-ahe_runner-0.1.0.tar.gz
-sha256: daadbe18f12ef6740dc429230c78b7bbbcd394fff9d5fdec7dac47e7c931b032
+uv build
+Successfully built dist/ahe_runner-0.2.0.tar.gz
+Successfully built dist/ahe_runner-0.2.0-py3-none-any.whl
 ```
 
-The wheel was installed into a clean `uv` environment with the `web` extra.
-The installation resolved exact NexAU tag `v0.3.9` and the explicitly declared
-`greenlet` runtime dependency.
+Artifacts:
 
-Wheel inspection verified packaged:
+```text
+ahe_runner-0.2.0-py3-none-any.whl
+sha256: fcda2d914152f3f558aac358f7bf892d5c1f3217c3269af95590403bf9619aa9
 
-- all four full meta-agent prompts;
-- all restricted tool descriptors;
-- generated project templates;
-- harness component-directory README placeholders;
-- AHE method reference.
+ahe_runner-0.2.0.tar.gz
+sha256: 62b401b038af360faf6262ac1db52c17ef4a63f5a28e42ea7361674448bb5135
+```
 
-## Installed CLI campaign
+Distribution inspection verified:
 
-Using only the clean-wheel installation:
+- V2 runtime and conformance modules are packaged;
+- the ABI V2 generated project, internal tool, skill, and reviewer sub-agent
+  are packaged;
+- Python bytecode and `__pycache__` artifacts are absent.
+
+## Clean-wheel generated-project campaign
+
+The wheel was installed with the `web` extra into a fresh `uv` environment.
+Using only that installation:
 
 1. `ahe init-project`
 2. set `campaign.rounds: 1`
-3. `ahe validate`
+3. `ahe conformance`
 4. `ahe run`
 5. `ahe resume`
 
 Observed:
 
+- adapter API generation `v2`;
+- harness ABI `ahe.harness/v2`;
+- conformance valid;
 - checkpoints `C0`, `C1`;
 - selected checkpoint `C1`;
 - 18 completed stages;
-- no blocked or interrupted stage;
-- selected harness exported;
-- `resume` added no attempts and preserved identical selection/final results.
+- no blocked or interrupted stages;
+- `resume` returned an identical campaign status without adding work.
 
-## Production NexAU configuration smoke
-
-Without making a model call, the clean-wheel installation generated and loaded
-a production NexAU meta-agent config containing:
-
-- packaged full Evolve prompt;
-- restricted `complete_task` binding;
-- context-compaction middleware;
-- in-memory tracer;
-- exact model transport fields;
-- one genuine registered `SKILL.md`.
-
-NexAU emitted its informational warning that the optional E2B SDK was not
-installed. E2B is not used by this runner's meta-agent runtime, and config
-loading completed successfully.
+NexAU emitted its informational message that the optional E2B SDK was not
+installed. This deterministic campaign used NexAU's local execution path and
+did not require E2B.
 
 ## Live endpoint scope
 
-No live model-backed evolution campaign was executed during this validation.
-That run requires fresh operator confirmation of endpoint instance, advertised
-exact model, reasoning effort, chat-completions mode, task/attempt scope, and
-concurrency.
+No live model-backed benchmark campaign was executed. That requires an
+operator-approved endpoint, exact advertised model ID, reasoning effort,
+task/attempt scope, and concurrency.
 
-The deterministic lifecycle, exact-model client with fakes, positive/negative
-preflight controls with fakes, and production NexAU config loading were all
-validated.
+The protected action boundary was validated against real NexAU execution and
+OpenAI-compatible response objects with a deterministic fake client. Existing
+model-access tests cover exact observable-model checks and negative controls.

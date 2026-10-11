@@ -66,10 +66,11 @@ This separation is the protected benchmark boundary.
 The harness is file-backed. `agent.yaml` must load through the installed
 NexAU `AgentConfig`.
 
-The generated harness is a minimal valid example. Replace its files with your
-base harness while preserving relative references. Any tool, middleware,
-skill, prompt, memory, or sub-agent that should evolve must live inside this
-directory.
+The generated harness is an active ABI V2 example with a registered internal
+tool, skill, reviewer sub-agent, and long-term-memory attachment. Replace its
+files with your base harness while preserving relative references. Any tool,
+middleware, skill, prompt, memory, or sub-agent that should evolve must live
+inside this directory.
 
 Do not put runtime state or task-specific knowledge in the seed.
 
