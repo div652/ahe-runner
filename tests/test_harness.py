@@ -26,6 +26,16 @@ def test_harness_validation_rejects_symlinks_and_task_memorization(
         project_root=project,
     )
     assert report["valid"] is True
+    assert report["conformance"]["abi_version"] == "ahe.harness/v2"
+    assert report["conformance"]["registrations"]["tool_implementations"] == [
+        "tools/record_note.py"
+    ]
+    assert report["conformance"]["registrations"]["skills"] == [
+        "skills/evidence-first/SKILL.md"
+    ]
+    assert report["conformance"]["registrations"]["sub_agents"] == [
+        "sub_agents/reviewer/agent.yaml"
+    ]
 
     symlink_harness = tmp_path / "symlink-harness"
     shutil.copytree(harness, symlink_harness)
@@ -99,3 +109,48 @@ def test_harness_validation_preserves_protected_and_runtime_owned_fields(
             run_nexau_smoke=False,
         )
     assert "runtime-owned harness files changed" in str(runtime_error.value)
+
+
+def test_v2_conformance_rejects_inactive_and_mismatched_tools(
+    tmp_path: Path,
+) -> None:
+    config_path = make_example_project(tmp_path)
+    project = config_path.parent
+    manifest = load_harness_manifest(project / "harness_manifest.yaml")
+    harness = project / "harness"
+
+    inactive = tmp_path / "inactive"
+    shutil.copytree(harness, inactive)
+    (inactive / "tools" / "unused.py").write_text(
+        "def unused(value: str) -> str:\n    return value\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(CandidateValidationError) as inactive_error:
+        validate_harness(
+            inactive,
+            manifest,
+            project_root=project,
+            run_nexau_smoke=False,
+        )
+    assert "not runtime-attached: tools/unused.py" in str(inactive_error.value)
+
+    mismatch = tmp_path / "mismatch"
+    shutil.copytree(harness, mismatch)
+    tool_path = mismatch / "tool_descriptions" / "record_note.tool.yaml"
+    tool = yaml.safe_load(tool_path.read_text(encoding="utf-8"))
+    tool["input_schema"]["properties"] = {
+        "text": {"type": "string"},
+    }
+    tool["input_schema"]["required"] = ["text"]
+    tool_path.write_text(
+        yaml.safe_dump(tool, sort_keys=False),
+        encoding="utf-8",
+    )
+    with pytest.raises(CandidateValidationError) as mismatch_error:
+        validate_harness(
+            mismatch,
+            manifest,
+            project_root=project,
+            run_nexau_smoke=False,
+        )
+    assert "schema properties ['text']" in str(mismatch_error.value)

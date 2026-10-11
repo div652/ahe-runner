@@ -20,6 +20,11 @@ def test_full_deterministic_campaign_and_idempotent_resume(tmp_path: Path) -> No
 
     validation = controller.validate_project()
     assert validation["harness"]["valid"] is True
+    assert validation["adapter_api_generation"] == "v2"
+    assert validation["benchmark_interface"]["tool_delivery"] == "none"
+    assert controller.conformance()["harness_abi"]["abi_version"] == (
+        "ahe.harness/v2"
+    )
 
     status = controller.run()
     assert status["checkpoints"] == ["C0", "C1", "C2"]
