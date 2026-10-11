@@ -15,6 +15,7 @@ import yaml
 from nexau.archs.main_sub.agent_state import AgentState
 
 from ahe_runner.adapter import CandidateValidationRequest
+from ahe_runner.change_manifest import load_change_manifest
 from ahe_runner.config import load_config
 from ahe_runner.harness import load_harness_manifest, validate_harness
 from ahe_runner.io import (
@@ -466,35 +467,32 @@ def complete_task(
             problems.append("change_manifest.json is missing")
         else:
             try:
-                manifest = read_json(manifest_path)
+                root_commit = _git(
+                    workspace,
+                    "rev-list",
+                    "--max-parents=0",
+                    "HEAD",
+                ).strip()
+                changed_paths = [
+                    line
+                    for line in _git(
+                        workspace,
+                        "diff",
+                        "--name-only",
+                        f"{root_commit}..HEAD",
+                    ).splitlines()
+                    if line
+                ]
+                load_change_manifest(
+                    manifest_path,
+                    checkpoint=str(_context_value(agent_state, "checkpoint")),
+                    parent_checkpoint=str(
+                        _context_value(agent_state, "parent_checkpoint")
+                    ),
+                    changed_paths=changed_paths,
+                )
             except Exception as exc:
                 problems.append(f"change_manifest.json is invalid: {exc}")
-            else:
-                expected_checkpoint = _context_value(agent_state, "checkpoint")
-                expected_parent = _context_value(
-                    agent_state,
-                    "parent_checkpoint",
-                )
-                if manifest.get("schema_version") != 2:
-                    problems.append("change_manifest.json schema_version must be 2")
-                if manifest.get("checkpoint") != expected_checkpoint:
-                    problems.append(
-                        "change_manifest.json checkpoint does not match this round"
-                    )
-                if manifest.get("parent_checkpoint") != expected_parent:
-                    problems.append(
-                        "change_manifest.json parent_checkpoint is incorrect"
-                    )
-                changes = manifest.get("changes")
-                if not isinstance(changes, list) or not changes:
-                    problems.append(
-                        "change_manifest.json changes must be a non-empty list"
-                    )
-                elif any(
-                    not isinstance(item, dict) or not item.get("path")
-                    for item in changes
-                ):
-                    problems.append("every change_manifest.json change requires a path")
         if not isinstance(validation, dict) or validation.get("ok") is not True:
             problems.append("validate_candidate must pass after the final commit")
         elif (

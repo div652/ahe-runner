@@ -166,23 +166,22 @@ class ScriptedMetaBackend(MetaBackend):
             "checkpoint": f"C{round_index}",
             "parent_checkpoint": f"C{round_index - 1}",
             "objective": f"Make reliability rule {round_index} explicit.",
-            "evidence_task_keys": [],
-            "components_changed": ["system_prompt"],
             "changes": [
                 {
                     "id": "chg-1",
                     "type": "improvement",
                     "component": "system_prompt",
-                    "path": "systemprompt.md",
+                    "paths": ["systemprompt.md"],
+                    "evidence": ["scripted-example:reliability-gap"],
                     "failure_pattern": "example-reliability-gap",
                     "mechanism": rule,
-                    "why_this_component": (
+                    "rationale": (
                         "The deterministic example represents broad behavior."
                     ),
+                    "predicted_fixes": [],
+                    "risk_tasks": [],
                 }
             ],
-            "predicted_effects": [],
-            "regression_risks": [],
             "validation": ["runner generic validation"],
         }
         atomic_write_json(workspace / "change_manifest.json", manifest)

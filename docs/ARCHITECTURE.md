@@ -383,6 +383,15 @@ The adaptation preserves:
 - one-shot logical lifecycle;
 - progressive disclosure of evidence.
 
+Each Evolve round commits a strict typed `change_manifest.json`. Stable logical
+change IDs cover the complete component-file diff and record supporting
+evidence, mechanisms, component rationales, predicted task fixes, and
+task-level regression risks. After the combined candidate is evaluated, the
+runner writes one heuristic prediction/risk verdict per logical change, plus
+unattributed improvements and unanticipated regressions. This supports later
+keep, improve, or rollback/pivot decisions; it is not an isolated causal
+experiment for each edit.
+
 Benchmark-specific wording is supplied by the adapter through a declared
 `MetaPromptContext`; it does not replace the operating contract with a short
 role summary.

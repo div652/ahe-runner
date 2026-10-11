@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import stat
@@ -11,6 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .change_manifest import load_change_manifest
 from .errors import IntegrityError
 from .io import atomic_write_json, read_json, sha256_json, tree_hashes
 
@@ -208,12 +208,12 @@ def freeze_checkpoint(
     if not set(changed_paths) - {"change_manifest.json"}:
         raise IntegrityError("Evolve changed no harness component")
     change_manifest_path = workspace / "change_manifest.json"
-    change_manifest = _validate_change_manifest(
+    change_manifest = load_change_manifest(
         change_manifest_path,
         checkpoint=checkpoint,
         parent_checkpoint=parent_checkpoint,
         changed_paths=changed_paths,
-    )
+    ).model_dump(mode="json")
 
     temporary = destination.with_name(destination.name + ".tmp")
     if temporary.exists():
@@ -299,42 +299,6 @@ def _checkpoint_manifest(
         "harness_sha256": sha256_json(files),
         "source": source,
     }
-
-
-def _validate_change_manifest(
-    path: Path,
-    *,
-    checkpoint: str,
-    parent_checkpoint: str,
-    changed_paths: list[str],
-) -> dict[str, Any]:
-    if not path.is_file():
-        raise IntegrityError("Evolve did not create change_manifest.json")
-    value = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value, dict):
-        raise IntegrityError("change_manifest.json must contain an object")
-    required = {
-        "schema_version": 2,
-        "checkpoint": checkpoint,
-        "parent_checkpoint": parent_checkpoint,
-    }
-    for key, expected in required.items():
-        if value.get(key) != expected:
-            raise IntegrityError(f"change manifest {key} must be {expected!r}")
-    changes = value.get("changes")
-    if not isinstance(changes, list) or not changes:
-        raise IntegrityError("change manifest must contain logical changes")
-    declared = {
-        str(item.get("path"))
-        for item in changes
-        if isinstance(item, dict) and item.get("path")
-    }
-    actual_components = set(changed_paths) - {"change_manifest.json"}
-    if not declared.issubset(actual_components):
-        raise IntegrityError(
-            "change manifest declares files not changed by the workspace"
-        )
-    return value
 
 
 def _make_tree_read_only(root: Path) -> None:

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .adapter import EvaluationResult, TransitionSummary
+from .change_manifest import ChangeManifest
 from .io import atomic_write_json, read_json
 
 
@@ -72,38 +73,88 @@ def write_transition(
     *,
     output_dir: Path,
     transition: TransitionSummary,
-    change_manifest: dict[str, Any],
+    change_manifest: ChangeManifest | dict[str, Any],
 ) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
-    predicted = {
-        key
-        for row in change_manifest.get("predicted_effects", [])
-        if isinstance(row, dict)
-        for key in row.get("task_keys", [])
-    }
+    manifest = ChangeManifest.model_validate(change_manifest)
     improved = set(transition.improved_task_keys)
     regressed = set(transition.regressed_task_keys)
-    if regressed and not improved:
-        classification = "harmful"
-    elif predicted and predicted <= improved and not regressed:
-        classification = "effective"
-    elif improved and regressed:
-        classification = "mixed"
-    elif improved:
-        classification = "partially_effective"
-    else:
-        classification = "ineffective"
+    all_predicted: set[str] = set()
+    all_risks: set[str] = set()
+    observations: list[dict[str, Any]] = []
+    for change in manifest.changes:
+        predicted = set(change.predicted_fixes)
+        risks = set(change.risk_tasks)
+        all_predicted.update(predicted)
+        all_risks.update(risks)
+        fixes_observed = predicted & improved
+        fixes_missing = predicted - improved
+        risks_observed = risks & regressed
+        if risks_observed and not fixes_observed:
+            verdict = "HARMFUL"
+        elif risks_observed and fixes_observed:
+            verdict = "MIXED"
+        elif predicted and fixes_observed == predicted:
+            verdict = "EFFECTIVE"
+        elif fixes_observed:
+            verdict = "PARTIALLY_EFFECTIVE"
+        else:
+            verdict = "INEFFECTIVE"
+        observations.append(
+            {
+                "change_id": change.id,
+                "type": change.type,
+                "component": change.component,
+                "paths": change.paths,
+                "predicted_fixes": change.predicted_fixes,
+                "predicted_fixes_observed": sorted(fixes_observed),
+                "predicted_fixes_missing": sorted(fixes_missing),
+                "risk_tasks": change.risk_tasks,
+                "risks_observed": sorted(risks_observed),
+                "hit_rate": (
+                    f"{len(fixes_observed)}/{len(predicted)}" if predicted else "0/0"
+                ),
+                "verdict": verdict,
+                "interpretation": (
+                    "Heuristic observation from the combined candidate; "
+                    "this is not an isolated causal measurement."
+                ),
+            }
+        )
+    classification = _transition_classification(
+        improved=improved,
+        regressed=regressed,
+        predicted=all_predicted,
+    )
     payload = {
-        "schema_version": 1,
+        "schema_version": 2,
         "classification": classification,
-        "predicted_task_keys": sorted(predicted),
-        "predicted_improvements_observed": sorted(predicted & improved),
-        "predicted_improvements_missing": sorted(predicted - improved),
+        "attribution_kind": "combined_candidate_prediction_matching",
+        "change_observations": observations,
+        "unattributed_improvements": sorted(improved - all_predicted),
+        "unanticipated_regressions": sorted(regressed - all_risks),
         "transition": transition.model_dump(mode="json"),
     }
     path = output_dir / "transition.json"
     atomic_write_json(path, payload)
     return path
+
+
+def _transition_classification(
+    *,
+    improved: set[str],
+    regressed: set[str],
+    predicted: set[str],
+) -> str:
+    if regressed and not improved:
+        return "harmful"
+    if improved and regressed:
+        return "mixed"
+    if predicted and predicted <= improved:
+        return "effective"
+    if improved:
+        return "partially_effective"
+    return "ineffective"
 
 
 def _task_stability(

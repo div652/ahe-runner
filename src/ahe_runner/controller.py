@@ -26,6 +26,7 @@ from .adapter import (
     adapter_api_generation,
     benchmark_interface_for,
 )
+from .change_manifest import load_change_manifest
 from .config import ResolvedConfig
 from .errors import CandidateValidationError, ConfigurationError, IntegrityError
 from .evidence import verify_evidence_bundle
@@ -686,7 +687,7 @@ class CampaignController:
                 self._evaluation_dir(index, SplitName.TRAIN) / "adapter_result.json"
             )
         )
-        change_manifest = read_json(
+        change_manifest = load_change_manifest(
             self._checkpoint_dir(index) / "harness" / "change_manifest.json"
         )
         output_dir = self.config.campaign_dir / "attribution" / f"C{index}"
@@ -709,7 +710,9 @@ class CampaignController:
             semantic_inputs={
                 "before_evaluation": before.evaluation_id,
                 "after_evaluation": after.evaluation_id,
-                "change_manifest_sha256": sha256_json(change_manifest),
+                "change_manifest_sha256": sha256_json(
+                    change_manifest.model_dump(mode="json")
+                ),
             },
             retryable=False,
             action=action,

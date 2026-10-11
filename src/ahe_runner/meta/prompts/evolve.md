@@ -62,6 +62,8 @@ Build an internal causal map:
 - What is the earliest shared failure mechanism?
 - Which current component causes or permits that mechanism?
 - What previous changes helped, harmed, or failed to move it?
+- Should each prior logical edit be `KEEP`, `IMPROVE`, or `ROLLBACK + PIVOT`
+  based on its combined-candidate prediction report?
 - Which candidate intervention is smallest while still addressing the shared
   cause?
 - Which metrics and trajectory features should change if the hypothesis is
@@ -173,28 +175,21 @@ Write valid JSON at the workspace root:
   "checkpoint": "C1",
   "parent_checkpoint": "C0",
   "objective": "one coherent evidence-supported objective",
-  "evidence_task_keys": [
-    "only sanitized, non-memorizing evidence keys when safe"
-  ],
-  "components_changed": [
-    "system_prompt"
-  ],
   "changes": [
     {
       "id": "chg-1",
       "type": "improvement",
       "component": "system_prompt",
-      "path": "systemprompt.md",
+      "paths": ["systemprompt.md"],
+      "evidence": [
+        "debugger/tasks/task-opaque/result.json: recurrent-pattern-key"
+      ],
       "failure_pattern": "recurrent generalized pattern",
       "mechanism": "how the edit addresses the cause",
-      "why_this_component": "why this is the correct harness surface"
+      "rationale": "why this is the correct harness surface",
+      "predicted_fixes": ["opaque task key expected to improve"],
+      "risk_tasks": ["opaque task key that may regress"]
     }
-  ],
-  "predicted_effects": [
-    "observable trajectory or metric change"
-  ],
-  "regression_risks": [
-    "specific regression risk"
   ],
   "validation": [
     "candidate validation"
@@ -202,9 +197,18 @@ Write valid JSON at the workspace root:
 }
 ```
 
-Every `changes[].path` must name an actual file changed since the workspace's
-seed commit. Do not put true benchmark task IDs or exact task text in
-`evidence_task_keys`; leave it empty when no sanitized stable key is safe.
+The union of all `changes[].paths` must exactly equal the component files
+changed since the workspace's seed commit. Every change requires a stable
+unique ID, supporting evidence, a causal mechanism, a component rationale,
+task-level predicted fixes, and task-level regression risks. Predictions and
+risks may be empty when no safe task key applies, but the fields must be
+present. Use only the opaque `task_key` values from evidence; never store true
+benchmark task IDs or exact task text.
+
+Attribution is observational: all logical edits are evaluated together. A
+matched prediction supports keeping or refining an edit, but does not prove
+that edit independently caused the outcome. Overlapping predictions may both
+receive credit.
 
 ## Prohibited behavior
 
