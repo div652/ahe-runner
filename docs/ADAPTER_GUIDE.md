@@ -202,6 +202,10 @@ finally:
     assets under `.skills/` in that working directory, so adapters should use an
     isolated trial workspace rather than the source repository or runner checkout.
 
+    Session and activation `context` values are string-valued NexAU template
+    variables. Use the message content or benchmark-owned artifacts for structured
+    task payloads rather than hiding arbitrary objects in runtime context.
+
     Repeated `session.run(...)` calls preserve that session's NexAU history.
     Different sessions use different `Agent` instances and must not share mutable
     trial state.

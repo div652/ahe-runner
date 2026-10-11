@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 from nexau import Agent
 from nexau.archs.main_sub.config import AgentConfig
+from nexau.archs.main_sub.context_value import ContextValue
 from nexau.archs.main_sub.execution.hooks import (
     AfterModelHookInput,
     HookResult,
@@ -42,7 +43,7 @@ class AgentSessionRequest(RuntimeModel):
     artifact_dir: Path
     working_directory: Path | None = None
     benchmark_tools: tuple[BenchmarkToolSpec, ...] = ()
-    context: dict[str, Any] = Field(default_factory=dict)
+    context: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("session_id")
     @classmethod
@@ -75,7 +76,7 @@ class AgentInputMessage(RuntimeModel):
 
 class AgentInput(RuntimeModel):
     messages: tuple[AgentInputMessage, ...]
-    context: dict[str, Any] = Field(default_factory=dict)
+    context: dict[str, str] = Field(default_factory=dict)
 
     @field_validator("messages")
     @classmethod
@@ -139,7 +140,7 @@ class EvaluatedAgentSession:
         try:
             result = self._agent.run(
                 message=messages,
-                context=context,
+                variables=ContextValue(template=context),
                 custom_llm_client_provider=lambda _agent_name: self._client,
             )
         except Exception:

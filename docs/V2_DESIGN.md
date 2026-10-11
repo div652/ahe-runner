@@ -102,8 +102,10 @@ not receive responsibility for constructing NexAU.
 ## Standard activation boundary
 
 `AgentInput` contains ordered user and protected tool-result messages plus
-runtime context. The harness system prompt remains owned by the harness and
-cannot be replaced by the adapter.
+string-valued NexAU template context. The harness system prompt remains owned
+by the harness and cannot be replaced by the adapter. Structured benchmark
+payloads belong in messages or benchmark-owned artifacts, not opaque context
+objects.
 
 `AgentOutput` contains:
 
