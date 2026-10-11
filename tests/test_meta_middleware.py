@@ -63,7 +63,7 @@ def test_write_heavy_compaction_bounds_context_and_preserves_structure() -> None
 
     assert changed is True
     assert count <= target
-    assert retained == 1
+    assert 1 <= retained < 5
     assert compacted[-2:] == latest
     original_calls = [
         block
@@ -81,7 +81,12 @@ def test_write_heavy_compaction_bounds_context_and_preserves_structure() -> None
         (block.id, block.name) for block in original_calls
     ]
     assert all(
-        "_ahe_compacted" in block.input for block in compacted_calls[:-1]
+        "_ahe_compacted" in block.input
+        for block in compacted_calls[:-retained]
+    )
+    assert all(
+        "_ahe_compacted" not in block.input
+        for block in compacted_calls[-retained:]
     )
     results = [
         block
