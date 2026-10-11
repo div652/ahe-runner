@@ -18,6 +18,10 @@ The complete architecture and input contract are specified in
 
 Operational documentation:
 
+- [`docs/V2_DESIGN.md`](docs/V2_DESIGN.md) - approved V2 evaluated-agent,
+  adapter, harness ABI, and protected benchmark-tool overlay contract;
+- [`docs/FUTURE_FEATURES.md`](docs/FUTURE_FEATURES.md) - intentionally deferred
+  partial-episode and Explore-seed features;
 - [`docs/OPERATOR_GUIDE.md`](docs/OPERATOR_GUIDE.md) - prepare a harness,
   configure a campaign, run, resume, and inspect outputs;
 - [`docs/ADAPTER_GUIDE.md`](docs/ADAPTER_GUIDE.md) - implement a new typed
