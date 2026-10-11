@@ -1,76 +1,41 @@
 # AHE Runner
 
-`ahe-runner` is a reusable, checkpointed implementation of Agentic Harness
-Engineering for NexAU harnesses.
+`ahe-runner` is a reusable implementation of Agentic Harness Engineering
+(AHE) for NexAU agents. You provide:
 
-The intended operator interface is:
+1. a file-backed NexAU harness containing the behavior that may evolve;
+2. a typed benchmark adapter that supplies tasks, tools, rewards, traces, and
+   held-out evaluation;
+3. a campaign configuration that selects models, splits, seeds, and evolution
+   rounds.
 
-```bash
-ahe init-project /path/to/my-ahe-project
-ahe conformance --config /path/to/my-ahe-project/ahe.yaml
-ahe validate --config /path/to/my-ahe-project/ahe.yaml
-ahe run --config /path/to/my-ahe-project/ahe.yaml
-ahe status --config /path/to/my-ahe-project/ahe.yaml
-ahe resume --config /path/to/my-ahe-project/ahe.yaml
-```
-
-The complete architecture and input contract are specified in
-[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
-
-Operational documentation:
-
-- [`docs/V2_DESIGN.md`](docs/V2_DESIGN.md) - approved V2 evaluated-agent,
-  adapter, harness ABI, and protected benchmark-tool overlay contract;
-- [`docs/HARNESS_ABI.md`](docs/HARNESS_ABI.md) - exact file schemas,
-  signatures, attachment rules, and conformance checks inside `harness/`;
-- [`docs/FUTURE_FEATURES.md`](docs/FUTURE_FEATURES.md) - intentionally deferred
-  partial-episode and Explore-seed features;
-- [`docs/OPERATOR_GUIDE.md`](docs/OPERATOR_GUIDE.md) - prepare a harness,
-  configure a campaign, run, resume, and inspect outputs;
-- [`docs/ADAPTER_GUIDE.md`](docs/ADAPTER_GUIDE.md) - implement a new typed
-  benchmark adapter;
-- [`docs/RUNTIME_BACKED_EXAMPLE.md`](docs/RUNTIME_BACKED_EXAMPLE.md) - run the
-  bundled evaluated-agent and protected-action example;
-- [`docs/TAU2_MIGRATION.md`](docs/TAU2_MIGRATION.md) - map the existing
-  Tau2/NexAU experiment into the reusable interface;
-- [`docs/PROMPT_FIDELITY.md`](docs/PROMPT_FIDELITY.md) - preserved AHE prompt
-  and Explore-skill mechanics;
-- [`docs/VALIDATION_RESULTS.md`](docs/VALIDATION_RESULTS.md) - exact validation
-  environment and results for this release.
+The runner evaluates the base harness, produces immutable checkpoints, uses
+Explore/Debugger/Evolve agents to propose improvements, validates candidate
+checkpoints, and exports the selected harness while preserving the complete
+campaign history.
 
 ## Quick start
 
-Install the runner with the web-research and development extras:
+Requirements: Python 3.12+ and access to the model endpoint configured for your
+campaign.
 
 ```bash
+git clone https://github.com/div652/ahe-runner.git
+cd ahe-runner
 python3.12 -m venv .venv
 . .venv/bin/activate
 pip install -e '.[web,dev]'
-```
 
-Create an operator project:
-
-```bash
 ahe init-project ./my-ahe-project
 ahe conformance --config ./my-ahe-project/ahe.yaml
-```
-
-The generated project uses Harness ABI V2 and `BenchmarkAdapterV2`, with an
-actively registered internal tool, skill, reviewer sub-agent, and explicit
-long-term-memory attachment. `ahe.yaml` is an **offline lifecycle rehearsal**:
-its deterministic phrase-scoring adapter and `scripted` meta backend prove the
-controller, checkpoints, evidence, selection, export, and resume flow without a
-model server:
-
-```bash
+ahe validate --config ./my-ahe-project/ahe.yaml
 ahe run --config ./my-ahe-project/ahe.yaml
 ```
 
-It does not execute the evaluated agent. Merely changing
-`meta.backend: nexau` does not turn it into a live benchmark.
-
-For a genuine evaluated-agent integration, edit the endpoint and exact model
-IDs in the generated `ahe.runtime.yaml`, install the `web` extra, and run:
+The generated `ahe.yaml` is an offline lifecycle rehearsal: it verifies
+checkpointing, evidence, evolution, selection, export, and recovery without
+calling an evaluated agent. For a real NexAU evaluation, configure the endpoint
+and exact model IDs in `ahe.runtime.yaml`, then run:
 
 ```bash
 ahe conformance --config ./my-ahe-project/ahe.runtime.yaml
@@ -78,25 +43,53 @@ ahe validate --config ./my-ahe-project/ahe.runtime.yaml
 ahe run --config ./my-ahe-project/ahe.runtime.yaml
 ```
 
-That example opens real runner-owned NexAU sessions for a direct task and an
-adapter-owned `lookup_code` structured action. For research work, replace it
-with your benchmark adapter and declare all public source roots, protected
-dependencies, domain supplements, research seeds, native metrics, and held-out
-policy. See the runtime example and operator guides.
+Inspect or resume a campaign with:
 
-Configure the API-key environment variable named by `transport.api_key_env`.
-A loopback GH Copilot Server may use a non-secret placeholder; never put a
-provider credential in a YAML file. The runner injects the resolved value only
-into in-memory model configuration; generated meta-agent runtime YAML contains
-a non-secret placeholder and remains safe to expose through bounded evidence
-roots.
-
-The selected harness is exported under:
-
-```text
-campaign-artifacts/<campaign>/final/selected-harness/
+```bash
+ahe status --config ./my-ahe-project/ahe.runtime.yaml
+ahe resume --config ./my-ahe-project/ahe.runtime.yaml
 ```
 
-Every intermediate checkpoint, native evaluation, evidence bundle, Debugger
-result, Evolve attempt, preflight, model call, validation decision, and
-selection artifact remains in the same campaign directory.
+The selected harness is exported to
+`campaign-artifacts/<campaign>/final/selected-harness/`. Intermediate
+checkpoints, evaluations, traces, evidence, model calls, and selection records
+remain under the same campaign directory.
+
+## Implement your own benchmark
+
+1. Implement the evolvable files under `harness/` according to the Harness
+   ABI.
+2. Implement `BenchmarkAdapterV2` for the benchmark's tasks, native execution,
+   metrics, traces, and split policy.
+3. Configure models, transports, rounds, seeds, and adapter paths in
+   `ahe.yaml`.
+4. Run `ahe conformance`, `ahe validate`, and `ahe run`.
+
+Harness tools and the task's selected benchmark tools are both exposed through
+the structured model API. Harness tools execute inside NexAU; protected
+benchmark tools are intercepted and executed by the adapter.
+
+## Documentation
+
+Read these in order:
+
+| Document | Purpose |
+|---|---|
+| [`OPERATOR_GUIDE.md`](docs/OPERATOR_GUIDE.md) | Complete setup, run, resume, and inspection procedure |
+| [`HARNESS_ABI.md`](docs/HARNESS_ABI.md) | Required schemas and signatures for every harness component |
+| [`ADAPTER_GUIDE.md`](docs/ADAPTER_GUIDE.md) | `BenchmarkAdapterV2`, protected tools, evidence, metrics, and splits |
+| [`RUNTIME_BACKED_EXAMPLE.md`](docs/RUNTIME_BACKED_EXAMPLE.md) | Concrete evaluated-agent and protected-action example |
+| [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Lifecycle, ownership, recovery, and protection guarantees |
+
+Additional references:
+
+- [`V2_DESIGN.md`](docs/V2_DESIGN.md) — design rationale and ownership
+  boundaries.
+- [`PROMPT_FIDELITY.md`](docs/PROMPT_FIDELITY.md) — AHE prompt and
+  Explore-skill fidelity.
+- [`VALIDATION_RESULTS.md`](docs/VALIDATION_RESULTS.md) — release validation
+  evidence.
+- [`FUTURE_FEATURES.md`](docs/FUTURE_FEATURES.md) — intentionally unsupported
+  cases.
+- [`TAU2_MIGRATION.md`](docs/TAU2_MIGRATION.md) — Tau2-specific migration
+  guidance.
