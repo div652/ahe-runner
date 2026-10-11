@@ -93,8 +93,7 @@ loaded. The implementation must be a function with explicit
 keyword-compatible parameters:
 
 ```python
-def record_note(note: str, agent_state: AgentState) -> dict[str, object]:
-    ...
+def record_note(note: str, agent_state: AgentState) -> dict[str, object]: ...
 ```
 
 Rules:
