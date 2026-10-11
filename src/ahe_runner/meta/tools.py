@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import difflib
 import ipaddress
 import json
 import re
+import shutil
 import socket
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urljoin, urlsplit
 
@@ -27,6 +29,7 @@ from ahe_runner.io import (
     tree_hashes,
 )
 from ahe_runner.loading import load_adapter
+from ahe_runner.workspace import verify_checkpoint
 
 _MAX_READ_BYTES = 160_000
 _DEFAULT_READ_BYTES = 64_000
@@ -476,6 +479,204 @@ def git_commit(
     return _json({"ok": True, "head": head, "message": message.strip()})
 
 
+def checkpoint_log(agent_state: AgentState | None = None) -> str:
+    blocked = _research_gate(agent_state)
+    if blocked:
+        return blocked
+    root, maximum = _checkpoint_access(agent_state)
+    checkpoints: list[dict[str, Any]] = []
+    paths = [
+        path
+        for path in root.glob("C[0-9]*")
+        if re.fullmatch(r"C(?:0|[1-9][0-9]*)", path.name)
+    ]
+    for path in sorted(paths, key=lambda item: _checkpoint_index(item.name)):
+        index = _checkpoint_index(path.name)
+        if index > maximum or not path.is_dir():
+            continue
+        manifest = verify_checkpoint(path)
+        source = dict(manifest.get("source") or {})
+        change_manifest = source.get("change_manifest")
+        checkpoints.append(
+            {
+                "checkpoint": path.name,
+                "parent_checkpoint": manifest.get("parent_checkpoint"),
+                "harness_sha256": manifest.get("harness_sha256"),
+                "workspace_commit": manifest.get("workspace_commit"),
+                "changed_paths": source.get("changed_paths", []),
+                "change_manifest": change_manifest,
+            }
+        )
+    return _json(
+        {
+            "ok": True,
+            "current_parent_checkpoint": f"C{maximum}",
+            "checkpoints": checkpoints,
+        }
+    )
+
+
+def checkpoint_diff(
+    checkpoint: str,
+    relative_path: str = "",
+    max_bytes: int = _DEFAULT_READ_BYTES,
+    agent_state: AgentState | None = None,
+) -> str:
+    blocked = _research_gate(agent_state)
+    if blocked:
+        return blocked
+    if max_bytes < 1 or max_bytes > _MAX_READ_BYTES:
+        return _json(
+            {
+                "ok": False,
+                "error": f"max_bytes must be between 1 and {_MAX_READ_BYTES}",
+            }
+        )
+    historical = _checkpoint_harness(agent_state, checkpoint)
+    workspace = _workspace(agent_state)
+    if not relative_path:
+        historical_hashes = tree_hashes(historical)
+        current_hashes = tree_hashes(workspace)
+        historical_paths = set(historical_hashes)
+        current_paths = set(current_hashes)
+        return _json(
+            {
+                "ok": True,
+                "checkpoint": checkpoint,
+                "comparison": "historical_checkpoint_to_current_workspace",
+                "added_in_workspace": sorted(current_paths - historical_paths),
+                "removed_from_workspace": sorted(historical_paths - current_paths),
+                "modified": sorted(
+                    path
+                    for path in historical_paths & current_paths
+                    if historical_hashes[path] != current_hashes[path]
+                ),
+            }
+        )
+    relative = _historical_component_path(relative_path)
+    source = historical / relative
+    target = _workspace_component_path(workspace, relative)
+    if source.is_dir() or target.is_dir():
+        return _json(
+            {
+                "ok": False,
+                "error": "checkpoint_diff accepts a file path, not a directory",
+            }
+        )
+    source_bytes = source.read_bytes() if source.is_file() else b""
+    target_bytes = target.read_bytes() if target.is_file() else b""
+    binary = b"\x00" in source_bytes or b"\x00" in target_bytes
+    if binary:
+        return _json(
+            {
+                "ok": True,
+                "checkpoint": checkpoint,
+                "path": relative,
+                "binary": True,
+                "historical_exists": source.is_file(),
+                "workspace_exists": target.is_file(),
+                "historical_sha256": sha256_file(source) if source.is_file() else None,
+                "workspace_sha256": sha256_file(target) if target.is_file() else None,
+            }
+        )
+    diff = "".join(
+        difflib.unified_diff(
+            source_bytes.decode("utf-8", errors="replace").splitlines(keepends=True),
+            target_bytes.decode("utf-8", errors="replace").splitlines(keepends=True),
+            fromfile=f"{checkpoint}/{relative}",
+            tofile=f"workspace/{relative}",
+        )
+    )
+    encoded = diff.encode("utf-8")
+    truncated = len(encoded) > max_bytes
+    content = encoded[:max_bytes].decode("utf-8", errors="replace")
+    return _json(
+        {
+            "ok": True,
+            "checkpoint": checkpoint,
+            "path": relative,
+            "binary": False,
+            "historical_exists": source.is_file(),
+            "workspace_exists": target.is_file(),
+            "diff": content,
+            "bytes_returned": len(content.encode("utf-8")),
+            "truncated": truncated,
+            "full_diff_bytes": len(encoded),
+        }
+    )
+
+
+def restore_checkpoint_paths(
+    checkpoint: str,
+    paths: list[str],
+    rationale: str,
+    agent_state: AgentState | None = None,
+) -> str:
+    historical = _checkpoint_harness(agent_state, checkpoint)
+    workspace = _workspace(agent_state)
+    normalized = [_historical_component_path(path) for path in paths]
+    if not normalized:
+        return _json({"ok": False, "error": "paths must not be empty"})
+    if len(normalized) != len(set(normalized)):
+        return _json({"ok": False, "error": "paths must be unique"})
+    reason = rationale.strip()
+    if not reason:
+        return _json({"ok": False, "error": "rationale must not be empty"})
+    candidates: list[tuple[str, Path, Path]] = []
+    for relative in normalized:
+        source = historical / relative
+        target = _workspace_component_path(workspace, relative)
+        if source.is_dir() or target.is_dir():
+            return _json(
+                {
+                    "ok": False,
+                    "error": f"restore path must name a file: {relative}",
+                }
+            )
+        candidates.append((relative, source, target))
+    actions: list[dict[str, Any]] = []
+    changed = False
+    for relative, source, target in candidates:
+        before = sha256_file(target) if target.is_file() else None
+        if source.is_file():
+            source_hash = sha256_file(source)
+            if before == source_hash:
+                action = "unchanged"
+                after = before
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, target)
+                action = "restored"
+                after = sha256_file(target)
+                changed = True
+        elif target.is_file():
+            target.unlink()
+            action = "deleted"
+            after = None
+            changed = True
+        else:
+            action = "unchanged_absent"
+            after = None
+        actions.append(
+            {
+                "path": relative,
+                "action": action,
+                "before_sha256": before,
+                "after_sha256": after,
+            }
+        )
+    if changed:
+        _record_mutation(agent_state)
+    event = {
+        "checkpoint": checkpoint,
+        "paths": normalized,
+        "rationale": reason,
+        "actions": actions,
+    }
+    _append_restore_event(agent_state, event)
+    return _json({"ok": True, "changed": changed, **event})
+
+
 def validate_candidate(agent_state: AgentState | None = None) -> str:
     workspace = _workspace(agent_state)
     manifest_path = Path(
@@ -785,6 +986,88 @@ def _resolve_virtual(
 
 def _workspace(agent_state: AgentState | None) -> Path:
     return Path(str(_context_value(agent_state, "workspace_dir"))).resolve()
+
+
+def _checkpoint_access(
+    agent_state: AgentState | None,
+) -> tuple[Path, int]:
+    root = Path(str(_context_value(agent_state, "checkpoint_root"))).resolve()
+    maximum = _checkpoint_index(str(_context_value(agent_state, "parent_checkpoint")))
+    return root, maximum
+
+
+def _checkpoint_harness(
+    agent_state: AgentState | None,
+    checkpoint: str,
+) -> Path:
+    root, maximum = _checkpoint_access(agent_state)
+    index = _checkpoint_index(checkpoint)
+    if index > maximum:
+        raise ValueError(
+            f"checkpoint {checkpoint} is newer than the current parent C{maximum}"
+        )
+    checkpoint_dir = (root / checkpoint).resolve()
+    try:
+        checkpoint_dir.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("checkpoint path escapes the checkpoint root") from exc
+    manifest = verify_checkpoint(checkpoint_dir)
+    if manifest.get("checkpoint") != checkpoint:
+        raise ValueError(f"checkpoint manifest identity mismatch for {checkpoint_dir}")
+    return checkpoint_dir / "harness"
+
+
+def _checkpoint_index(value: str) -> int:
+    if not re.fullmatch(r"C(?:0|[1-9][0-9]*)", value):
+        raise ValueError(f"invalid checkpoint label: {value!r}")
+    return int(value[1:])
+
+
+def _historical_component_path(value: str) -> str:
+    normalized = value.strip()
+    if not normalized or "\\" in normalized:
+        raise ValueError("path must be a non-empty POSIX relative file path")
+    path = PurePosixPath(normalized)
+    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
+        raise ValueError("path must stay inside the harness")
+    if ".git" in path.parts or path.as_posix() == "change_manifest.json":
+        raise ValueError("path names protected bookkeeping state")
+    return path.as_posix()
+
+
+def _workspace_component_path(workspace: Path, relative: str) -> Path:
+    target = workspace / relative
+    current = target
+    while current != workspace:
+        if current.is_symlink():
+            raise ValueError(f"workspace path traverses a symlink: {relative}")
+        if current != target and current.exists() and not current.is_dir():
+            raise ValueError(f"workspace parent path is not a directory: {relative}")
+        current = current.parent
+    resolved = target.resolve(strict=False)
+    try:
+        resolved.relative_to(workspace.resolve())
+    except ValueError as exc:
+        raise ValueError("workspace path escapes the candidate root") from exc
+    return target
+
+
+def _append_restore_event(
+    agent_state: AgentState | None,
+    event: dict[str, Any],
+) -> None:
+    output_dir = Path(str(_context_value(agent_state, "meta_output_dir"))).resolve()
+    path = output_dir / "historical_restores.json"
+    if path.is_file():
+        payload = read_json(path)
+    else:
+        payload = {"schema_version": 1, "events": []}
+    events = payload.get("events")
+    if not isinstance(events, list):
+        raise TypeError("historical restore log is invalid")
+    events.append(event)
+    payload["events"] = events
+    atomic_write_json(path, payload)
 
 
 def _git(workspace: Path, *args: str) -> str:

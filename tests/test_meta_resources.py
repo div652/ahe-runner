@@ -81,6 +81,8 @@ def test_prompts_are_substantive_and_require_native_explore_skills() -> None:
     assert all(len(text) > 2_000 for text in prompts.values())
     assert "LoadSkill" in prompts["evolve.md"]
     assert "change_manifest.json" in prompts["evolve.md"]
+    assert "ROLLBACK + PIVOT" in prompts["evolve.md"]
+    assert "restore_checkpoint_paths" in prompts["evolve.md"]
     assert "submit_debugger_diagnosis" in prompts["debugger.md"]
     assert "at least one passing and one failing trial" in prompts["debugger.md"]
     assert "Your first tool call must be `write_file`" in prompts["source_explorer.md"]
@@ -129,7 +131,13 @@ def test_generated_production_agent_config_loads_with_native_skill(
         prompt_name="evolve.md",
         settings=controller.config.document.models.meta,
         max_iterations=2,
-        tools=("complete_task", "submit_debugger_diagnosis"),
+        tools=(
+            "complete_task",
+            "submit_debugger_diagnosis",
+            "checkpoint_log",
+            "checkpoint_diff",
+            "restore_checkpoint_paths",
+        ),
         skills=(skill,),
         context={},
         query="smoke query",

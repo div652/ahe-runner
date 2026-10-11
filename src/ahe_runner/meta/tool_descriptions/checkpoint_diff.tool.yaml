@@ -1,0 +1,19 @@
+type: tool
+name: checkpoint_diff
+description: Compare an immutable historical checkpoint with the current candidate workspace, either as a changed-path summary or a bounded unified diff for one file.
+input_schema:
+  type: object
+  properties:
+    checkpoint:
+      type: string
+      pattern: "^C(?:0|[1-9][0-9]*)$"
+    relative_path:
+      type: string
+      default: ""
+    max_bytes:
+      type: integer
+      minimum: 1
+      maximum: 160000
+      default: 64000
+  required: [checkpoint]
+  additionalProperties: false

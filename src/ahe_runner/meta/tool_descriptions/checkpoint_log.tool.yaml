@@ -1,0 +1,7 @@
+type: tool
+name: checkpoint_log
+description: List immutable historical harness checkpoints and their recorded logical changes through the current parent.
+input_schema:
+  type: object
+  properties: {}
+  additionalProperties: false

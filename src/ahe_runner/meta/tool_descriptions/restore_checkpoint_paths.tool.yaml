@@ -1,0 +1,19 @@
+type: tool
+name: restore_checkpoint_paths
+description: Selectively restore or delete named component files so they match an immutable historical checkpoint, while recording the rollback rationale.
+input_schema:
+  type: object
+  properties:
+    checkpoint:
+      type: string
+      pattern: "^C(?:0|[1-9][0-9]*)$"
+    paths:
+      type: array
+      minItems: 1
+      uniqueItems: true
+      items:
+        type: string
+    rationale:
+      type: string
+  required: [checkpoint, paths, rationale]
+  additionalProperties: false

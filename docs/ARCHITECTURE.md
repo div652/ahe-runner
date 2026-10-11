@@ -401,6 +401,12 @@ unattributed improvements and unanticipated regressions. This supports later
 keep, improve, or rollback/pivot decisions; it is not an isolated causal
 experiment for each edit.
 
+Evolve also receives read-only immutable checkpoint history plus bounded
+checkpoint log/diff tools. It may selectively restore named component files
+from an earlier checkpoint, with the source, paths, and rationale persisted as
+evidence. This enables agent-decided `KEEP`, `IMPROVE`, and `ROLLBACK + PIVOT`
+without automatic score-triggered rollback or whole-harness replacement.
+
 Benchmark-specific wording is supplied by the adapter through a declared
 `MetaPromptContext`; it does not replace the operating contract with a short
 role summary.

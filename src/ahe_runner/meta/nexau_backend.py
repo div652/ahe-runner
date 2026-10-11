@@ -274,6 +274,7 @@ class NexAUMetaBackend(MetaBackend):
             "evidence": evidence_dir,
             "raw_evaluation": raw_evaluation_dir,
             "debugger": debugger_dir,
+            "checkpoints": self.context.config.campaign_dir / "checkpoints",
             "framework": self._framework_source,
             "adapter": self._adapter_source,
             "method": self._method_reference,
@@ -287,6 +288,7 @@ class NexAUMetaBackend(MetaBackend):
             "meta_role": "evolve",
             "checkpoint": round_label,
             "parent_checkpoint": f"C{round_index - 1}",
+            "checkpoint_root": str(self.context.config.campaign_dir / "checkpoints"),
             "workspace_dir": str(workspace),
             "config_path": str(self.context.config.config_path),
             "project_root": str(self.context.config.project_root),
@@ -330,6 +332,9 @@ class NexAUMetaBackend(MetaBackend):
                 *_COMMON_READ_TOOLS,
                 *_WRITE_TOOLS,
                 *_GIT_TOOLS,
+                "checkpoint_log",
+                "checkpoint_diff",
+                "restore_checkpoint_paths",
                 "validate_candidate",
                 "complete_task",
             ),
@@ -896,9 +901,11 @@ def _evolve_query(
         f"{json.dumps(evidence, sort_keys=True, indent=2)}\n\n"
         "Immutable benchmark interface and protected runtime actions:\n"
         f"{json.dumps(benchmark_interface, sort_keys=True, indent=2)}\n\n"
-        "Load both Explore skills, synthesize the complete evidence set, "
-        "implement one coherent reusable improvement, commit it, validate it, "
-        "commit change_manifest.json, validate again, and call complete_task."
+        "Load both Explore skills, synthesize the complete evidence set, inspect "
+        "relevant checkpoint history, choose KEEP, IMPROVE, or ROLLBACK + PIVOT "
+        "for prior related edits, implement one coherent reusable update, commit "
+        "it, validate it, commit change_manifest.json, validate again, and call "
+        "complete_task."
     )
 
 

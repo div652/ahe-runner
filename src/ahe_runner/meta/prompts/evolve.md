@@ -45,11 +45,12 @@ Read evidence in this order before choosing a change:
 2. `evidence`: current training evidence manifest and aggregate metrics;
 3. `debugger`: all available per-task diagnoses, grouped by recurrent pattern;
 4. `attribution`: prior transition attribution, when present;
-5. both Explore skills through `LoadSkill`:
+5. `checkpoints`: immutable historical harness snapshots and manifests;
+6. both Explore skills through `LoadSkill`:
    - framework and adapter internals;
    - public agent-design research;
-6. `workspace`: current harness configuration and implementation;
-7. `recovery`: prior interrupted-attempt evidence, when present.
+7. `workspace`: current harness configuration and implementation;
+8. `recovery`: prior interrupted-attempt evidence, when present.
 
 The Explore guides are genuine NexAU skills. Call `LoadSkill` before relying on
 their contents. Do not substitute a quick directory read for loading them.
@@ -73,6 +74,32 @@ Build an internal causal map:
 Do not optimize a single outlier unless it reveals a general mechanism. Do not
 infer causality from aggregate reward alone. Use raw trajectories to verify the
 diagnosis.
+
+## Historical decision discipline
+
+For every prior logical edit relevant to the current failure pattern, make one
+explicit internal decision:
+
+- `KEEP`: its predictions were supported and no material undeclared regression
+  argues against it;
+- `IMPROVE`: the mechanism remains plausible but was incomplete, brittle, or
+  only partially effective;
+- `ROLLBACK + PIVOT`: its prediction failed repeatedly, its declared or
+  undeclared regressions materialized, or evidence points to a different
+  component-level mechanism.
+
+Use `checkpoint_log` to inspect historical hypotheses and `checkpoint_diff` to
+compare the current candidate with an earlier immutable snapshot. When rollback
+is justified, use `restore_checkpoint_paths` only for the affected component
+files. Do not replace the whole harness or discard an unrelated retained
+improvement. The restore tool records the source checkpoint, paths, and
+rationale; describe the same decision in the new change manifest with
+`type: "rollback"` when it is part of the final candidate.
+
+There is no automatic score-triggered rollback. You are responsible for the
+evidence-based decision. If repeated local edits to one component fail, pivot
+to the earliest supported mechanism at another appropriate component level
+rather than rephrasing the same fix indefinitely.
 
 ## Change design
 
@@ -150,17 +177,20 @@ continuing.
 3. Load both Explore skills.
 4. Inspect the current harness and manifest-defined boundaries.
 5. State one primary causal hypothesis and expected observable effect.
-6. Choose a coherent intervention and identify regression risks.
-7. Edit the candidate harness using only writable tools.
-8. Inspect `git_diff`.
-9. Commit the coherent change.
-10. Run `validate_candidate`.
-11. If validation fails, fix the cause, commit the repair, and validate again.
-12. Create `workspace/change_manifest.json`.
-13. Commit the manifest.
-14. Run `validate_candidate` again after the final commit.
-15. Confirm `git_status` is clean.
-16. Call `complete_task`.
+6. Inspect relevant checkpoint history and choose `KEEP`, `IMPROVE`, or
+   `ROLLBACK + PIVOT` for prior related edits.
+7. Choose a coherent intervention and identify regression risks.
+8. Edit or selectively restore the candidate harness using only authorized
+   tools.
+9. Inspect `git_diff`.
+10. Commit the coherent change.
+11. Run `validate_candidate`.
+12. If validation fails, fix the cause, commit the repair, and validate again.
+13. Create `workspace/change_manifest.json`.
+14. Commit the manifest.
+15. Run `validate_candidate` again after the final commit.
+16. Confirm `git_status` is clean.
+17. Call `complete_task`.
 
 Do not stop after describing what should be changed. Do not claim success until
 the final committed candidate passes validation.
