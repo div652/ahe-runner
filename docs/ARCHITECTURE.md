@@ -312,6 +312,11 @@ actions and resumes the same session with exact `ToolResultBlock` call IDs.
 Evolve may improve how the harness chooses actions but cannot modify or
 reimplement the benchmark interface.
 
+A trusted capture hook runs before candidate after-model middleware. Once an
+official action is present, candidate middleware is not allowed to request
+another model turn; control returns to the adapter immediately and resumes only
+after the exact official results are supplied.
+
 ## Standard evidence bundle
 
 Every adapter converts native training artifacts into:
@@ -490,12 +495,16 @@ Fresh preflight timestamps and random negative-control IDs are attempt
 evidence, not semantic campaign inputs. This prevents fresh preflights from
 changing checkpoint or evaluation identities.
 
-The client has no hidden nested retry multiplier. Request retries and complete
-stage attempts are explicit, separately bounded, and recorded.
+The recorded client disables OpenAI SDK retries, and runner-created NexAU
+agents use one native request attempt. Infrastructure recovery remains in the
+explicit outer stage-attempt policy, so model identity and policy failures are
+not multiplied by an inner retry loop.
 
 Evaluated sessions use the same recorded exact-model client and native NexAU
-loop. Model settings are recursively overridden in every configured
-sub-agent, while each session preserves its own `HistoryList`.
+loop. Exact model ID, reasoning policy, temperature, output limit, non-streaming
+mode, and retry ownership are recursively enforced in every configured
+sub-agent and again at the recorded request boundary, while each session
+preserves its own `HistoryList`.
 
 ## Evaluation recovery contract
 

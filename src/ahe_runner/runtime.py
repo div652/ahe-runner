@@ -300,7 +300,15 @@ class EvaluatedAgentRuntime:
                 + ", ".join(collisions)
             )
         config.tools.extend(_runtime_tools(request.benchmark_tools))
-        config.middlewares = [boundary, *(config.middlewares or [])]
+        candidate_middlewares = [
+            _CandidateMiddlewareGuard(middleware, boundary)
+            for middleware in (config.middlewares or [])
+        ]
+        config.middlewares = [
+            boundary,
+            *candidate_middlewares,
+            _ProtectedActionCapture(boundary),
+        ]
 
         client = RecordedExactModelClient(
             transport=self._transport,
@@ -386,15 +394,17 @@ class EvaluatedAgentRuntime:
 
 
 class _ProtectedBenchmarkBoundary(Middleware):
-    """Capture protected calls after candidate middleware and before execution."""
+    """Capture protected calls and block them from NexAU tool execution."""
 
     def __init__(self, tools: Sequence[BenchmarkToolSpec]) -> None:
         self.name = "ahe_protected_benchmark_boundary"
         self._tool_names = frozenset(tool.name for tool in tools)
         self._actions: tuple[BenchmarkActionCall, ...] = ()
+        self._intercepted = False
         self.violation: str | None = None
 
-    def after_model(self, hook_input: AfterModelHookInput) -> HookResult:
+    def capture(self, hook_input: AfterModelHookInput) -> HookResult:
+        self._intercepted = False
         parsed = hook_input.parsed_response
         if parsed is None:
             return HookResult.no_changes()
@@ -403,6 +413,7 @@ class _ProtectedBenchmarkBoundary(Middleware):
         ]
         if not protected_calls:
             return HookResult.no_changes()
+        self._intercepted = True
         other_calls = [
             call for call in parsed.tool_calls if call.tool_name not in self._tool_names
         ]
@@ -431,6 +442,10 @@ class _ProtectedBenchmarkBoundary(Middleware):
         self._actions = actions
         return HookResult.with_modifications(parsed_response=_without_calls(parsed))
 
+    @property
+    def intercepted(self) -> bool:
+        return self._intercepted
+
     def wrap_tool_call(
         self,
         params: ToolCallParams,
@@ -448,6 +463,56 @@ class _ProtectedBenchmarkBoundary(Middleware):
         actions = self._actions
         self._actions = ()
         return actions
+
+
+class _ProtectedActionCapture(Middleware):
+    """Run before candidate after-model hooks and establish a trusted yield."""
+
+    def __init__(self, boundary: _ProtectedBenchmarkBoundary) -> None:
+        self.name = "ahe_protected_action_capture"
+        self._boundary = boundary
+
+    def after_model(self, hook_input: AfterModelHookInput) -> HookResult:
+        return self._boundary.capture(hook_input)
+
+
+class _CandidateMiddlewareGuard:
+    """Delegate candidate middleware except after a protected action is captured."""
+
+    def __init__(
+        self,
+        middleware: Any,
+        boundary: _ProtectedBenchmarkBoundary,
+    ) -> None:
+        object.__setattr__(self, "_middleware", middleware)
+        object.__setattr__(self, "_boundary", boundary)
+        object.__setattr__(
+            self,
+            "name",
+            getattr(
+                middleware,
+                "name",
+                middleware.__class__.__name__,
+            ),
+        )
+
+    def after_model(self, hook_input: AfterModelHookInput) -> HookResult:
+        if self._boundary.intercepted:
+            return HookResult.no_changes()
+        return self._middleware.after_model(hook_input)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._middleware, name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name in {"_middleware", "_boundary", "name"}:
+            object.__setattr__(self, name, value)
+            return
+        middleware = object.__getattribute__(self, "_middleware")
+        if hasattr(middleware, name):
+            setattr(middleware, name, value)
+            return
+        object.__setattr__(self, name, value)
 
 
 def _runtime_tools(tools: Sequence[BenchmarkToolSpec]) -> list[Tool]:
@@ -498,7 +563,16 @@ def _override_model_settings(
         "temperature": model.temperature,
         "stream": False,
         "api_type": "openai_chat_completion",
+        "max_retries": 0,
     }
+    config.retry_attempts = 1
+    config.llm_config.extra_params.pop("reasoning", None)
+    extra_body = dict(config.llm_config.extra_params.get("extra_body") or {})
+    extra_body.pop("reasoning", None)
+    if extra_body:
+        config.llm_config.extra_params["extra_body"] = extra_body
+    else:
+        config.llm_config.extra_params.pop("extra_body", None)
     if model.reasoning_effort is not None:
         updates["reasoning"] = {"effort": model.reasoning_effort}
     config.llm_config.update(**updates)

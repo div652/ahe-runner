@@ -71,13 +71,63 @@ def test_recorded_client_enforces_model_reasoning_and_records_calls(
     response = client.chat.completions.create(
         model="exact-model",
         messages=[{"role": "user", "content": "hello"}],
-        max_tokens=32,
+        max_tokens=128,
+        temperature=0.1,
     )
     assert response.model == "exact-model"
     assert seen["stream"] is False
+    assert seen["max_tokens"] == 128
+    assert seen["temperature"] == 0.1
     assert seen["extra_body"]["reasoning"] == {"effort": "high"}
     assert (tmp_path / "calls" / "call-0001" / "request.json").is_file()
     assert (tmp_path / "calls" / "call-0001" / "response.json").is_file()
+
+    with pytest.raises(IntegrityError, match="max_tokens"):
+        client.chat.completions.create(
+            model="exact-model",
+            messages=[{"role": "user", "content": "hello"}],
+            max_tokens=104_096,
+            temperature=0.1,
+        )
+    with pytest.raises(IntegrityError, match="temperature"):
+        client.chat.completions.create(
+            model="exact-model",
+            messages=[{"role": "user", "content": "hello"}],
+            max_tokens=128,
+            temperature=1.9,
+        )
+
+
+def test_recorded_client_clears_provider_default_reasoning(
+    tmp_path: Path,
+) -> None:
+    settings = ModelSettings(
+        model="exact-model",
+        max_tokens=128,
+        reasoning_effort=None,
+        temperature=0.1,
+    )
+    client = RecordedExactModelClient(
+        transport=_transport(),
+        api_key="placeholder",
+        settings=settings,
+        log_dir=tmp_path / "calls",
+    )
+    client._base = _FakeOpenAI(  # type: ignore[attr-defined]
+        lambda _kwargs: SimpleNamespace(
+            model="exact-model",
+            choices=[SimpleNamespace(message=SimpleNamespace(content="OK"))],
+            model_dump=lambda mode="json": {"model": "exact-model"},
+        )
+    )
+    with pytest.raises(IntegrityError, match="provider-default"):
+        client.chat.completions.create(
+            model="exact-model",
+            messages=[{"role": "user", "content": "hello"}],
+            max_tokens=128,
+            temperature=0.1,
+            reasoning={"effort": "high"},
+        )
 
 
 def test_recorded_client_fails_closed_on_mismatch_and_timeout(

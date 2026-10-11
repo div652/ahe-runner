@@ -272,8 +272,15 @@ class NexAUMetaBackend(MetaBackend):
             "checkpoint": round_label,
             "parent_checkpoint": f"C{round_index - 1}",
             "workspace_dir": str(workspace),
+            "config_path": str(self.context.config.config_path),
             "project_root": str(self.context.config.project_root),
             "harness_manifest_path": str(self.context.config.harness_manifest_path),
+            "parent_harness_dir": str(
+                self.context.config.campaign_dir
+                / "checkpoints"
+                / f"C{round_index - 1}"
+                / "harness"
+            ),
             "meta_output_dir": str(output_dir),
             "training_task_ids": [
                 task.task_id for task in evidence.tasks if task.task_id is not None
@@ -334,6 +341,10 @@ class NexAUMetaBackend(MetaBackend):
             validation = read_json(validation_path)
             if validation.get("ok") is not True:
                 problems.append("final candidate validation did not pass")
+            elif validation.get("head") != final_head:
+                problems.append(
+                    "final candidate validation does not match the final commit"
+                )
         if problems:
             raise IntegrityError("; ".join(problems))
         response = {
@@ -483,6 +494,7 @@ class NexAUMetaBackend(MetaBackend):
                     model=self.context.config.document.models.meta.model,
                     messages=messages,
                     max_tokens=self.context.config.document.models.meta.max_tokens,
+                    temperature=(self.context.config.document.models.meta.temperature),
                     stream=False,
                 )
                 raw = completion_text(response)
@@ -554,12 +566,14 @@ class NexAUMetaBackend(MetaBackend):
             "max_running_subagents": (
                 self.context.config.document.meta.max_running_subagents
             ),
+            "retry_attempts": 1,
             "llm_config": {
                 "model": settings.model,
                 "base_url": self.context.config.document.transport.base_url,
                 "api_key": self.context.config.api_key,
                 "temperature": settings.temperature,
                 "max_tokens": settings.max_tokens,
+                "max_retries": 0,
                 "stream": False,
                 "api_type": "openai_chat_completion",
             },
@@ -609,9 +623,18 @@ class NexAUMetaBackend(MetaBackend):
             "api_key": self.context.config.api_key,
             "temperature": settings.temperature,
             "max_tokens": settings.max_tokens,
+            "max_retries": 0,
             "stream": False,
             "api_type": "openai_chat_completion",
         }
+        config.retry_attempts = 1
+        config.llm_config.extra_params.pop("reasoning", None)
+        extra_body = dict(config.llm_config.extra_params.get("extra_body") or {})
+        extra_body.pop("reasoning", None)
+        if extra_body:
+            config.llm_config.extra_params["extra_body"] = extra_body
+        else:
+            config.llm_config.extra_params.pop("extra_body", None)
         if settings.reasoning_effort is not None:
             llm_updates["reasoning"] = {"effort": settings.reasoning_effort}
         config.llm_config.update(**llm_updates)

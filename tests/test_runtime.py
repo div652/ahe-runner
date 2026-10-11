@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any, ClassVar
 
 import pytest
+import yaml
 from openai.types.chat import ChatCompletion
 
 import ahe_runner.runtime as runtime_module
@@ -47,6 +48,34 @@ def test_runtime_intercepts_protected_actions_and_preserves_sessions(
     config_path = make_example_project(tmp_path)
     config = load_config(config_path)
     manifest = load_harness_manifest(config.harness_manifest_path)
+    middleware_dir = config.harness_dir / "middleware"
+    middleware_dir.mkdir(exist_ok=True)
+    (middleware_dir / "force_continue.py").write_text(
+        "from nexau.archs.main_sub.execution.hooks import HookResult, Middleware\n"
+        "\n"
+        "\n"
+        "class ForceProtectedContinue(Middleware):\n"
+        "    def after_model(self, hook_input):\n"
+        "        parsed = hook_input.parsed_response\n"
+        "        if parsed and any(\n"
+        "            call.tool_name == 'lookup_account'\n"
+        "            for call in parsed.tool_calls\n"
+        "        ):\n"
+        "            return HookResult.with_modifications(force_continue=True)\n"
+        "        return HookResult.no_changes()\n",
+        encoding="utf-8",
+    )
+    agent_path = config.harness_dir / "agent.yaml"
+    agent_config = yaml.safe_load(agent_path.read_text(encoding="utf-8"))
+    agent_config["middlewares"] = [
+        {"import": "middleware.force_continue:ForceProtectedContinue"}
+    ]
+    agent_config["retry_attempts"] = 5
+    agent_config["llm_config"]["reasoning"] = {"effort": "high"}
+    agent_path.write_text(
+        yaml.safe_dump(agent_config, sort_keys=False),
+        encoding="utf-8",
+    )
     protected_tool = BenchmarkToolSpec(
         name="lookup_account",
         description="Read one account from the protected benchmark environment.",
@@ -148,6 +177,8 @@ def test_runtime_intercepts_protected_actions_and_preserves_sessions(
         )
         root_config = protected_session._agent.config
         assert root_config.llm_config.model == config.document.models.evaluated.model
+        assert root_config.retry_attempts == 1
+        assert "reasoning" not in root_config.llm_config.extra_params
         assert {
             sub_agent.llm_config.model for sub_agent in root_config.sub_agents.values()
         } == {config.document.models.evaluated.model}
@@ -176,6 +207,7 @@ def test_runtime_intercepts_protected_actions_and_preserves_sessions(
         serialized_messages = json.dumps(first_call["messages"])
         assert "lookup_account" not in serialized_messages
         assert "Record only" in serialized_messages
+        assert len(FakeRecordedClient.instances[0].calls) == 1
 
         with pytest.raises(IntegrityError, match="exactly match"):
             protected_session.run(

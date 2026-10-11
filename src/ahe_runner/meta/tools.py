@@ -14,8 +14,17 @@ from urllib.parse import urljoin, urlsplit
 import yaml
 from nexau.archs.main_sub.agent_state import AgentState
 
+from ahe_runner.adapter import CandidateValidationRequest
+from ahe_runner.config import load_config
 from ahe_runner.harness import load_harness_manifest, validate_harness
-from ahe_runner.io import atomic_write_json, read_json, sha256_file
+from ahe_runner.io import (
+    atomic_write_json,
+    read_json,
+    sha256_file,
+    sha256_json,
+    tree_hashes,
+)
+from ahe_runner.loading import load_adapter
 
 _MAX_READ_BYTES = 160_000
 _MAX_SEARCH_MATCHES = 300
@@ -287,6 +296,10 @@ def validate_candidate(agent_state: AgentState | None = None) -> str:
         str(_context_value(agent_state, "harness_manifest_path"))
     ).resolve()
     project_root = Path(str(_context_value(agent_state, "project_root"))).resolve()
+    config_path = Path(str(_context_value(agent_state, "config_path"))).resolve()
+    parent_harness_dir = Path(
+        str(_context_value(agent_state, "parent_harness_dir"))
+    ).resolve()
     output_dir = Path(str(_context_value(agent_state, "meta_output_dir"))).resolve()
     training_ids = tuple(
         str(item) for item in (_context_value(agent_state, "training_task_ids") or [])
@@ -306,6 +319,21 @@ def validate_candidate(agent_state: AgentState | None = None) -> str:
             parent_runtime_owned_hashes=parent_hashes,
             run_nexau_smoke=True,
         )
+        adapter = load_adapter(load_config(config_path))
+        adapter_result = adapter.validate_candidate(
+            CandidateValidationRequest(
+                checkpoint=str(_context_value(agent_state, "checkpoint")),
+                parent_checkpoint=str(_context_value(agent_state, "parent_checkpoint")),
+                harness_dir=workspace,
+                parent_harness_dir=parent_harness_dir,
+                training_task_ids=training_ids,
+            )
+        )
+        if not adapter_result.valid:
+            raise ValueError(
+                "adapter candidate validation failed: "
+                + "; ".join(adapter_result.errors)
+            )
     except Exception as exc:
         payload = {
             "ok": False,
@@ -315,7 +343,13 @@ def validate_candidate(agent_state: AgentState | None = None) -> str:
         atomic_write_json(output_dir / "candidate_validation.json", payload)
         _storage_set(agent_state, "candidate_validation", payload)
         return _json(payload)
-    payload = {"ok": True, "report": report}
+    payload = {
+        "ok": True,
+        "head": _git(workspace, "rev-parse", "HEAD").strip(),
+        "tree_sha256": sha256_json(tree_hashes(workspace)),
+        "report": report,
+        "adapter": adapter_result.model_dump(mode="json"),
+    }
     atomic_write_json(output_dir / "candidate_validation.json", payload)
     _storage_set(agent_state, "candidate_validation", payload)
     return _json(payload)
@@ -409,9 +443,9 @@ def web_read(
 def complete_task(
     final_summary: str,
     agent_state: AgentState | None = None,
-) -> str:
+) -> dict[str, Any]:
     if not final_summary.strip():
-        return _json({"ok": False, "error": "final_summary cannot be empty"})
+        return _completion_error("final_summary cannot be empty")
     role = str(_context_value(agent_state, "meta_role"))
     if role in {"source_explorer", "web_explorer"}:
         target = Path(
@@ -419,7 +453,7 @@ def complete_task(
         ).resolve()
         problems = _validate_skill(target, role)
         if problems:
-            return _json({"ok": False, "errors": problems})
+            return _completion_error(errors=problems)
     elif role == "evolve":
         workspace = _workspace(agent_state)
         status = _git(workspace, "status", "--short")
@@ -463,13 +497,35 @@ def complete_task(
                     problems.append("every change_manifest.json change requires a path")
         if not isinstance(validation, dict) or validation.get("ok") is not True:
             problems.append("validate_candidate must pass after the final commit")
+        elif (
+            validation.get("head")
+            != _git(
+                workspace,
+                "rev-parse",
+                "HEAD",
+            ).strip()
+        ):
+            problems.append("validate_candidate must be rerun after the final commit")
         if problems:
-            return _json({"ok": False, "errors": problems})
+            return _completion_error(errors=problems)
     else:
-        return _json({"ok": False, "error": f"unsupported meta role: {role}"})
+        return _completion_error(f"unsupported meta role: {role}")
     _storage_set(agent_state, "task_complete", True)
     _storage_set(agent_state, "final_summary", final_summary.strip())
-    return _json({"ok": True, "summary": final_summary.strip()})
+    return {"ok": True, "summary": final_summary.strip()}
+
+
+def _completion_error(
+    error: str | None = None,
+    *,
+    errors: list[str] | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {"status": "error", "ok": False}
+    if error is not None:
+        payload["error"] = error
+    if errors is not None:
+        payload["errors"] = errors
+    return payload
 
 
 def _validate_skill(path: Path, role: str) -> list[str]:

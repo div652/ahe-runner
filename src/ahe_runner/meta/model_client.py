@@ -64,6 +64,16 @@ class RecordedExactModelClient:
         if kwargs.get("stream") is True:
             raise IntegrityError("streaming model calls are prohibited")
         kwargs["stream"] = False
+        self._require_setting(
+            kwargs,
+            name="max_tokens",
+            expected=self._settings.max_tokens,
+        )
+        self._require_setting(
+            kwargs,
+            name="temperature",
+            expected=self._settings.temperature,
+        )
         if self._settings.reasoning_effort is not None:
             expected = {"effort": self._settings.reasoning_effort}
             reasoning = kwargs.pop("reasoning", None)
@@ -79,6 +89,19 @@ class RecordedExactModelClient:
                 )
             extra_body["reasoning"] = expected
             kwargs["extra_body"] = extra_body
+        else:
+            reasoning = kwargs.pop("reasoning", None)
+            extra_body = dict(kwargs.get("extra_body") or {})
+            extra_reasoning = extra_body.pop("reasoning", None)
+            if reasoning is not None or extra_reasoning is not None:
+                raise IntegrityError(
+                    "reasoning override is prohibited when campaign reasoning "
+                    "is provider-default"
+                )
+            if extra_body:
+                kwargs["extra_body"] = extra_body
+            else:
+                kwargs.pop("extra_body", None)
 
         call_dir = self._next_call_dir()
         request_payload = _json_safe(kwargs)
@@ -121,6 +144,20 @@ class RecordedExactModelClient:
             },
         )
         return response
+
+    def _require_setting(
+        self,
+        kwargs: dict[str, Any],
+        *,
+        name: str,
+        expected: Any,
+    ) -> None:
+        received = kwargs.get(name)
+        if received is not None and received != expected:
+            raise IntegrityError(
+                f"{name} was {received!r}; expected campaign value {expected!r}"
+            )
+        kwargs[name] = expected
 
     def _next_call_dir(self) -> Path:
         with self._lock:

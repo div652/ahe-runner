@@ -212,6 +212,8 @@ finally:
 
 The runtime rejects missing, duplicate, unexpected, or mixed protected call
 IDs. NexAU never directly executes the protected action implementation.
+Candidate middleware cannot force another model call after an official action
+has been captured.
 
 Use `EvaluationStore` to obtain:
 
@@ -294,7 +296,10 @@ Examples:
 - model-routing invariants.
 
 Return explicit errors and warnings. Never convert an invalid harness into a
-success-shaped fallback.
+success-shaped fallback. The same adapter check runs inside Evolve's
+`validate_candidate` tool so a recoverable benchmark-specific defect can be
+fixed before the stage completes. Completion is accepted only when validation
+matches the final committed Git `HEAD`.
 
 ## `compare()`
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -111,3 +112,14 @@ def test_generated_production_agent_config_loads_with_native_skill(
     assert result == "smoke complete"
     loaded = backend_module.AgentConfig.from_yaml(tmp_path / "runtime" / "agent.yaml")
     assert loaded.skills[0].name == "smoke"
+    assert loaded.retry_attempts == 1
+
+
+def test_failed_completion_uses_nexau_repairable_error_shape() -> None:
+    result = tools.complete_task(final_summary="", agent_state=None)
+    assert result == {
+        "status": "error",
+        "ok": False,
+        "error": "final_summary cannot be empty",
+    }
+    assert json.loads(json.dumps(result))["status"] == "error"
