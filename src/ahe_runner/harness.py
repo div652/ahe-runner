@@ -5,6 +5,7 @@ from __future__ import annotations
 import fnmatch
 import importlib.metadata
 import json
+import re
 import subprocess
 import sys
 from collections.abc import Iterable, Mapping
@@ -397,7 +398,11 @@ def _reject_task_memorization(
     files: Iterable[Path],
     training_task_ids: Iterable[str],
 ) -> list[str]:
-    identifiers = tuple(str(value) for value in training_task_ids if str(value))
+    identifiers = tuple(
+        str(value)
+        for value in training_task_ids
+        if _usable_memorization_identifier(str(value))
+    )
     if not identifiers:
         return []
     errors: list[str] = []
@@ -416,13 +421,26 @@ def _reject_task_memorization(
         except UnicodeDecodeError:
             continue
         match = next(
-            (identifier for identifier in identifiers if identifier in text), None
+            (
+                identifier
+                for identifier in identifiers
+                if re.search(
+                    rf"(?<![A-Za-z0-9]){re.escape(identifier)}(?![A-Za-z0-9])",
+                    text,
+                )
+            ),
+            None,
         )
         if match is not None:
             errors.append(
                 f"candidate hardcodes a complete training task ID in {path}: {match}"
             )
     return errors
+
+
+def _usable_memorization_identifier(value: str) -> bool:
+    normalized = value.strip()
+    return len(normalized) >= 4 and not normalized.isdecimal()
 
 
 def _smoke_load_nexau_config(

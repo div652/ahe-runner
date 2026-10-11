@@ -272,7 +272,7 @@ class EvaluatedAgentRuntime:
         )
         self._validate_benchmark_tools(request.benchmark_tools)
 
-        config = AgentConfig.from_yaml(self._harness_dir / "agent.yaml")
+        config = AgentConfig.from_yaml(self._harness_dir / self._manifest.agent_config)
         _override_model_settings(
             config,
             model=self._model,

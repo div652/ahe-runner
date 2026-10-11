@@ -295,6 +295,49 @@ def test_runtime_intercepts_protected_actions_and_preserves_sessions(
         runtime.close()
 
 
+def test_runtime_honors_manifest_root_agent_config(tmp_path: Path) -> None:
+    config_path = make_example_project(tmp_path)
+    config = load_config(config_path)
+    original = config.harness_dir / "agent.yaml"
+    renamed = config.harness_dir / "root-agent.yaml"
+    original.rename(renamed)
+    manifest_path = config.harness_manifest_path
+    manifest_value = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest_value["agent_config"] = "root-agent.yaml"
+    manifest_value["required_files"] = [
+        "root-agent.yaml" if value == "agent.yaml" else value
+        for value in manifest_value["required_files"]
+    ]
+    manifest_path.write_text(
+        yaml.safe_dump(manifest_value, sort_keys=False),
+        encoding="utf-8",
+    )
+    manifest = load_harness_manifest(manifest_path)
+    artifact_root = tmp_path / "runtime-artifacts"
+    runtime = EvaluatedAgentRuntime(
+        harness_dir=config.harness_dir,
+        manifest=manifest,
+        benchmark_interface=BenchmarkInterface(
+            description="No protected actions.",
+        ),
+        model=config.document.models.evaluated,
+        transport=config.document.transport,
+        api_key=config.api_key,
+        artifact_root=artifact_root,
+    )
+    try:
+        session = runtime.open_session(
+            AgentSessionRequest(
+                session_id="renamed-root",
+                artifact_dir=artifact_root / "renamed-root",
+            )
+        )
+        assert session._agent.config.name == "example-evaluated-agent"
+        session.close()
+    finally:
+        runtime.close()
+
+
 def _completion(
     *,
     model: str,

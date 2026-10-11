@@ -108,6 +108,12 @@ Rules:
 - the source file must be inside `harness/`;
 - V2 local tools cannot use NexAU lazy binding.
 
+Registered implementations may import support modules under the manifest's
+tool-implementation globs. Conformance treats those transitive local imports
+as active dependencies, so helpers do not need dummy tool registrations.
+Unimported Python files matched by the same globs remain invalid because they
+are not attached to runtime behavior.
+
 ## Middleware
 
 Middleware must be a visible class derived from NexAU `Middleware`:

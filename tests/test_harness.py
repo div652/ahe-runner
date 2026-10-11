@@ -65,6 +65,17 @@ def test_harness_validation_rejects_symlinks_and_task_memorization(
         )
     assert "complete training task ID" in str(memorization_error.value)
 
+    short_id_harness = tmp_path / "short-id-harness"
+    shutil.copytree(harness, short_id_harness)
+    short_id_report = validate_harness(
+        short_id_harness,
+        manifest,
+        project_root=project,
+        training_task_ids=("1",),
+        run_nexau_smoke=False,
+    )
+    assert short_id_report["valid"] is True
+
 
 def test_harness_validation_preserves_protected_and_runtime_owned_fields(
     tmp_path: Path,
@@ -158,3 +169,40 @@ def test_v2_conformance_rejects_inactive_and_mismatched_tools(
             run_nexau_smoke=False,
         )
     assert "schema properties ['text']" in str(mismatch_error.value)
+
+
+def test_v2_conformance_accepts_transitive_tool_support_modules(
+    tmp_path: Path,
+) -> None:
+    config_path = make_example_project(tmp_path)
+    project = config_path.parent
+    manifest = load_harness_manifest(project / "harness_manifest.yaml")
+    harness = project / "harness"
+    (harness / "tools" / "helper.py").write_text(
+        "def normalize_note(value: str) -> str:\n    return value.strip()\n",
+        encoding="utf-8",
+    )
+    tool_path = harness / "tools" / "record_note.py"
+    tool_path.write_text(
+        tool_path.read_text(encoding="utf-8")
+        .replace(
+            "from typing import Any\n",
+            "from typing import Any\n\nfrom tools.helper import normalize_note\n",
+        )
+        .replace(
+            "    notes = list(",
+            "    note = normalize_note(note)\n    notes = list(",
+        ),
+        encoding="utf-8",
+    )
+
+    report = validate_harness(
+        harness,
+        manifest,
+        project_root=project,
+        run_nexau_smoke=False,
+    )
+    assert report["conformance"]["registrations"]["tool_implementations"] == [
+        "tools/helper.py",
+        "tools/record_note.py",
+    ]

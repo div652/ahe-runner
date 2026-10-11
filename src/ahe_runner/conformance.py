@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import importlib.metadata
 import inspect
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -461,6 +462,7 @@ def _resolve_import_contract(
     if not separator or not module_name or not symbol_name:
         errors.append(f"{label} has invalid import reference {reference!r}")
         return
+    prior_sources = _local_import_sources(root)
     try:
         module = importlib.import_module(module_name)
         symbol = getattr(module, symbol_name)
@@ -478,13 +480,14 @@ def _resolve_import_contract(
         errors.append(f"{label} import must resolve inside the harness: {reference!r}")
         return
     relative = source.relative_to(root).as_posix()
+    imported_sources = (_local_import_sources(root) - prior_sources) | {relative}
 
     if contract["kind"] == "tool":
-        registrations["tool_implementations"].add(relative)
+        registrations["tool_implementations"].update(imported_sources)
         _validate_tool_signature(symbol, contract, errors)
         return
 
-    registrations["middleware"].add(relative)
+    registrations["middleware"].update(imported_sources)
     if contract.get("field") == "middlewares":
         if not inspect.isclass(symbol) or not issubclass(symbol, Middleware):
             errors.append(
@@ -499,6 +502,21 @@ def _resolve_import_contract(
         inspect.signature(symbol).bind(**params)
     except (TypeError, ValueError) as exc:
         errors.append(f"{label} constructor parameters do not match: {exc}")
+
+
+def _local_import_sources(root: Path) -> set[str]:
+    sources: set[str] = set()
+    for module in tuple(sys.modules.values()):
+        try:
+            source_value = inspect.getsourcefile(module)
+        except (TypeError, AttributeError):
+            continue
+        if source_value is None:
+            continue
+        source = Path(source_value).resolve()
+        if _inside(root, source):
+            sources.add(source.relative_to(root).as_posix())
+    return sources
 
 
 def _validate_tool_schema(

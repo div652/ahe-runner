@@ -539,6 +539,12 @@ Before a checkpoint can freeze, the runner performs generic validation:
 - at least one non-manifest component change;
 - valid change manifest.
 
+The manifest-selected `agent_config` path is authoritative for conformance,
+smoke loading, and evaluated runtime construction; the root file is not
+required to be named `agent.yaml`. Candidate task-ID scanning ignores very
+short or numeric identifiers that cannot be matched reliably and leaves
+benchmark-specific leakage patterns to the adapter validator.
+
 The adapter then performs benchmark-specific validation. Neither validator may
 run held-out tasks.
 
@@ -574,7 +580,9 @@ final/selected-harness/
 ```
 
 Its manifest links back to the selected checkpoint, validation decision, final
-test, complete file hashes, and Git history.
+test, complete file hashes, and Git history. The runner verifies a temporary
+copy against the immutable checkpoint before publishing it atomically; an
+existing partial or mismatched export is rejected rather than blessed.
 
 ## CLI
 

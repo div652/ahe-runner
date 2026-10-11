@@ -61,6 +61,26 @@ def test_campaign_identity_drift_requires_new_artifacts_dir(tmp_path: Path) -> N
         CampaignController(load_config(config_path)).prepare()
 
 
+def test_final_export_rejects_partial_existing_harness(tmp_path: Path) -> None:
+    config_path = make_example_project(tmp_path, rounds=0)
+    controller = CampaignController(load_config(config_path))
+    controller.prepare()
+    selected_harness = controller.config.campaign_dir / "final" / "selected-harness"
+    selected_harness.mkdir(parents=True)
+    (selected_harness / "partial.txt").write_text(
+        "interrupted export\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(IntegrityError, match="does not match"):
+        controller._final_action(  # type: ignore[arg-type]
+            None,
+            selected="C0",
+            results={},
+        )
+    assert not (controller.config.campaign_dir / "final" / "final_test.json").exists()
+
+
 class _CommitThenInterruptBackend(ScriptedMetaBackend):
     def run_evolve(self, **kwargs):  # type: ignore[no-untyped-def]
         marker = self.context.config.campaign_dir / "injected-interruption"

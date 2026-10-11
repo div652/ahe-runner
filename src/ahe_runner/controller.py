@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import importlib.metadata
 import inspect
+import os
 import platform
 import shutil
+import stat
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -765,11 +767,30 @@ class CampaignController:
         del context
         final_dir = self.config.campaign_dir / "final"
         selected_harness = final_dir / "selected-harness"
-        if not selected_harness.exists():
+        source_harness = self.config.campaign_dir / "checkpoints" / selected / "harness"
+        expected_hashes = tree_hashes(source_harness)
+        if selected_harness.exists():
+            if tree_hashes(selected_harness) != expected_hashes:
+                raise IntegrityError(
+                    "existing selected-harness export does not match the "
+                    "selected immutable checkpoint"
+                )
+        else:
+            temporary = final_dir / "selected-harness.tmp"
+            if temporary.exists():
+                _make_tree_writable(temporary)
+                shutil.rmtree(temporary)
             shutil.copytree(
-                self.config.campaign_dir / "checkpoints" / selected / "harness",
-                selected_harness,
+                source_harness,
+                temporary,
             )
+            if tree_hashes(temporary) != expected_hashes:
+                _make_tree_writable(temporary)
+                shutil.rmtree(temporary)
+                raise IntegrityError(
+                    "temporary selected-harness export failed content verification"
+                )
+            os.replace(temporary, selected_harness)
         payload = {
             "schema_version": 1,
             "baseline_checkpoint": "C0",
@@ -778,7 +799,7 @@ class CampaignController:
                 label: result.summary.model_dump(mode="json")
                 for label, result in results.items()
             },
-            "selected_harness_sha256": sha256_json(tree_hashes(selected_harness)),
+            "selected_harness_sha256": sha256_json(expected_hashes),
             "no_post_test_evolution": True,
         }
         path = final_dir / "final_test.json"
@@ -866,3 +887,8 @@ class CampaignController:
 
 def _git_head(workspace: Path) -> str:
     return git_output(workspace, "rev-parse", "HEAD").strip()
+
+
+def _make_tree_writable(root: Path) -> None:
+    for path in [root, *root.rglob("*")]:
+        path.chmod(path.stat().st_mode | stat.S_IWUSR)
