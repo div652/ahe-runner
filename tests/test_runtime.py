@@ -124,6 +124,12 @@ def test_runtime_intercepts_protected_actions_and_preserves_sessions(
     )
 
     artifact_root = tmp_path / "runtime-artifacts"
+    protected_workspace = tmp_path / "protected-workspace"
+    internal_workspace = tmp_path / "internal-workspace"
+    mixed_workspace = tmp_path / "mixed-workspace"
+    protected_workspace.mkdir()
+    internal_workspace.mkdir()
+    mixed_workspace.mkdir()
     runtime = EvaluatedAgentRuntime(
         harness_dir=config.harness_dir,
         manifest=manifest,
@@ -138,6 +144,7 @@ def test_runtime_intercepts_protected_actions_and_preserves_sessions(
             AgentSessionRequest(
                 session_id="protected",
                 artifact_dir=artifact_root / "protected",
+                working_directory=protected_workspace,
                 benchmark_tools=(protected_tool,),
             )
         )
@@ -214,6 +221,7 @@ def test_runtime_intercepts_protected_actions_and_preserves_sessions(
             AgentSessionRequest(
                 session_id="internal",
                 artifact_dir=artifact_root / "internal",
+                working_directory=internal_workspace,
                 benchmark_tools=(protected_tool,),
             )
         )
@@ -232,12 +240,17 @@ def test_runtime_intercepts_protected_actions_and_preserves_sessions(
         internal_messages = json.dumps(FakeRecordedClient.instances[1].calls)
         assert "Look up account A-17" not in internal_messages
         assert "independent internal note" in internal_messages
+        assert (
+            internal_workspace / ".skills" / "evidence-first" / "SKILL.md"
+        ).is_file()
+        assert not (Path.cwd() / ".skills").exists()
         internal_session.close()
 
         mixed_session = runtime.open_session(
             AgentSessionRequest(
                 session_id="mixed",
                 artifact_dir=artifact_root / "mixed",
+                working_directory=mixed_workspace,
                 benchmark_tools=(protected_tool,),
             )
         )

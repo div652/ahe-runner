@@ -195,9 +195,16 @@ finally:
     session.close()
 ```
 
-Repeated `session.run(...)` calls preserve that session's NexAU history.
-Different sessions use different `Agent` instances and must not share mutable
-trial state.
+    `working_directory` must be an existing per-trial directory. For the local
+    NexAU sandbox, the runner makes it the actual tool working directory instead
+    of inheriting the runner process's current directory. If it is omitted, the
+    runner creates `artifact_dir/workspace`. NexAU may materialize registered skill
+    assets under `.skills/` in that working directory, so adapters should use an
+    isolated trial workspace rather than the source repository or runner checkout.
+
+    Repeated `session.run(...)` calls preserve that session's NexAU history.
+    Different sessions use different `Agent` instances and must not share mutable
+    trial state.
 
 The runtime rejects missing, duplicate, unexpected, or mixed protected call
 IDs. NexAU never directly executes the protected action implementation.

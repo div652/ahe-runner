@@ -265,6 +265,9 @@ an Evolve workspace, and an immutable checkpoint. V2 local tool bindings must
 resolve when the session opens rather than using NexAU lazy imports. Import
 validation suppresses Python bytecode writes, and checkpoint copies exclude
 bytecode caches, so loading a candidate cannot dirty or alter its Git snapshot.
+Each evaluated session also binds NexAU's local sandbox to the adapter-provided
+per-trial working directory, or to `artifact_dir/workspace` by default. It
+never inherits the runner process's checkout as an implicit tool workspace.
 
 ## Artifact policy
 

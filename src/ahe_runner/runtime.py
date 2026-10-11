@@ -17,6 +17,7 @@ from nexau.archs.main_sub.execution.hooks import (
     ToolCallParams,
 )
 from nexau.archs.main_sub.execution.parse_structures import ParsedResponse
+from nexau.archs.sandbox import LocalSandboxConfig
 from nexau.archs.tool import Tool
 from nexau.core.messages import Message, Role, ToolResultBlock
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -266,6 +267,10 @@ class EvaluatedAgentRuntime:
                 f"session artifact directory escapes evaluation root: {artifact_dir}"
             ) from exc
         artifact_dir.mkdir(parents=True, exist_ok=True)
+        working_directory = _session_working_directory(
+            request.working_directory,
+            artifact_dir,
+        )
         self._validate_benchmark_tools(request.benchmark_tools)
 
         config = AgentConfig.from_yaml(self._harness_dir / "agent.yaml")
@@ -274,6 +279,7 @@ class EvaluatedAgentRuntime:
             model=self._model,
             transport=self._transport,
             api_key=self._api_key,
+            working_directory=working_directory,
         )
         _attach_long_term_memory(
             config,
@@ -304,11 +310,10 @@ class EvaluatedAgentRuntime:
             log_dir=artifact_dir / "model_calls",
         )
         agent = Agent(config=config)
-        base_context = dict(request.context)
-        if request.working_directory is not None:
-            base_context["working_directory"] = str(
-                request.working_directory.resolve()
-            )
+        base_context = {
+            **request.context,
+            "working_directory": str(working_directory),
+        }
         session = EvaluatedAgentSession(
             agent=agent,
             client=client,
@@ -323,6 +328,7 @@ class EvaluatedAgentRuntime:
             artifact_dir / "runtime_manifest.json",
             {
                 "session_id": request.session_id,
+                "working_directory": str(working_directory),
                 "harness_sha256": tree_sha256(self._harness_dir),
                 "model": self._model.model_dump(mode="json"),
                 "transport": {
@@ -488,6 +494,7 @@ def _override_model_settings(
     model: ModelSettings,
     transport: TransportSettings,
     api_key: str,
+    working_directory: Path,
 ) -> None:
     if config.llm_config is None:
         raise ConfigurationError(f"agent {config.name!r} has no llm_config")
@@ -503,13 +510,38 @@ def _override_model_settings(
     if model.reasoning_effort is not None:
         updates["reasoning"] = {"effort": model.reasoning_effort}
     config.llm_config.update(**updates)
+    if config.sandbox_config is None:
+        config.sandbox_config = LocalSandboxConfig(
+            work_dir=str(working_directory)
+        )
+    elif isinstance(config.sandbox_config, LocalSandboxConfig):
+        config.sandbox_config = config.sandbox_config.model_copy(
+            update={"work_dir": str(working_directory)}
+        )
     for sub_agent in (config.sub_agents or {}).values():
         _override_model_settings(
             sub_agent,
             model=model,
             transport=transport,
             api_key=api_key,
+            working_directory=working_directory,
         )
+
+
+def _session_working_directory(
+    requested: Path | None,
+    artifact_dir: Path,
+) -> Path:
+    if requested is None:
+        working_directory = artifact_dir / "workspace"
+        working_directory.mkdir(parents=True, exist_ok=True)
+        return working_directory.resolve()
+    working_directory = requested.resolve()
+    if not working_directory.is_dir():
+        raise IntegrityError(
+            f"session working_directory is not a directory: {working_directory}"
+        )
+    return working_directory
 
 
 def _attach_long_term_memory(
