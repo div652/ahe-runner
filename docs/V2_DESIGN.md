@@ -6,7 +6,8 @@ Approved for implementation on 2026-10-11.
 
 This document defines the V2 boundary between the protected AHE runner, the
 evolvable NexAU harness, and a benchmark adapter. It is the implementation
-contract for `ahe-runner 0.2.x`.
+contract introduced by `ahe-runner 0.2.x`. The schema-hardening follow-up is
+released as `ahe-runner 0.3.x`.
 
 ## Operator promise
 
@@ -154,6 +155,11 @@ They:
 - are intercepted at the protected after-model boundary and returned to the
   adapter with exact call IDs and arguments.
 
+Configured middleware and legacy `after_model_hooks` are placed behind the
+protected capture boundary. On a captured official-action turn they do not
+receive a post-capture mutation/continuation seam; normal turns retain NexAU's
+native relative ordering.
+
 The effective runtime configuration is:
 
 ```text
@@ -267,6 +273,8 @@ an Evolve workspace, and an immutable checkpoint. V2 local tool bindings must
 resolve when the session opens rather than using NexAU lazy imports. Import
 validation suppresses Python bytecode writes, and checkpoint copies exclude
 bytecode caches, so loading a candidate cannot dirty or alter its Git snapshot.
+Conformance recursively scans local static imports from registered bindings,
+including imports inside functions, without executing those functions.
 Each evaluated session also binds NexAU's local sandbox to the adapter-provided
 per-trial working directory, or to `artifact_dir/workspace` by default. It
 never inherits the runner process's checkout as an implicit tool workspace.
@@ -280,8 +288,12 @@ V2 retains the existing adapter-native artifact policy:
 - the adapter defines and verifies result and trace contents;
 - no universal trace-event semantic schema is introduced.
 
-Typed aggregate `EvaluationResult` and training `EvidenceBundle` contracts
-remain required.
+`EvaluationResult` schema 2 adds one adapter-verified canonical trial fact per
+unit: native outcome, optional native score, termination reason, and a
+diagnostic `passing`/`failing`/`other` class. Training `EvidenceBundle` schema
+3 must reproduce those fields exactly while retaining native artifact
+references. This binds Debugger supervision without making the runner parse
+benchmark-private trace events.
 
 ## Explore policy
 

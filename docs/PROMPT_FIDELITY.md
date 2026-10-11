@@ -41,12 +41,12 @@ an explicit methodology fork.
 | Original function | Runner translation | Preserved or approved deviation | Executable check |
 |---|---|---|---|
 | Objective | Turn scalar outcomes plus dense traces/verifier output into causal failure evidence | Preserved per training task | Every task produces a structured diagnosis or the stage fails |
-| Evidence inputs | Dense task-local execution and verifier artifacts supplied to the public debugger | Verified schema-V2 task detail plus authorized raw training artifacts; validation/test remain unavailable | Submitted evidence may cite only artifacts actually read/searched |
+| Evidence inputs | Dense task-local execution and verifier artifacts supplied to the bundled tool-using Debugger | Verified schema-V3 task detail with adapter-verified canonical trial facts plus authorized raw training artifacts; validation/test remain unavailable | Submitted citations must fall inside nonempty returned line/byte ranges or search hits |
 | Analysis workflow | Identify causal failure and reusable correction | Requires earliest failure, paired pass/fail comparison when available, limitations, root cause, recommendation, confidence, and falsifier | Diagnosis validator enforces all fields and paired-analysis rules |
-| Tools and writable roots | Pinned public implementation was not itself an interactive file-tool agent | Runner adds bounded list/read/search tools as approved hardening; no candidate write root | Large-file range/search tests and read-evidence gate |
+| Tools and writable roots | Bundled public Debugger registers file read/write/replace, search/glob/list, shell, Web, and completion tools over normalized trace paths | Runner intentionally narrows this to bounded list/read/search over authorized training roots and no candidate write root | Root allowlists, nonempty access ledger, and structured citation gate |
 | Output contract | Dense diagnosis consumed by Evolve | Strict JSON diagnosis plus task result and aggregate overview | Pydantic validation and request hash |
-| Iteration/output budget | Public debugger was effectively one host invocation per task | Configurable bounded NexAU agent, default 80 iterations | Runtime config/request records effective values |
-| Middleware/compaction | Not directly comparable to the public one-shot host call | Uses the shared tested meta-agent compactor | Runtime agent config contains the middleware |
+| Iteration/output budget | Bundled Debugger uses 25 NexAU iterations and 20,000 output tokens at temperature 0.4 | Configurable bounded NexAU agent, default 80 iterations; output/sampling use explicit shared meta-model settings | Runtime config/request records effective values |
+| Middleware/compaction | Bundled Debugger uses long-output truncation plus threshold-0.75 tool-result compaction with a 10-iteration window | Shared threshold-0.72/preferred-12 adaptive compactor also bounds old tool-call arguments and fails closed if the target remains impossible | Read-heavy, write-heavy, latest-turn, ID, and error-flag regressions |
 | Lifecycle | Diagnose completed training experience | Parallel per-task units are independently resumable and immutable once verified | Request/output hashes permit reuse only for the same evidence |
 
 ## Evolve
@@ -59,7 +59,7 @@ an explicit methodology fork.
 | Tools and writable roots | Read evidence/source/history; edit and commit the harness | Bounded read roots, Git/workspace tools, validation, and selective restore; only the workspace is writable | Clean committed `HEAD` and final-HEAD validation are mandatory |
 | Output contract | Executable updated harness plus hypothesis record | Git commit(s), strict `change_manifest.json`, successful candidate validation, and `complete_task` | Stage rejects no-op, dirty, unvalidated, or uncovered changes |
 | Iteration/output budget | Pinned Evolve configuration used 500 iterations, high output allowance, and a different temperature | Default 500 iterations; model, temperature, reasoning, and output limit are explicit campaign settings, not silently claimed equal | Request-boundary policy rejects drift before provider contact |
-| Middleware/compaction | Pinned setup used approximately threshold 0.75 and 10 retained tool results | Shared adaptive compactor at threshold 0.72/preferred 12-window; tested behaviorally but not an exact parameter reproduction | Large realistic traces must stay below target while preserving latest structure |
+| Middleware/compaction | Pinned setup used approximately threshold 0.75 and 10 retained tool results | Shared adaptive compactor at threshold 0.72/preferred 12-window; it compacts only older results/arguments, preserves the latest iteration, and blocks an irreducible request | Read-heavy and write-heavy histories stay below target or fail before provider access |
 | Lifecycle and persistence | One global update role with Git-backed progress | One logical resumable stage per round; infrastructure retry continues from the last clean Evolve commit | Attempt history and recovery artifacts remain immutable |
 
 ## Cross-role protected inputs

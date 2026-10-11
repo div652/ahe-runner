@@ -14,6 +14,7 @@ from ahe_runner.adapter import (
     CandidateValidationRequest,
     EvaluationRequest,
     EvaluationResult,
+    EvaluationTrialFact,
     EvidenceBundle,
     EvidenceRequest,
     MetaPromptContext,
@@ -264,7 +265,10 @@ finally:
 The runtime rejects missing, duplicate, unexpected, or mixed protected call
 IDs. NexAU never directly executes the protected action implementation.
 Candidate middleware cannot force another model call after an official action
-has been captured.
+has been captured. This includes NexAU's legacy `after_model_hooks`: the runner
+normalizes them into the guarded candidate chain before executor construction.
+On a captured official-action turn, candidate after-model processing is
+intentionally skipped until the adapter returns the exact action result.
 
 Use `EvaluationStore` to obtain:
 
@@ -296,11 +300,20 @@ The runner verifies the common envelope before accepting adapter semantics:
 - result/trace/metadata paths and hashes inside each unit;
 - task-state coverage and rollout counts;
 - primary metric consistency;
+- one canonical `EvaluationTrialFact` for every unit;
 - complete output artifact coverage.
 
+Each `EvaluationTrialFact` contains the evaluation unit ID, native outcome,
+optional native score, termination reason, and a diagnostic class:
+`passing`, `failing`, or `other`. `verify_evaluation()` must independently
+recompute the same facts from protected native artifacts. The diagnostic class
+states whether pass/fail paired Debugger comparison is applicable; it does not
+replace benchmark-native metrics.
+
 The adapter remains responsible for deciding whether the final text/action
-sequence is a valid benchmark outcome. The runner verifies artifact paths and
-hashes but does not invent universal benchmark-event semantics.
+sequence is a valid benchmark outcome. The runner verifies artifact paths,
+hashes, and exact evidence agreement with the adapter-verified facts, but does
+not parse private trace events or invent a universal reward function.
 
 ## `verify_evaluation()`
 
@@ -340,19 +353,22 @@ Dense evidence may include complete allowed trajectories. Sanitized evidence
 must preserve enough causal information for Debugger while removing protected
 answers or hidden state.
 
-Every schema-version-2 detail document contains one common trial envelope per
+Every schema-version-3 detail document contains one common trial envelope per
 expected rollout:
 
 - source evaluation unit ID, trial index, and seed;
 - native outcome and optional score, including valid zero reward;
 - termination reason;
+- diagnostic class (`passing`, `failing`, or `other`);
 - at least one trace plus a result/evaluator artifact;
 - evaluation-relative artifact paths and hashes;
 - optional benchmark-native fields underneath the common envelope.
 
 The runner checks exact task/trial coverage, source evaluation/hash lineage,
-metric equality with the accepted evaluation, and every referenced artifact.
-Native event semantics and reward recomputation remain adapter-owned.
+metric equality with the accepted evaluation, every referenced artifact, and
+exact equality of outcome, score, termination, and diagnostic class with the
+adapter-verified canonical trial fact. Native event parsing and reward
+recomputation remain adapter-owned.
 
 ## `validate_candidate()`
 

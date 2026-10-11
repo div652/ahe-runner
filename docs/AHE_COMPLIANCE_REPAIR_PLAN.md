@@ -6,6 +6,11 @@ This document records the implementation decisions taken from
 **Status:** Implemented and validated. All accepted finding groups below are
 complete. See `AHE_COMPLIANCE_SUMMARY.md` and `VALIDATION_RESULTS.md`.
 
+The later follow-up audit found supported-path gaps in this implementation.
+Those are adjudicated and repaired separately in
+`AHE_COMPLIANCE_REAUDIT_REPAIR_PLAN.md`; the historical decisions below remain
+the original repair contract.
+
 The repair target is the pinned public AHE implementation at
 `8b2a55d97590363fe50c3cc6b5e833b020a4bb4c`, while retaining the approved
 general-purpose NexAU product boundaries:
@@ -22,7 +27,7 @@ general-purpose NexAU product boundaries:
 | Finding | Decision |
 |---|---|
 | A01 prediction and attribution | Accept. Use one typed per-change manifest contract and restore heuristic per-change prediction/risk matching from the combined candidate evaluation. Never describe it as isolated causal attribution. |
-| A02 Debugger investigation | Accept the evidence-access and paired-analysis defect. Narrow the historical claim: the pinned public Debugger received dense traces in its request but was not itself a file-tool agent. The runner will add bounded navigable tools as product hardening while preserving dense task evidence. |
+| A02 Debugger investigation | Accept the evidence-access and paired-analysis defect. The pinned controller invokes `adb ask`; its bundled implementation is a tool-using NexAU Debugger over normalized trace files. The runner substitutes narrower read-only roots, structured diagnoses, and explicit grounding checks while preserving dense task evidence. |
 | A03 rollback and pivot | Accept for agent-mediated rollback. Restore `KEEP`, `IMPROVE`, and `ROLLBACK + PIVOT`, historical snapshot/diff access, and constrained selective restore. Do not add score-triggered automatic rollback. |
 | R01 protected action continuation | Accept. An official action must yield immediately; candidate middleware cannot request another model turn before the adapter supplies exact results. |
 | R02 failed completion | Accept. Failed completion returns NexAU's native error shape and remains repairable. Validation is bound to the final committed content and includes adapter candidate validation. |
@@ -124,6 +129,7 @@ The repair is complete only when deterministic reproductions show:
 - the runtime-backed example uses the public adapter/session API without
   patching runner internals.
 
-All acceptance items passed in the final 43-test suite. The clean wheel also
-validated both generated configurations, completed the three-round offline
-campaign through C3, and resumed without adding stage attempts.
+These acceptance items passed in the original 43-test repair suite. The
+follow-up release record, including the additional request, hook, credential,
+trial-fact, citation, lazy-import, and write-compaction regressions, is in
+`VALIDATION_RESULTS.md`.

@@ -1,5 +1,11 @@
 # AHE Follow-Up: Plain-Language Summary
 
+> **Repair status:** This document is the historical summary of the audit of
+> `5380f65`. Findings F01-F07 and the bundled-Debugger historical correction
+> were accepted and repaired on `main`; implementation choices are recorded in
+> [`AHE_COMPLIANCE_REAUDIT_REPAIR_PLAN.md`](AHE_COMPLIANCE_REAUDIT_REPAIR_PLAN.md).
+> The descriptions below explain the pre-repair behavior.
+
 **Bottom line:** This is a substantial improvement. The basic design is now
 much closer to AHE, and the benchmark adapter works with real NexAU execution. I would not,
 however, call every repair complete yet. Several checks work on their main

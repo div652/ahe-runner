@@ -1,32 +1,29 @@
 # AHE Compliance Repair Summary
 
-**Outcome:** All accepted findings in
-[`AHE_COMPLIANCE_AUDIT.md`](AHE_COMPLIANCE_AUDIT.md) have been implemented and
-validated. The detailed audit remains the historical report for commit
-`a7704c4`; this document describes the repaired runner tested at
-`646429ba9a8aed2e327db86cc215423fb599ef11`.
+**Outcome:** The accepted findings in
+[`AHE_COMPLIANCE_AUDIT.md`](AHE_COMPLIANCE_AUDIT.md) and follow-up findings
+F01-F07 in [`AHE_COMPLIANCE_REAUDIT.md`](AHE_COMPLIANCE_REAUDIT.md) are
+implemented. The two audit reports remain historical assessments of `a7704c4`
+and `5380f65`; the follow-up implementation contract is
+[`AHE_COMPLIANCE_REAUDIT_REPAIR_PLAN.md`](AHE_COMPLIANCE_REAUDIT_REPAIR_PLAN.md).
 
-Two historical statements were intentionally narrowed before implementation:
-
-1. the pinned public Debugger received dense evidence, but was not literally an
-   interactive file-tool agent;
-2. mutable Explore knowledge is supported by paper language, but is not clearly
-   required by the pinned public implementation.
-
-The runner therefore adds a navigable Debugger as product hardening and keeps
-Explore outputs immutable. Automatic score-triggered rollback was also not
-added; rollback remains an explicit Evolve decision.
+The pinned public controller invokes `adb ask`; its bundled source runs a
+tool-using NexAU Debugger over normalized trace files with a default
+25-iteration budget. The runner substitutes a narrower read-only Debugger with
+structured, read-backed citations and defaults to 80 iterations. Mutable
+Explore knowledge remains an intentional non-requirement, and rollback remains
+an explicit Evolve decision rather than an automatic score trigger.
 
 ## Repaired findings
 
 | Finding group | Result |
 |---|---|
 | A01 prediction/attribution | Strict per-change manifests and heuristic prediction/risk observations from the combined candidate evaluation |
-| A02 Debugger | Bounded NexAU investigator with large-file ranges, actual-read evidence, and paired trial analysis |
+| A02 / F05 Debugger | Bounded NexAU investigator with large-file ranges, structured citations bound to nonempty reads/search hits, verified pass/fail availability, and paired trial analysis |
 | A03 rollback/pivot | Immutable checkpoint log/diff plus selective path restore and explicit `KEEP` / `IMPROVE` / `ROLLBACK + PIVOT` |
-| R01-R03 runtime/model policy | Immediate protected-action yield, repairable completion errors, final-HEAD validation, and exact request-boundary settings/retry ownership |
-| C01-C02 benchmark/evidence boundary | Declared public adapter roots only; exact evaluation request, coverage, artifacts, metrics, and schema-V2 evidence lineage |
-| P01-P02 customization/compatibility | Hashed append-only role supplements, Web seed URLs, direct Evolve context, manifest-selected root config, support modules, and benchmark-aware task-ID checks |
+| R01-R03 / F01-F03 runtime/model policy | Immediate protected-action yield across modern middleware and legacy hooks, repairable completion errors, final-HEAD validation, effective serialized-request enforcement, retry ownership, and in-memory-only credentials |
+| C01-C02 / F04 benchmark/evidence boundary | Declared public adapter roots only; exact evaluation request, coverage, artifacts, metrics, canonical per-trial facts, and schema-V3 evidence semantics/lineage |
+| P01-P02 / F06-F07 customization/compatibility | Hashed append-only role supplements, Web seed URLs, direct Evolve context, manifest-selected root config, eager/function-local support imports, benchmark-aware task-ID checks, and bounded read/write-heavy compaction |
 | O01-O02 reproducibility/export | Runner/prompt/tool/reference/dependency provenance in campaign identity and atomic hash-verified selected export |
 | D01 onboarding | Separate offline fixture and genuine runtime-backed direct/protected-action example with complete production configuration |
 
@@ -59,12 +56,7 @@ promise inevitable score improvement.
 
 ## Validation
 
-- `43 passed`;
-- repository-wide Ruff lint and format checks passed;
-- wheel and source distribution built;
-- clean-wheel offline and runtime configuration conformance passed;
-- generated three-round campaign produced C0-C3 and 34 completed stages;
-- resume was idempotent and added no attempts.
-
-See [`VALIDATION_RESULTS.md`](VALIDATION_RESULTS.md) for exact versions,
-commands, artifact hashes, and live-endpoint limitations.
+The original 43-test record applies to the pre-follow-up repair snapshot. See
+[`VALIDATION_RESULTS.md`](VALIDATION_RESULTS.md) for the current release
+commit, exact test count, package hashes, clean-wheel campaign result, and
+live-endpoint limitations.

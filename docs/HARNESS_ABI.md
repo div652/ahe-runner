@@ -109,9 +109,13 @@ Rules:
 
 Registered implementations may import support modules under the manifest's
 tool-implementation globs. Conformance treats those transitive local imports
-as active dependencies, so helpers do not need dummy tool registrations.
-Unimported Python files matched by the same globs remain invalid because they
-are not attached to runtime behavior.
+as active dependencies, including ordinary imports inside a registered tool
+function, so helpers do not need dummy tool registrations. The validator walks
+the local static import graph without executing tool functions and also
+retains observed eager imports. Dynamic imports are recognized only when they
+execute while the registered binding loads or are represented by an explicit
+registered component. Unreferenced Python files matched by the same globs
+remain invalid because they are not attached to runtime behavior.
 
 ## Middleware
 

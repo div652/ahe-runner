@@ -86,7 +86,10 @@ policy. See the runtime example and operator guides.
 
 Configure the API-key environment variable named by `transport.api_key_env`.
 A loopback GH Copilot Server may use a non-secret placeholder; never put a
-provider credential in a YAML file.
+provider credential in a YAML file. The runner injects the resolved value only
+into in-memory model configuration; generated meta-agent runtime YAML contains
+a non-secret placeholder and remains safe to expose through bounded evidence
+roots.
 
 The selected harness is exported under:
 

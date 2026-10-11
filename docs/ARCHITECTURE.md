@@ -321,8 +321,10 @@ The runner owns:
 Before accepting an adapter result, the runner binds it to the exact evaluation
 request and verifies a common unit envelope: checkpoint/split identity,
 task-by-trial coverage, seeds, completion paths and hashes, task-state/rollout
-coverage, primary-metric consistency, and the complete artifact map. The
-adapter still independently recomputes benchmark-native rewards and semantics.
+coverage, primary-metric consistency, one canonical trial fact per unit, and
+the complete artifact map. The adapter independently recomputes each fact's
+native outcome, optional score, termination reason, and diagnostic
+pass/fail/other class.
 
 The immutable `BenchmarkInterface` declares prompt/data/repository/environment
 inputs and the complete protected structured-action surface. It is frozen into
@@ -335,10 +337,12 @@ actions and resumes the same session with exact `ToolResultBlock` call IDs.
 Evolve may improve how the harness chooses actions but cannot modify or
 reimplement the benchmark interface.
 
-A trusted capture hook runs before candidate after-model middleware. Once an
-official action is present, candidate middleware is not allowed to request
-another model turn; control returns to the adapter immediately and resumes only
-after the exact official results are supplied.
+A trusted capture hook runs before candidate after-model middleware. NexAU
+legacy `after_model_hooks` are normalized into the same guarded chain before
+executor construction. Once an official action is present, candidate
+after-model processing is intentionally skipped and cannot request another
+model turn; control returns to the adapter immediately and resumes only after
+the exact official results are supplied.
 
 ## Standard evidence bundle
 
@@ -364,13 +368,13 @@ evidence/Ci-train/
 - whether true task IDs are exposed;
 - paths the Debugger may read.
 
-Each schema-version-2 task document contains the adapter-approved task identity
+Each schema-version-3 task document contains the adapter-approved task identity
 and one common envelope per expected trial: evaluation unit ID, trial index,
-seed, native outcome/score, termination reason, and hashed evaluation-relative
-trace plus result/evaluator artifacts. Benchmark-native events remain nested
-under that envelope. The runner rejects missing trials, invented artifacts,
-foreign source evaluations, and metrics that differ from the accepted source
-evaluation.
+seed, native outcome/score, termination reason, diagnostic class, and hashed
+evaluation-relative trace plus result/evaluator artifacts. Benchmark-native
+events remain nested under that envelope. The runner rejects missing trials,
+invented artifacts, foreign source evaluations, stale metrics, and any trial
+semantic field that differs from the adapter-verified canonical fact.
 Validation and test adapters never create an evidence bundle accessible to the
 meta-agents.
 
@@ -380,7 +384,11 @@ artifacts regardless of total file size. Returned content is byte-capped with
 explicit continuation/truncation metadata, and search reports skipped inputs
 honestly. When passing and failing trials coexist, the structured diagnosis
 must compare both and identify their earliest meaningful divergence; otherwise
-it records the exact evidence limitation.
+it records the exact evidence limitation. Every diagnosis citation names a
+structured line or byte range and is accepted only when that range was returned
+by a nonempty bounded read or search hit. Verified trial facts determine
+whether paired comparison is mandatory and which artifacts belong to passing
+or failing trials.
 
 ## Seven evolvable component classes
 
@@ -555,8 +563,10 @@ not multiplied by an inner retry loop.
 Evaluated sessions use the same recorded exact-model client and native NexAU
 loop. Exact model ID, reasoning policy, temperature, output limit, non-streaming
 mode, and retry ownership are recursively enforced in every configured
-sub-agent and again at the recorded request boundary, while each session
-preserves its own `HistoryList`.
+sub-agent and again at the recorded request boundary. Protected aliases and
+`extra_body` collisions are rejected before provider access. Resolved API keys
+are injected only into in-memory configurations and clients, never generated
+meta-agent YAML, while each session preserves its own `HistoryList`.
 
 ## Evaluation recovery contract
 
@@ -596,6 +606,11 @@ smoke loading, and evaluated runtime construction; the root file is not
 required to be named `agent.yaml`. Candidate task-ID scanning ignores very
 short or numeric identifiers that cannot be matched reliably and leaves
 benchmark-specific leakage patterns to the adapter validator.
+
+Registered local Python dependencies are discovered through both observed
+eager imports and a recursive static import graph, including imports inside
+tool functions. The validator never executes a tool merely to discover helper
+modules.
 
 The adapter then performs benchmark-specific validation. Neither validator may
 run held-out tasks.

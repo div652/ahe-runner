@@ -4,6 +4,10 @@
 **Audited runner commit:** `5380f65058a970e8e8ecfca00bf1f0a7045becea`  
 **Repair baseline:** `ca179a6`
 
+**Status:** F01-F07 and the historical documentation correction are
+implemented. Repository-wide release validation is recorded separately in
+[`VALIDATION_RESULTS.md`](VALIDATION_RESULTS.md).
+
 ## Decision
 
 All seven follow-up findings are valid against the audited implementation.
