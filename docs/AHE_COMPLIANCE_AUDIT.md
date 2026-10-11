@@ -109,7 +109,7 @@ to preserve the mechanisms that made that method distinctive.
 | Dense experience, not just scalar rewards | Raw trajectories, verifier artifacts, resource/termination evidence | Adapter can supply these, but common requirements and usable access are incomplete; A02, C02 |
 | One Debugger job per task, covering its rollouts | Iterative, tool-enabled investigation; compare passing and failing runs where available | Task grouping is present; investigative mechanism and required paired analysis are not; A02 |
 | Progressive disclosure | Overview, task diagnosis, then raw evidence | Layout partially present; large-file access and direct Debugger calls break the intended drill-down; A02 |
-| Predictions and risks per logical edit | Manifest and next-iteration attribution are per change | Prompt/consumer mismatch and aggregate-only verdict; A01 |
+| Predictions and risks per logical edit | Each edit's declared fixes/risks are compared with results from the combined edited harness; heuristic attribution, not isolated per-edit experiments | Prompt/consumer mismatch and aggregate-only verdict; A01 |
 | Git-backed edits and rollback/pivot | Continuous workspace history; explicit Evolve decisions | Per-round commits are retained, but Evolve loses the practical historical rollback surface and instructions; A03 |
 | Source and Web Explore seed knowledge | Two distinct research roles; original code overlaps them with baseline evaluation | Both exist and run concurrently with each other, but only after baseline evaluation; scheduling deviation, not a methodological blocker |
 | Exploration deliverable depth | Exact framework interfaces/templates; substantial, evidence-backed web research | Topics retained, mandatory depth and source requirements weakened; section 5 |
@@ -137,41 +137,65 @@ gap. These are delivery priorities, not security severity ratings.
 
 ### A01 / P1: The edit-prediction contract does not connect to attribution
 
-**Observed.** The Evolve prompt asks for top-level `predicted_effects` and
+**Original baseline.** This mechanism exists in executable code, not only in
+the prompt. Evolve records `predicted_fixes` and `risk_tasks` for each logical
+change. On the next evaluation, `evaluate_changes()` matches those declarations
+against task-level improvements and regressions, assigns a verdict per change,
+and reports regressions outside the declared task sets. The main loop saves
+`change_evaluation.json` for the next Evolve invocation. It skips attribution
+if the previous manifest is missing.
+
+**Important limit.** The original evaluates all edits together, not each edit
+in isolation. If two edits both predict that task X will improve, and X
+improves, both can receive credit. These are prediction-matching heuristics,
+not measurements establishing which edit caused the outcome. Isolated
+per-change experiments are not an existing original-AHE requirement.
+
+**Observed in `ahe-runner`.** Its Evolve prompt asks for top-level `predicted_effects` and
 `regression_risks` as lists of strings. `write_transition()` only reads
 predictions from dictionary entries containing `task_keys`. A conforming
 prompt-shaped manifest therefore produces an empty predicted-task set.
 Regression risks are not consumed, and the output has one overall
 classification rather than a verdict for each logical change.
 
-The freeze-time validator is weaker still: `changes: [{}]` is accepted.
+Separately, the runner's freeze-time validator accepts `changes: [{}]`.
 Declared paths need only be a subset of changed paths, so unaccounted edits
-are also permitted. The completion tool has somewhat stronger path checks,
-but there is no single shared, enforceable method contract.
+are also permitted. The completion tool has somewhat stronger path checks.
+Stricter enforcement would improve the runner, but should not be presented as
+a guarantee already provided by the original attribution code.
 
-**Why it matters.** AHE is supposed to learn whether a particular proposed
-intervention behaved as predicted. An aggregate score change cannot replace
-that feedback, particularly when several edits interact.
+**Why it matters.** The runner loses the original's explicit record of whether
+each edit's predictions matched later observations. That is a useful, if
+imperfect, signal for deciding what to investigate, retain, or undo. The
+compliance gap is loss of this bookkeeping, not absence of causal isolation.
 
-**Repair.** Define one typed manifest used by the prompt, tools, freeze logic,
-and attribution. Each logical edit needs a stable ID, component/path set,
-supporting evidence, root-cause/fix explanation, commit identity, predicted
-task fixes, and regression risks. Require complete diff coverage. Produce
-per-edit verdicts and a separate unexpected-regression summary. Do not treat
-these observational verdicts as proof of causality. Keep optimizer bookkeeping
-distinct from evaluated runtime artifacts and task-solution memorization.
+**Fidelity repair.** Align the prompt's manifest format with its consumer.
+Restore per-edit predicted-fix/risk comparisons and an unattributed-regression
+summary, and give that report to Evolve. Label verdicts as observations about
+the combined candidate, not independently measured effects of each edit.
 
-**Acceptance.** Two edits with different predictions produce separate
-verdicts; a risky task and an unpredicted regression remain distinguishable.
-Prompt-generated examples round-trip through the actual parser. Missing
-evidence, malformed rows, nonexistent commits, and undeclared changed files
-are rejected before a checkpoint is accepted.
+**Additional robustness recommendation.** Define one typed manifest shared by
+the prompt, tools, freeze logic, and attribution. Enforce stable change IDs,
+component/path sets, supporting evidence, root-cause/fix explanations, commit
+identities, predictions, risks, and complete diff coverage. Keep optimizer
+bookkeeping distinct from runtime artifacts and task-solution memorization.
+These stronger gates go beyond the original controller's enforcement; they
+are hardening proposals, not missing original features.
+
+**Acceptance.** For fidelity, two edits with different predictions produce
+separate prediction-match verdicts from one combined-candidate evaluation;
+declared risks and unattributed regressions remain distinguishable.
+Prompt-generated examples round-trip through the actual parser. Overlapping
+predictions must not be described as independently established causes.
+For additional hardening, reject missing required evidence, malformed rows,
+nonexistent commits, and undeclared changed files before accepting a checkpoint.
 
 Evidence: [history.py:71-106](../src/ahe_runner/history.py#L71-L106),
 [workspace.py:304-339](../src/ahe_runner/workspace.py#L304-L339),
 `R/src/ahe_runner/meta/prompts/evolve.md:177-220`;
-original `A/evolve.py:2239-2330`. Both schema mismatch and permissive manifest
-acceptance were reproduced.
+original `A/agents/evolve_agent/evolve_prompt.md:193-220`,
+`A/evolve.py:2239-2330,4377-4390`. Both the runner's schema mismatch and
+permissive manifest acceptance were reproduced.
 
 ### A02 / P1: Debugger is a one-shot summarizer, not the original investigator
 

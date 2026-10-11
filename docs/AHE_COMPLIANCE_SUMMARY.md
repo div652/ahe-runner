@@ -42,16 +42,21 @@ where their actions diverged and why that mattered. Without access to those
 records, a convincing diagnosis can still be a guess. The fix is better access
 to evidence, not simply a more detailed instruction to "diagnose carefully."
 
-**2. Predictions do not reliably connect to results.** The editing agent is
-told to write predictions in one format, but the comparison code expects
-another. Predictions following the prompt are ignored. Results are summarized
-for the whole update instead of each meaningful edit (**per-change
-attribution**).
+**2. The original's per-edit prediction check is weakened.** Original AHE asks
+for predicted fixes and risks for each edit. After the next evaluation, its
+code compares those expectations with task results and gives each edit a
+verdict (**per-change attribution**). This is actually implemented, not just
+requested in a prompt.
 
-Suppose one edit improves planning while another makes the agent stop too
-early. An overall score increase does not tell the next agent which edit to
-keep. Each edit needs its own predicted benefits and risks, followed by a
-comparison with what actually happened.
+In `ahe-runner`, the editing agent is told to write predictions in one format,
+but the comparison code expects another. Predictions following the prompt are
+ignored, and results are summarized for the whole update instead of each edit.
+
+Importantly, original AHE evaluates all edits together, not one at a time.
+If two edits both predict that task X will improve, and X improves, both can
+receive credit. Its check is a useful but imperfect signal, not proof of which
+edit caused the result. The needed fix is to restore that prediction check,
+not to demand a stronger causal experiment that original AHE does not perform.
 
 **3. Undoing a bad idea is harder than in original AHE.** Old versions exist,
 but the editing agent does not get the historical files and Git operations
