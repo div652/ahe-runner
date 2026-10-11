@@ -7,6 +7,7 @@ future refactor from replacing full contracts with short role summaries.
 | Dimension | Source Explore | Web Explore | Debugger | Evolve |
 |---|---|---|---|---|
 | Full versioned system prompt | Yes | Yes | Yes | Yes |
+| Project domain specialization | Protected append-only supplement | Protected append-only supplement | Protected append-only supplement | Protected append-only supplement |
 | Explicit evidence boundary | Source/seed only | Public, leakage-guarded | Training task only | Training evidence only |
 | Mandatory investigation procedure | Framework call paths | Multi-source research | Earliest causal failure | History-to-change workflow |
 | Concrete deliverable schema | `SKILL.md` | `SKILL.md` | Strict JSON | Git state + change manifest |
@@ -63,9 +64,13 @@ adapters:
 - native evaluation schemas are normalized into the standard training evidence
   bundle;
 - held-out split details remain adapter-owned;
-- source roots use the installed framework and selected adapter rather than
-  hardcoded repository names;
+- Source and Evolve receive only operator-declared public adapter roots rather
+  than the inferred adapter implementation file;
+- all four roles receive the same resolved benchmark-family context, and Web
+  Explore additionally receives explicit research seed URLs;
 - the Debugger's failure taxonomy includes adapter/environment causes but
   cannot edit those protected surfaces.
 
-These are parameterizations of the method, not reductions of the prompt.
+Role supplements specialize the domain but cannot replace the protected core
+procedure. Full prompt replacement would be a methodology fork rather than a
+configuration option.

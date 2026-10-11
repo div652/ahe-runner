@@ -228,20 +228,31 @@ meta:
     source_enabled: true
     web_enabled: true
     web_search_backend: ddgs
+    research_seed_urls: []
+  role_supplements:
+    source: ./meta_supplements/source.md
+    web: ./meta_supplements/web.md
+    debugger: ./meta_supplements/debugger.md
+    evolve: ./meta_supplements/evolve.md
 ```
 
-The resolved config, environment-independent hashes, installed NexAU version,
-adapter identity, benchmark identity, endpoint preflights, and repository
-commits are frozen in `campaign_manifest.json`.
+The resolved config, complete runner package, protected prompts and tool
+resources, packaged method reference, resolved benchmark-family context,
+role supplements, research seed URLs, explicit public adapter roots, declared
+adapter dependencies, installed NexAU version, adapter identity, benchmark
+identity, endpoint preflights, and repository commits are frozen in
+`campaign_manifest.json`.
 
 The package pins NexAU to the upstream `v0.3.9` Git tag because that release is
 not distributed as a resolvable `nexau==0.3.9` registry artifact. It also
 declares `greenlet` directly because NexAU imports SQLAlchemy's async layer at
 package import time without declaring that required extra transitively.
 
-Changing immutable settings requires a new campaign directory. Resume never
-silently adopts a changed model, split, seed, metric, prompt, adapter, harness
-manifest, or resource limit.
+Changing any frozen protected input requires a new campaign directory. Resume
+reports which top-level identity inputs changed and never silently adopts a
+changed model, split, seed, metric, prompt, supplement, safe source root,
+adapter dependency, harness manifest, method reference, tool implementation,
+or resource limit.
 
 ## Typed benchmark adapter and evaluated runtime
 

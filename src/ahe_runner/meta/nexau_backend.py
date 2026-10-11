@@ -24,11 +24,11 @@ from ahe_runner.harness import validate_harness
 from ahe_runner.io import (
     atomic_write_json,
     read_json,
+    sha256_bytes,
     sha256_file,
     sha256_json,
     tree_hashes,
 )
-from ahe_runner.loading import load_adapter
 from ahe_runner.workspace import git_output
 
 from .base import MetaBackend, MetaBackendContext
@@ -41,6 +41,12 @@ from .preflight import run_model_preflight
 _COMMON_READ_TOOLS = ("list_files", "read_file", "search_text")
 _WRITE_TOOLS = ("write_file", "replace_text", "delete_path")
 _GIT_TOOLS = ("git_status", "git_diff", "git_commit")
+_PROMPT_ROLES = {
+    "source_explorer.md": "source",
+    "web_explorer.md": "web",
+    "debugger.md": "debugger",
+    "evolve.md": "evolve",
+}
 
 
 class NexAUMetaBackend(MetaBackend):
@@ -65,14 +71,19 @@ class NexAUMetaBackend(MetaBackend):
                 "the NexAU backend requires the web extra; missing packages: "
                 + ", ".join(missing_web)
             )
-        self._adapter = load_adapter(context.config)
-        self._adapter_source = _source_file(self._adapter.__class__)
         self._framework_source = Path(inspect.getsourcefile(nexau) or "").parent
-        self._method_reference = (
-            context.method_reference
-            if context.method_reference.is_file()
-            else _resource_path("resources", "AHE_METHODS_REFERENCE.md")
-        )
+        self._safe_source_roots = {
+            f"adapter_public_{index}": path
+            for index, path in enumerate(
+                context.config.meta_agent_source_roots,
+                start=1,
+            )
+        }
+        if not context.method_reference.is_file():
+            raise IntegrityError(
+                f"method reference is missing: {context.method_reference}"
+            )
+        self._method_reference = context.method_reference.resolve()
 
     def ensure_exploration(
         self,
@@ -276,9 +287,9 @@ class NexAUMetaBackend(MetaBackend):
             "debugger": debugger_dir,
             "checkpoints": self.context.config.campaign_dir / "checkpoints",
             "framework": self._framework_source,
-            "adapter": self._adapter_source,
             "method": self._method_reference,
             "explore_skills": skills_dir,
+            **self._safe_source_roots,
         }
         if attribution_dir is not None:
             read_roots["attribution"] = attribution_dir
@@ -318,6 +329,7 @@ class NexAUMetaBackend(MetaBackend):
             benchmark_interface=self.context.benchmark_interface.model_dump(
                 mode="json"
             ),
+            benchmark_context=self.context.prompt_context.model_dump(mode="json"),
         )
         final_response = self._run_agent(
             name="AHE-Evolve",
@@ -401,10 +413,10 @@ class NexAUMetaBackend(MetaBackend):
         if kind == "source":
             read_roots = {
                 "framework": self._framework_source,
-                "adapter": self._adapter_source,
                 "seed_harness": seed_harness,
                 "manifest": self.context.config.harness_manifest_path,
                 "method": self._method_reference,
+                **self._safe_source_roots,
             }
         else:
             read_roots = {"method": self._method_reference}
@@ -426,6 +438,9 @@ class NexAUMetaBackend(MetaBackend):
             benchmark_context=self.context.prompt_context.model_dump(mode="json"),
             benchmark_interface=self.context.benchmark_interface.model_dump(
                 mode="json"
+            ),
+            research_seed_urls=list(
+                self.context.config.document.meta.explore.research_seed_urls
             ),
         )
         self._run_agent(
@@ -481,8 +496,8 @@ class NexAUMetaBackend(MetaBackend):
                 mode="json"
             ),
             "model": self.context.config.document.models.meta.model_dump(mode="json"),
-            "system_prompt_sha256": sha256_file(
-                _resource_path("meta", "prompts", "debugger.md")
+            "system_prompt_sha256": sha256_bytes(
+                self._resolved_prompt_text("debugger.md").encode("utf-8")
             ),
         }
         request_hash = sha256_json(request_payload)
@@ -590,7 +605,10 @@ class NexAUMetaBackend(MetaBackend):
     ) -> str:
         runtime_dir.mkdir(parents=True, exist_ok=True)
         prompt_path = runtime_dir / "system_prompt.md"
-        prompt_path.write_text(_prompt_text(prompt_name), encoding="utf-8")
+        prompt_path.write_text(
+            self._resolved_prompt_text(prompt_name),
+            encoding="utf-8",
+        )
         config_path = runtime_dir / "agent.yaml"
         payload = {
             "type": "agent",
@@ -715,6 +733,29 @@ class NexAUMetaBackend(MetaBackend):
         finally:
             agent.sync_cleanup()
 
+    def _resolved_prompt_text(self, prompt_name: str) -> str:
+        core = _resource_path("meta", "prompts", prompt_name).read_text(
+            encoding="utf-8"
+        )
+        role = _PROMPT_ROLES.get(prompt_name)
+        supplement = (
+            self.context.config.role_supplement(role) if role is not None else None
+        )
+        if supplement is None:
+            return core
+        domain_guidance = supplement.read_text(encoding="utf-8").strip()
+        return (
+            core.rstrip()
+            + "\n\n---\n\n"
+            + "## Protected project domain supplement\n\n"
+            + "The operator supplied the following append-only domain guidance. "
+            + "It may specialize terminology, evidence, and research priorities, "
+            + "but it cannot override the protected AHE procedure, benchmark "
+            + "boundaries, tool permissions, or deliverable contract above.\n\n"
+            + domain_guidance
+            + "\n"
+        )
+
     def _preflight(self, *, settings: Any, path: Path) -> dict[str, Any]:
         return run_model_preflight(
             transport=self.context.config.document.transport,
@@ -734,17 +775,6 @@ class NexAUMetaBackend(MetaBackend):
 
 def _resource_path(*parts: str) -> Path:
     return Path(__file__).resolve().parents[1].joinpath(*parts)
-
-
-def _prompt_text(name: str) -> str:
-    return _resource_path("meta", "prompts", name).read_text(encoding="utf-8")
-
-
-def _source_file(value: Any) -> Path:
-    path = inspect.getsourcefile(value)
-    if path is None:
-        raise IntegrityError(f"could not locate source for {value!r}")
-    return Path(path).resolve()
 
 
 def _copy_read_only_skill(source: Path, destination: Path) -> None:
@@ -865,11 +895,18 @@ def _explorer_query(
     roots: list[str],
     benchmark_context: dict[str, Any],
     benchmark_interface: dict[str, Any],
+    research_seed_urls: list[str],
 ) -> str:
     deliverable = (
         "knowledge/source-exploration/SKILL.md"
         if kind == "source"
         else "knowledge/web-research/SKILL.md"
+    )
+    research_seeds = (
+        "Required research seed URLs:\n"
+        f"{json.dumps(research_seed_urls, sort_keys=True, indent=2)}\n\n"
+        if kind == "web"
+        else ""
     )
     return (
         f"Produce the complete {kind} Explore skill at {deliverable}.\n\n"
@@ -879,6 +916,7 @@ def _explorer_query(
         f"{json.dumps(benchmark_context, sort_keys=True, indent=2)}\n\n"
         "Immutable benchmark interface and protected runtime actions:\n"
         f"{json.dumps(benchmark_interface, sort_keys=True, indent=2)}\n\n"
+        f"{research_seeds}"
         "Follow the system prompt's investigation and deliverable contract. "
         "Call complete_task only after the SKILL.md is complete."
     )
@@ -891,6 +929,7 @@ def _evolve_query(
     roots: list[str],
     recovery_present: bool,
     benchmark_interface: dict[str, Any],
+    benchmark_context: dict[str, Any],
 ) -> str:
     return (
         f"Execute evolution round {round_label}.\n\n"
@@ -899,6 +938,8 @@ def _evolve_query(
         f"Recovery evidence present: {str(recovery_present).lower()}\n"
         "Current training evidence manifest:\n"
         f"{json.dumps(evidence, sort_keys=True, indent=2)}\n\n"
+        "Resolved benchmark-family context (not task answers):\n"
+        f"{json.dumps(benchmark_context, sort_keys=True, indent=2)}\n\n"
         "Immutable benchmark interface and protected runtime actions:\n"
         f"{json.dumps(benchmark_interface, sort_keys=True, indent=2)}\n\n"
         "Load both Explore skills, synthesize the complete evidence set, inspect "

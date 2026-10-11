@@ -73,6 +73,8 @@ class ProjectSettings(StrictModel):
     harness_manifest: str
     adapter: str
     adapter_settings: dict[str, Any] = Field(default_factory=dict)
+    adapter_dependency_paths: list[str] = Field(default_factory=list)
+    meta_agent_source_roots: list[str] = Field(default_factory=list)
 
 
 class ModelsSettings(StrictModel):
@@ -101,11 +103,32 @@ class ExploreSettings(StrictModel):
     source_enabled: bool = True
     web_enabled: bool = True
     web_search_backend: Literal["ddgs", "disabled"] = "ddgs"
+    research_seed_urls: list[str] = Field(default_factory=list)
+
+    @field_validator("research_seed_urls")
+    @classmethod
+    def validate_research_seed_urls(cls, values: list[str]) -> list[str]:
+        if len(values) != len(set(values)):
+            raise ValueError("research_seed_urls must not contain duplicates")
+        for value in values:
+            if not value.startswith(("http://", "https://")):
+                raise ValueError("research_seed_urls must use HTTP(S)")
+        return values
+
+
+class RoleSupplementSettings(StrictModel):
+    source: str | None = None
+    web: str | None = None
+    debugger: str | None = None
+    evolve: str | None = None
 
 
 class MetaSettings(StrictModel):
     backend: Literal["nexau", "scripted"] = "nexau"
     explore: ExploreSettings = Field(default_factory=ExploreSettings)
+    role_supplements: RoleSupplementSettings = Field(
+        default_factory=RoleSupplementSettings
+    )
     max_concurrent_model_calls: int = Field(default=2, gt=0)
     max_context_tokens: int = Field(default=200_000, gt=0)
     max_running_subagents: int = Field(default=5, gt=0)
@@ -133,6 +156,9 @@ class ResolvedConfig:
     artifacts_dir: Path
     harness_dir: Path
     harness_manifest_path: Path
+    adapter_dependency_paths: tuple[Path, ...]
+    meta_agent_source_roots: tuple[Path, ...]
+    role_supplements: tuple[tuple[str, Path], ...]
 
     @property
     def campaign_dir(self) -> Path:
@@ -163,6 +189,9 @@ class ResolvedConfig:
             "document": document,
         }
 
+    def role_supplement(self, role: str) -> Path | None:
+        return dict(self.role_supplements).get(role)
+
 
 def load_config(path: Path) -> ResolvedConfig:
     config_path = path.resolve()
@@ -186,6 +215,31 @@ def load_config(path: Path) -> ResolvedConfig:
         raise ConfigurationError(f"harness manifest does not exist: {manifest}")
     if artifacts_dir == project_root or artifacts_dir == Path.home().resolve():
         raise ConfigurationError("campaign artifacts directory is too broad")
+    adapter_dependency_paths = _resolve_declared_paths(
+        project_root,
+        document.project.adapter_dependency_paths,
+        artifacts_dir=artifacts_dir,
+        label="project.adapter_dependency_paths",
+    )
+    meta_agent_source_roots = _resolve_declared_paths(
+        project_root,
+        document.project.meta_agent_source_roots,
+        artifacts_dir=artifacts_dir,
+        label="project.meta_agent_source_roots",
+    )
+    role_supplements = tuple(
+        (
+            role,
+            _resolve_declared_file(
+                project_root,
+                value,
+                artifacts_dir=artifacts_dir,
+                label=f"meta.role_supplements.{role}",
+            ),
+        )
+        for role, value in document.meta.role_supplements.model_dump().items()
+        if value is not None
+    )
     return ResolvedConfig(
         config_path=config_path,
         project_root=project_root,
@@ -193,6 +247,9 @@ def load_config(path: Path) -> ResolvedConfig:
         artifacts_dir=artifacts_dir,
         harness_dir=harness_dir,
         harness_manifest_path=manifest,
+        adapter_dependency_paths=adapter_dependency_paths,
+        meta_agent_source_roots=meta_agent_source_roots,
+        role_supplements=role_supplements,
     )
 
 
@@ -201,3 +258,56 @@ def _resolve(base: Path, value: str) -> Path:
     if not candidate.is_absolute():
         candidate = base / candidate
     return candidate.resolve()
+
+
+def _resolve_declared_paths(
+    base: Path,
+    values: list[str],
+    *,
+    artifacts_dir: Path,
+    label: str,
+) -> tuple[Path, ...]:
+    resolved = tuple(_resolve(base, value) for value in values)
+    if len(resolved) != len(set(resolved)):
+        raise ConfigurationError(f"{label} resolves to duplicate paths")
+    for path in resolved:
+        if not path.exists():
+            raise ConfigurationError(f"{label} path does not exist: {path}")
+        _validate_protected_input_path(
+            path,
+            artifacts_dir=artifacts_dir,
+            label=label,
+        )
+    return resolved
+
+
+def _resolve_declared_file(
+    base: Path,
+    value: str,
+    *,
+    artifacts_dir: Path,
+    label: str,
+) -> Path:
+    path = _resolve(base, value)
+    if not path.is_file():
+        raise ConfigurationError(f"{label} is not a file: {path}")
+    _validate_protected_input_path(
+        path,
+        artifacts_dir=artifacts_dir,
+        label=label,
+    )
+    return path
+
+
+def _validate_protected_input_path(
+    path: Path,
+    *,
+    artifacts_dir: Path,
+    label: str,
+) -> None:
+    if path == artifacts_dir or path.is_relative_to(artifacts_dir):
+        raise ConfigurationError(f"{label} must stay outside campaign artifacts")
+    if path.is_dir() and artifacts_dir.is_relative_to(path):
+        raise ConfigurationError(
+            f"{label} directory must not contain campaign artifacts: {path}"
+        )

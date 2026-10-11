@@ -19,6 +19,10 @@ through a protected benchmark adapter.
 - **Evolve Agent:** synthesizes aggregate evidence, all debugger outputs,
   historical transitions, and both Explore skills to modify the harness.
 
+The protected core prompts define each role's operating procedure. A project
+may append a hashed domain supplement for Source, Web, Debugger, or Evolve,
+but a supplement cannot replace or weaken the core procedure.
+
 ## Evolution loop
 
 1. Validate and freeze the seed harness as checkpoint C0.
@@ -41,11 +45,22 @@ through a protected benchmark adapter.
 9. Evaluate C0 and the selected checkpoint on final test.
 10. Export the selected harness and full lineage.
 
+Each logical edit is a testable hypothesis. Its change record names the
+affected component paths, supporting evidence, proposed mechanism,
+`predicted_fixes`, and `risk_tasks`. The next combined-candidate evaluation
+compares those predictions with observed task changes. This is heuristic
+prediction matching, not isolated causal proof for each edit.
+
 ## Evidence boundary
 
 Only training evaluations may be converted into evidence visible to Debugger or
 Evolve. Validation and final-test artifacts are controller-owned and remain
 outside all meta-agent roots. Split task IDs and hidden state are adapter-owned.
+
+Source Explore and Evolve receive only operator-declared public adapter roots.
+The runner never infers the adapter implementation file as an authorized read
+root. Adapter code and data dependencies are hashed for provenance without
+becoming readable to meta-agents.
 
 Evidence should preserve:
 
@@ -93,6 +108,11 @@ For Evolve:
 - prior attempt logs and workspaces remain immutable evidence;
 - the logical stage completes once, despite multiple infrastructure attempts.
 
+Evolve may inspect immutable checkpoint history and selectively restore
+authorized component paths from an earlier checkpoint. It chooses `KEEP`,
+`IMPROVE`, or `ROLLBACK + PIVOT`; the controller does not automatically roll
+back a candidate solely because one aggregate score decreased.
+
 ## Exact-model contract
 
 Every model-backed stage performs a fresh observable-contract preflight.
@@ -110,6 +130,11 @@ Explore outputs are genuine `SKILL.md` directories registered in Evolve's
 NexAU `skills` list. NexAU initially exposes only short descriptions. Evolve
 calls `LoadSkill` to reveal the full content when needed. The skills are copied
 read-only into the meta-agent runtime and are never writable by Evolve.
+
+Web Explore also receives the operator-declared research seed URLs. Source and
+Web outputs are immutable research seeds for the campaign; changing a seed URL,
+safe source root, role supplement, resolved benchmark context, core prompt,
+tool implementation, or this reference requires a new campaign identity.
 
 ## Validation and selection
 

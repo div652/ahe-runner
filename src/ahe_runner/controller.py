@@ -58,6 +58,7 @@ class CampaignController:
         self.config = config
         self.adapter: BenchmarkAdapterBase = load_adapter(config)
         self.benchmark_interface = benchmark_interface_for(self.adapter)
+        self.prompt_context = self.adapter.meta_prompt_context()
         self.harness_manifest: HarnessManifest = load_harness_manifest(
             config.harness_manifest_path
         )
@@ -70,16 +71,16 @@ class CampaignController:
             campaign_dir=config.campaign_dir,
             maximum_attempts=config.document.recovery.maximum_stage_attempts,
         )
-        method_reference = (
-            Path(__file__).resolve().parents[2] / "docs" / "ARCHITECTURE.md"
+        self.method_reference = (
+            Path(__file__).resolve().parent / "resources" / "AHE_METHODS_REFERENCE.md"
         )
         self.meta = create_meta_backend(
             MetaBackendContext(
                 config=config,
-                prompt_context=self.adapter.meta_prompt_context(),
+                prompt_context=self.prompt_context,
                 benchmark_interface=self.benchmark_interface,
                 harness_manifest=self.harness_manifest,
-                method_reference=method_reference,
+                method_reference=self.method_reference,
             )
         )
 
@@ -482,9 +483,7 @@ class CampaignController:
                 "meta_model": self.config.document.models.meta.model_dump(mode="json"),
                 "source_enabled": self.config.document.meta.explore.source_enabled,
                 "web_enabled": self.config.document.meta.explore.web_enabled,
-                "prompt_context": self.adapter.meta_prompt_context().model_dump(
-                    mode="json"
-                ),
+                "prompt_context": self.prompt_context.model_dump(mode="json"),
             },
             action=action,
         )
@@ -511,9 +510,7 @@ class CampaignController:
                 "parent_checkpoint": checkpoint,
                 "evidence_manifest_sha256": evidence_sha,
                 "meta_model": self.config.document.models.meta.model_dump(mode="json"),
-                "prompt_context": self.adapter.meta_prompt_context().model_dump(
-                    mode="json"
-                ),
+                "prompt_context": self.prompt_context.model_dump(mode="json"),
             },
             action=action,
         )
@@ -823,8 +820,16 @@ class CampaignController:
 
     def _ensure_campaign_manifest(self) -> dict[str, Any]:
         adapter_source = inspect.getsourcefile(type(self.adapter))
+        adapter_dependencies = [
+            Path(adapter_source).resolve() if adapter_source else None,
+            *self.config.adapter_dependency_paths,
+        ]
+        unique_adapter_dependencies = tuple(
+            dict.fromkeys(path for path in adapter_dependencies if path is not None)
+        )
+        package_root = Path(__file__).resolve().parent
         identity = {
-            "schema_version": 1,
+            "schema_version": 2,
             "runner_version": __version__,
             "python": platform.python_version(),
             "nexau_version": importlib.metadata.version("nexau"),
@@ -834,9 +839,35 @@ class CampaignController:
             "adapter": self.adapter.identity().model_dump(mode="json"),
             "adapter_api_generation": adapter_api_generation(self.adapter),
             "benchmark_interface": self.benchmark_interface.model_dump(mode="json"),
-            "adapter_source": {
-                "path": adapter_source,
-                "sha256": sha256_file(Path(adapter_source)) if adapter_source else None,
+            "adapter_dependencies": [
+                _protected_path_identity(path) for path in unique_adapter_dependencies
+            ],
+            "resolved_meta_inputs": {
+                "prompt_context": self.prompt_context.model_dump(mode="json"),
+                "safe_source_roots": [
+                    _protected_path_identity(path)
+                    for path in self.config.meta_agent_source_roots
+                ],
+                "role_supplements": {
+                    role: _protected_path_identity(path)
+                    for role, path in self.config.role_supplements
+                },
+                "research_seed_urls": list(
+                    self.config.document.meta.explore.research_seed_urls
+                ),
+            },
+            "protected_runner_resources": {
+                "package": _protected_path_identity(package_root),
+                "core_prompts": _protected_path_identity(
+                    package_root / "meta" / "prompts"
+                ),
+                "tool_descriptions": _protected_path_identity(
+                    package_root / "meta" / "tool_descriptions"
+                ),
+                "tool_implementation": _protected_path_identity(
+                    package_root / "meta" / "tools.py"
+                ),
+                "method_reference": _protected_path_identity(self.method_reference),
             },
             "splits": {
                 name.value: {
@@ -861,8 +892,15 @@ class CampaignController:
             expected = dict(payload)
             expected.pop("created_at", None)
             if comparable != expected:
+                changed = sorted(
+                    key
+                    for key in set(comparable) | set(expected)
+                    if key not in {"created_at", "identity_sha256"}
+                    and comparable.get(key) != expected.get(key)
+                )
                 raise IntegrityError(
-                    "campaign identity changed; use a new artifacts directory"
+                    "campaign identity changed in protected inputs "
+                    f"{changed}; use a new artifacts directory"
                 )
             return existing
         atomic_write_json(path, payload)
@@ -898,6 +936,25 @@ class CampaignController:
 
     def _write_state(self) -> None:
         self.status()
+
+
+def _protected_path_identity(path: Path) -> dict[str, Any]:
+    resolved = path.resolve()
+    if resolved.is_file():
+        return {
+            "path": str(resolved),
+            "type": "file",
+            "sha256": sha256_file(resolved),
+        }
+    if resolved.is_dir():
+        files = tree_hashes(resolved)
+        return {
+            "path": str(resolved),
+            "type": "directory",
+            "sha256": sha256_json(files),
+            "files": files,
+        }
+    raise IntegrityError(f"protected campaign input is missing: {resolved}")
 
 
 def _git_head(workspace: Path) -> str:

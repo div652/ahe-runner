@@ -94,6 +94,54 @@ These values become immutable campaign identity.
 
 Change the adapter or benchmark version when native semantics change.
 
+Also declare every local code/data dependency that can change adapter behavior:
+
+```yaml
+project:
+  adapter_dependency_paths:
+    - ./benchmark_adapter.py
+    - ./adapter_support
+```
+
+These paths are hashed into campaign identity but are not automatically exposed
+to meta-agents.
+
+## Public source roots and role supplements
+
+Source Explore and Evolve can read only explicitly declared public adapter
+roots:
+
+```yaml
+project:
+  meta_agent_source_roots:
+    - ./benchmark_public
+```
+
+Put public schemas, allowed scoring semantics, trace-format documentation, and
+integration guidance there. Never include held-out task content, hidden state,
+private verifier code, or answer fixtures. The runner does not infer the
+adapter class's implementation file as a readable root.
+
+Projects may append domain guidance without replacing the protected AHE role
+procedures:
+
+```yaml
+meta:
+  role_supplements:
+    source: ./meta_supplements/source.md
+    web: ./meta_supplements/web.md
+    debugger: ./meta_supplements/debugger.md
+    evolve: ./meta_supplements/evolve.md
+  explore:
+    research_seed_urls:
+      - https://example.org/primary-agent-method
+```
+
+The resolved supplements, research seeds, public-root hashes, adapter
+dependencies, benchmark context, runner prompts/tools, and packaged method
+reference are frozen into campaign identity. Changing any of them requires a
+new campaign directory.
+
 ## `split()`
 
 Return one stable `SplitDefinition` for train, validation, and test.

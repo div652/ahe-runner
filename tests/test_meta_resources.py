@@ -149,6 +149,88 @@ def test_generated_production_agent_config_loads_with_native_skill(
     assert loaded.retry_attempts == 1
 
 
+def test_meta_agents_mount_only_declared_public_adapter_roots(
+    tmp_path: Path,
+) -> None:
+    config_path = make_example_project(tmp_path)
+    value = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    value["meta"]["backend"] = "nexau"
+    value["meta"]["explore"]["web_search_backend"] = "ddgs"
+    config_path.write_text(
+        yaml.safe_dump(value, sort_keys=False),
+        encoding="utf-8",
+    )
+    controller = CampaignController(load_config(config_path))
+    backend = controller.meta
+    adapter_source = Path(inspect.getsourcefile(type(controller.adapter)) or "")
+    assert "validation-confirm-actions" in adapter_source.read_text(encoding="utf-8")
+    assert backend._safe_source_roots == {  # type: ignore[attr-defined]
+        "adapter_public_1": config_path.parent / "benchmark_public"
+    }
+    assert adapter_source not in backend._safe_source_roots.values()  # type: ignore[attr-defined]
+    authorized_text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for root in backend._safe_source_roots.values()  # type: ignore[attr-defined]
+        for path in root.rglob("*")
+        if path.is_file()
+    )
+    assert "validation-confirm-actions" not in authorized_text
+    assert "validation-confirm-actions" not in json.dumps(
+        controller.prompt_context.model_dump(mode="json")
+    )
+
+
+def test_role_supplements_append_without_replacing_core_prompts(
+    tmp_path: Path,
+) -> None:
+    config_path = make_example_project(tmp_path)
+    value = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    value["meta"]["backend"] = "nexau"
+    value["meta"]["explore"]["web_search_backend"] = "ddgs"
+    value["meta"]["explore"]["research_seed_urls"] = [
+        "https://example.com/agent-reliability"
+    ]
+    config_path.write_text(
+        yaml.safe_dump(value, sort_keys=False),
+        encoding="utf-8",
+    )
+    backend = CampaignController(load_config(config_path)).meta
+    roles = {
+        "source_explorer.md": "Describe the public adapter contract",
+        "web_explorer.md": "Research transferable tool-agent reliability methods",
+        "debugger.md": "Use the adapter-provided failure taxonomy",
+        "evolve.md": "Prefer one reusable reliability intervention",
+    }
+    for prompt_name, supplement_text in roles.items():
+        resolved = backend._resolved_prompt_text(prompt_name)  # type: ignore[attr-defined]
+        core = (
+            Path(backend_module.__file__).parent / "prompts" / prompt_name
+        ).read_text(encoding="utf-8")
+        assert resolved.startswith(core.rstrip())
+        assert "Protected project domain supplement" in resolved
+        assert supplement_text in resolved
+
+    query = backend_module._explorer_query(
+        kind="web",
+        roots=["method"],
+        benchmark_context={"objective": "reliability"},
+        benchmark_interface={"tool_delivery": "none"},
+        research_seed_urls=["https://example.com/agent-reliability"],
+    )
+    assert "Required research seed URLs" in query
+    assert "https://example.com/agent-reliability" in query
+    evolve_query = backend_module._evolve_query(
+        round_label="C1",
+        evidence={"checkpoint": "C0"},
+        roots=["evidence"],
+        recovery_present=False,
+        benchmark_interface={"tool_delivery": "none"},
+        benchmark_context={"failure_taxonomy": ["domain-specific-failure"]},
+    )
+    assert "Resolved benchmark-family context" in evolve_query
+    assert "domain-specific-failure" in evolve_query
+
+
 def test_failed_completion_uses_nexau_repairable_error_shape() -> None:
     result = tools.complete_task(final_summary="", agent_state=None)
     assert result == {

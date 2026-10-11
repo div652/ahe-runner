@@ -142,6 +142,11 @@ Configure it as:
 ```yaml
 project:
   adapter: benchmark_adapter:MyAdapter
+  adapter_dependency_paths:
+    - ./benchmark_adapter.py
+    - ./adapter_support
+  meta_agent_source_roots:
+    - ./benchmark_public
 ```
 
 The adapter owns native evaluation, split secrecy, metrics, trace conversion,
@@ -157,6 +162,11 @@ official structured action API, declare its immutable schemas in
 Those schemas extend the in-memory NexAU config only. They are sent through the
 structured model API `tools` field, not appended to prompt text, written into
 `harness/`, or made editable by Evolve.
+
+`adapter_dependency_paths` are provenance-only: they are hashed but not
+readable by meta-agents. `meta_agent_source_roots` are the explicit public
+documentation/source roots available to Source Explore and Evolve. Keep all
+held-out task content and private verifier implementation outside those roots.
 
 ## 6. Configure the campaign
 
@@ -202,7 +212,19 @@ meta:
     source_enabled: true
     web_enabled: true
     web_search_backend: ddgs
+    research_seed_urls:
+      - https://example.org/primary-agent-method
+  role_supplements:
+    source: ./meta_supplements/source.md
+    web: ./meta_supplements/web.md
+    debugger: ./meta_supplements/debugger.md
+    evolve: ./meta_supplements/evolve.md
 ```
+
+Role supplements are appended after the protected core procedures; they cannot
+replace tool permissions, evidence boundaries, or deliverable contracts.
+All four roles receive the same resolved benchmark-family context. Web Explore
+also receives the configured seed URLs before broader research.
 
 Model IDs sent to the endpoint are exact and unprefixed. Do not use
 `openai/<id>` or `copilot/<id>` in this file.

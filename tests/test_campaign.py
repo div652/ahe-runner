@@ -8,6 +8,7 @@ import yaml
 from ahe_runner.config import load_config
 from ahe_runner.controller import CampaignController
 from ahe_runner.errors import InfrastructureError, IntegrityError, StageInterruptedError
+from ahe_runner.io import read_json
 from ahe_runner.meta.scripted import ScriptedMetaBackend
 from ahe_runner.workspace import git_output
 
@@ -58,6 +59,37 @@ def test_campaign_identity_drift_requires_new_artifacts_dir(tmp_path: Path) -> N
     )
 
     with pytest.raises(IntegrityError, match="campaign identity changed"):
+        CampaignController(load_config(config_path)).prepare()
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "changed_identity"),
+    [
+        ("meta_supplements/evolve.md", "resolved_meta_inputs"),
+        ("benchmark_public/ADAPTER.md", "resolved_meta_inputs"),
+        ("benchmark_adapter.py", "adapter_dependencies"),
+    ],
+)
+def test_protected_project_input_drift_invalidates_resume(
+    tmp_path: Path,
+    relative_path: str,
+    changed_identity: str,
+) -> None:
+    config_path = make_example_project(tmp_path, rounds=0)
+    controller = CampaignController(load_config(config_path))
+    controller.prepare()
+    manifest = read_json(controller.config.campaign_dir / "campaign_manifest.json")
+    assert manifest["schema_version"] == 2
+    assert manifest["protected_runner_resources"]["package"]["sha256"]
+    assert manifest["resolved_meta_inputs"]["prompt_context"]
+
+    protected_input = config_path.parent / relative_path
+    protected_input.write_text(
+        protected_input.read_text(encoding="utf-8") + "\nprotected drift\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(IntegrityError, match=changed_identity):
         CampaignController(load_config(config_path)).prepare()
 
 
