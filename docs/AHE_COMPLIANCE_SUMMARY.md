@@ -56,7 +56,14 @@ promise inevitable score improvement.
 
 ## Validation
 
-The original 43-test record applies to the pre-follow-up repair snapshot. See
-[`VALIDATION_RESULTS.md`](VALIDATION_RESULTS.md) for the current release
-commit, exact test count, package hashes, clean-wheel campaign result, and
-live-endpoint limitations.
+Release `0.3.0` was validated at source commit
+`15a594064bfc58db69cffcbe3f64690f7a882bd6`: 57 tests passed, Ruff lint and
+format checks passed across 98 files, source compilation passed, and both
+distribution formats built successfully. A fresh wheel installation with Web
+extras generated conforming offline and runtime projects, completed all 34
+offline campaign stages through C3, selected C3, and resumed without changing
+any attempt path or the campaign state.
+
+See [`VALIDATION_RESULTS.md`](VALIDATION_RESULTS.md) for exact dependency
+versions, artifact hashes, installed-resource checks, clean-wheel results, and
+the explicit no-live-endpoint limitation.
