@@ -82,7 +82,7 @@ def test_prompts_are_substantive_and_require_native_explore_skills() -> None:
     assert "LoadSkill" in prompts["evolve.md"]
     assert "change_manifest.json" in prompts["evolve.md"]
     assert "submit_debugger_diagnosis" in prompts["debugger.md"]
-    assert "passing and failing" in prompts["debugger.md"]
+    assert "at least one passing and one failing trial" in prompts["debugger.md"]
     assert "Your first tool call must be `write_file`" in prompts["source_explorer.md"]
     assert "Your first tool call must be `write_file`" in prompts["web_explorer.md"]
 
