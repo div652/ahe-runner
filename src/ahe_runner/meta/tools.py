@@ -50,9 +50,6 @@ def list_files(
     base = _resolve_virtual(agent_state, root, relative_path, write=False)
     if not base.exists():
         return _json({"ok": False, "error": f"path does not exist: {relative_path}"})
-    glob_path = Path(file_glob)
-    if glob_path.is_absolute() or ".." in glob_path.parts:
-        return _json({"ok": False, "error": "file_glob must stay within the root"})
     if base.is_file():
         return _json({"ok": True, "entries": [_entry(base, base.parent)]})
     iterator = base.rglob("*") if recursive else base.iterdir()
@@ -1058,10 +1055,7 @@ def _append_restore_event(
 ) -> None:
     output_dir = Path(str(_context_value(agent_state, "meta_output_dir"))).resolve()
     path = output_dir / "historical_restores.json"
-    if path.is_file():
-        payload = read_json(path)
-    else:
-        payload = {"schema_version": 1, "events": []}
+    payload = read_json(path) if path.is_file() else {"schema_version": 1, "events": []}
     events = payload.get("events")
     if not isinstance(events, list):
         raise TypeError("historical restore log is invalid")

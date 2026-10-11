@@ -266,6 +266,18 @@ def test_large_meta_files_support_ranged_reads_and_honest_search(
         }
     )
 
+    listing = json.loads(
+        tools.list_files(
+            root="evidence",
+            agent_state=state,  # type: ignore[arg-type]
+        )
+    )
+    assert listing["ok"] is True
+    assert {entry["path"] for entry in listing["entries"]} >= {
+        "long-trace.txt",
+        "single-line.json",
+    }
+
     first_line = json.loads(
         tools.read_file(
             root="evidence",

@@ -86,7 +86,7 @@ def test_change_manifest_rejects_untyped_logical_changes(tmp_path: Path) -> None
     path = tmp_path / "change_manifest.json"
     atomic_write_json(path, value)
 
-    with pytest.raises(IntegrityError, match="invalid change_manifest.json"):
+    with pytest.raises(IntegrityError, match=r"invalid change_manifest\.json"):
         load_change_manifest(path)
 
 
