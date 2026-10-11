@@ -628,7 +628,7 @@ class NexAUMetaBackend(MetaBackend):
             "llm_config": {
                 "model": settings.model,
                 "base_url": self.context.config.document.transport.base_url,
-                "api_key": self.context.config.api_key,
+                "api_key": "AHE_RUNTIME_INJECTED",
                 "temperature": settings.temperature,
                 "max_tokens": settings.max_tokens,
                 "max_retries": 0,

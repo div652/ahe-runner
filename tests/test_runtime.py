@@ -65,10 +65,28 @@ def test_runtime_intercepts_protected_actions_and_preserves_sessions(
         "        return HookResult.no_changes()\n",
         encoding="utf-8",
     )
+    (middleware_dir / "legacy_continue.py").write_text(
+        "from nexau.archs.main_sub.execution.hooks import HookResult\n"
+        "\n"
+        "\n"
+        "class LegacyProtectedContinue:\n"
+        "    def __call__(self, hook_input):\n"
+        "        parsed = hook_input.parsed_response\n"
+        "        if parsed and any(\n"
+        "            call.tool_name == 'lookup_account'\n"
+        "            for call in parsed.tool_calls\n"
+        "        ):\n"
+        "            return HookResult.with_modifications(force_continue=True)\n"
+        "        return HookResult.no_changes()\n",
+        encoding="utf-8",
+    )
     agent_path = config.harness_dir / "agent.yaml"
     agent_config = yaml.safe_load(agent_path.read_text(encoding="utf-8"))
     agent_config["middlewares"] = [
         {"import": "middleware.force_continue:ForceProtectedContinue"}
+    ]
+    agent_config["after_model_hooks"] = [
+        {"import": "middleware.legacy_continue:LegacyProtectedContinue"}
     ]
     agent_config["retry_attempts"] = 5
     agent_config["llm_config"]["reasoning"] = {"effort": "high"}

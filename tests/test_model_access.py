@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
+from openai import OpenAI
 
 from ahe_runner.config import ModelSettings, TransportSettings
 from ahe_runner.errors import InfrastructureError, IntegrityError
@@ -128,6 +131,112 @@ def test_recorded_client_clears_provider_default_reasoning(
             temperature=0.1,
             reasoning={"effort": "high"},
         )
+
+
+@pytest.mark.parametrize(
+    ("override", "expected_error"),
+    [
+        ({"extra_body": {"model": "other-model"}}, "protected model fields"),
+        ({"extra_body": {"max_tokens": 999}}, "protected model fields"),
+        ({"extra_body": {"temperature": 1.9}}, "protected model fields"),
+        ({"extra_body": {"stream": True}}, "protected model fields"),
+        ({"extra_body": {"reasoning": {"effort": "low"}}}, "protected model fields"),
+        ({"reasoning_effort": "low"}, "reasoning_effort"),
+        ({"max_completion_tokens": 999}, "protected alias"),
+    ],
+)
+def test_recorded_client_rejects_wire_policy_overrides_before_request(
+    tmp_path: Path,
+    override: dict[str, Any],
+    expected_error: str,
+) -> None:
+    requests: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        return httpx.Response(500)
+
+    client = RecordedExactModelClient(
+        transport=_transport(),
+        api_key="placeholder",
+        settings=_settings(),
+        log_dir=tmp_path / "calls",
+    )
+    client._base.close()  # type: ignore[attr-defined]
+    client._base = OpenAI(  # type: ignore[attr-defined]
+        base_url=_transport().base_url,
+        api_key="placeholder",
+        max_retries=0,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    try:
+        with pytest.raises(IntegrityError, match=expected_error):
+            client.chat.completions.create(
+                model="exact-model",
+                messages=[{"role": "user", "content": "hello"}],
+                **override,
+            )
+    finally:
+        client.close()
+    assert requests == []
+    assert not (tmp_path / "calls" / "call-0001").exists()
+
+
+def test_recorded_client_serializes_only_fixed_policy_and_allowed_extras(
+    tmp_path: Path,
+) -> None:
+    requests: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        requests.append(body)
+        return httpx.Response(
+            200,
+            json={
+                "id": "fixed-policy",
+                "object": "chat.completion",
+                "created": 1,
+                "model": "exact-model",
+                "choices": [
+                    {
+                        "index": 0,
+                        "finish_reason": "stop",
+                        "message": {"role": "assistant", "content": "OK"},
+                    }
+                ],
+            },
+        )
+
+    client = RecordedExactModelClient(
+        transport=_transport(),
+        api_key="placeholder",
+        settings=_settings(),
+        log_dir=tmp_path / "calls",
+    )
+    client._base.close()  # type: ignore[attr-defined]
+    client._base = OpenAI(  # type: ignore[attr-defined]
+        base_url=_transport().base_url,
+        api_key="placeholder",
+        max_retries=0,
+        http_client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    try:
+        client.chat.completions.create(
+            model="exact-model",
+            messages=[{"role": "user", "content": "hello"}],
+            reasoning_effort="high",
+            extra_body={"provider_extension": "allowed"},
+        )
+    finally:
+        client.close()
+    assert len(requests) == 1
+    assert requests[0]["model"] == "exact-model"
+    assert requests[0]["max_tokens"] == 128
+    assert requests[0]["temperature"] == 0.1
+    assert requests[0]["stream"] is False
+    assert requests[0]["reasoning"] == {"effort": "high"}
+    assert requests[0]["provider_extension"] == "allowed"
+    assert "reasoning_effort" not in requests[0]
 
 
 def test_recorded_client_fails_closed_on_mismatch_and_timeout(

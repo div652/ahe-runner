@@ -93,15 +93,18 @@ def test_generated_production_agent_config_loads_with_native_skill(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
+    secret = "synthetic-meta-key-that-must-not-be-persisted"
     config_path = make_example_project(tmp_path)
     value = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     value["meta"]["backend"] = "nexau"
     value["meta"]["explore"]["web_search_backend"] = "ddgs"
     value["models"]["meta"]["model"] = "exact-meta-model"
+    value["transport"]["api_key_env"] = "AHE_TEST_META_KEY"
     config_path.write_text(
         yaml.safe_dump(value, sort_keys=False),
         encoding="utf-8",
     )
+    monkeypatch.setenv("AHE_TEST_META_KEY", secret)
     controller = CampaignController(load_config(config_path))
     skill = tmp_path / "skill"
     skill.mkdir()
@@ -113,6 +116,7 @@ def test_generated_production_agent_config_loads_with_native_skill(
     class FakeAgent:
         def __init__(self, *, config):  # type: ignore[no-untyped-def]
             self.config = config
+            assert config.llm_config.api_key == secret
             self.full_trace = []
             self.global_storage = SimpleNamespace(get=lambda _key: None)
 
@@ -147,6 +151,15 @@ def test_generated_production_agent_config_loads_with_native_skill(
     loaded = backend_module.AgentConfig.from_yaml(tmp_path / "runtime" / "agent.yaml")
     assert loaded.skills[0].name == "smoke"
     assert loaded.retry_attempts == 1
+    runtime_files = [
+        path.read_text(encoding="utf-8", errors="replace")
+        for path in (tmp_path / "runtime").rglob("*")
+        if path.is_file()
+    ]
+    assert all(secret not in text for text in runtime_files)
+    assert "AHE_RUNTIME_INJECTED" in (
+        tmp_path / "runtime" / "agent.yaml"
+    ).read_text(encoding="utf-8")
 
 
 def test_meta_agents_mount_only_declared_public_adapter_roots(

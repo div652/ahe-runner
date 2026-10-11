@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import threading
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -20,6 +21,19 @@ from openai import (
 from ahe_runner.config import ModelSettings, TransportSettings
 from ahe_runner.errors import InfrastructureError, IntegrityError
 from ahe_runner.io import atomic_write_json, sha256_json
+
+_PROTECTED_EXTRA_BODY_FIELDS = frozenset(
+    {
+        "model",
+        "max_tokens",
+        "max_completion_tokens",
+        "max_output_tokens",
+        "temperature",
+        "stream",
+        "reasoning",
+        "reasoning_effort",
+    }
+)
 
 
 class RecordedExactModelClient:
@@ -61,9 +75,22 @@ class RecordedExactModelClient:
                 f"model request used {requested_model!r}; "
                 f"expected {self._settings.model!r}"
             )
-        if kwargs.get("stream") is True:
+        if kwargs.get("stream") not in (None, False):
             raise IntegrityError("streaming model calls are prohibited")
         kwargs["stream"] = False
+        extra_body_value = kwargs.get("extra_body")
+        if extra_body_value is None:
+            extra_body: dict[str, Any] = {}
+        elif isinstance(extra_body_value, Mapping):
+            extra_body = dict(extra_body_value)
+        else:
+            raise IntegrityError("extra_body must be an object")
+        collisions = sorted(_PROTECTED_EXTRA_BODY_FIELDS & set(extra_body))
+        if collisions:
+            raise IntegrityError(
+                "extra_body cannot override protected model fields: "
+                + ", ".join(collisions)
+            )
         self._require_setting(
             kwargs,
             name="max_tokens",
@@ -74,34 +101,35 @@ class RecordedExactModelClient:
             name="temperature",
             expected=self._settings.temperature,
         )
+        self._reject_alias(kwargs, "max_completion_tokens")
+        self._reject_alias(kwargs, "max_output_tokens")
+        reasoning = kwargs.pop("reasoning", None)
+        reasoning_effort = kwargs.pop("reasoning_effort", None)
         if self._settings.reasoning_effort is not None:
             expected = {"effort": self._settings.reasoning_effort}
-            reasoning = kwargs.pop("reasoning", None)
             if reasoning is not None and reasoning != expected:
                 raise IntegrityError(
                     f"reasoning was {reasoning!r}; expected {expected!r}"
                 )
-            extra_body = dict(kwargs.get("extra_body") or {})
-            existing = extra_body.get("reasoning")
-            if existing is not None and existing != expected:
+            if (
+                reasoning_effort is not None
+                and reasoning_effort != self._settings.reasoning_effort
+            ):
                 raise IntegrityError(
-                    f"extra_body reasoning was {existing!r}; expected {expected!r}"
+                    f"reasoning_effort was {reasoning_effort!r}; expected "
+                    f"{self._settings.reasoning_effort!r}"
                 )
             extra_body["reasoning"] = expected
-            kwargs["extra_body"] = extra_body
         else:
-            reasoning = kwargs.pop("reasoning", None)
-            extra_body = dict(kwargs.get("extra_body") or {})
-            extra_reasoning = extra_body.pop("reasoning", None)
-            if reasoning is not None or extra_reasoning is not None:
+            if reasoning is not None or reasoning_effort is not None:
                 raise IntegrityError(
                     "reasoning override is prohibited when campaign reasoning "
                     "is provider-default"
                 )
-            if extra_body:
-                kwargs["extra_body"] = extra_body
-            else:
-                kwargs.pop("extra_body", None)
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+        else:
+            kwargs.pop("extra_body", None)
 
         call_dir = self._next_call_dir()
         request_payload = _json_safe(kwargs)
@@ -158,6 +186,12 @@ class RecordedExactModelClient:
                 f"{name} was {received!r}; expected campaign value {expected!r}"
             )
         kwargs[name] = expected
+
+    def _reject_alias(self, kwargs: dict[str, Any], name: str) -> None:
+        if kwargs.pop(name, None) is not None:
+            raise IntegrityError(
+                f"{name} is a protected alias; use the campaign max_tokens setting"
+            )
 
     def _next_call_dir(self) -> Path:
         with self._lock:

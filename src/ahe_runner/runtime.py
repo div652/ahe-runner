@@ -12,6 +12,7 @@ from nexau.archs.main_sub.config import AgentConfig
 from nexau.archs.main_sub.context_value import ContextValue
 from nexau.archs.main_sub.execution.hooks import (
     AfterModelHookInput,
+    FunctionMiddleware,
     HookResult,
     Middleware,
     ToolCallFn,
@@ -304,9 +305,21 @@ class EvaluatedAgentRuntime:
             _CandidateMiddlewareGuard(middleware, boundary)
             for middleware in (config.middlewares or [])
         ]
+        legacy_after_model_middlewares = [
+            _CandidateMiddlewareGuard(
+                FunctionMiddleware(
+                    after_model_hook=hook,
+                    name=f"after_model::{_hook_name(hook)}",
+                ),
+                boundary,
+            )
+            for hook in (config.after_model_hooks or [])
+        ]
+        config.after_model_hooks = []
         config.middlewares = [
             boundary,
             *candidate_middlewares,
+            *legacy_after_model_middlewares,
             _ProtectedActionCapture(boundary),
         ]
 
@@ -531,6 +544,10 @@ def _blocked_runtime_tool(**_kwargs: Any) -> str:
     raise IntegrityError(
         "protected benchmark actions must be executed by the benchmark adapter"
     )
+
+
+def _hook_name(hook: Callable[..., Any]) -> str:
+    return str(getattr(hook, "__name__", hook.__class__.__name__))
 
 
 def _without_calls(parsed: ParsedResponse) -> ParsedResponse:
