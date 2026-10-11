@@ -42,6 +42,7 @@ evaluation:
 
 debugger:
   max_concurrency: 4
+  max_iterations: 80
 
 recovery:
   maximum_stage_attempts: 3

@@ -211,6 +211,7 @@ evaluation:
 
 debugger:
   max_concurrency: 8
+  max_iterations: 80
 
 recovery:
   maximum_stage_attempts: 3
@@ -345,6 +346,14 @@ Each task document contains the adapter-approved task identity, trial outcomes,
 complete allowed diagnostic evidence, canonical events, and source hashes.
 Validation and test adapters never create an evidence bundle accessible to the
 meta-agents.
+
+Each task is investigated by a bounded read-only NexAU Debugger. It can list,
+search, and read ranged portions of authorized evidence and raw training
+artifacts regardless of total file size. Returned content is byte-capped with
+explicit continuation/truncation metadata, and search reports skipped inputs
+honestly. When passing and failing trials coexist, the structured diagnosis
+must compare both and identify their earliest meaningful divergence; otherwise
+it records the exact evidence limitation.
 
 ## Seven evolvable component classes
 

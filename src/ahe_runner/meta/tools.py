@@ -17,6 +17,7 @@ from nexau.archs.main_sub.agent_state import AgentState
 from ahe_runner.adapter import CandidateValidationRequest
 from ahe_runner.change_manifest import load_change_manifest
 from ahe_runner.config import load_config
+from ahe_runner.debugger import validate_debugger_diagnosis
 from ahe_runner.harness import load_harness_manifest, validate_harness
 from ahe_runner.io import (
     atomic_write_json,
@@ -28,6 +29,7 @@ from ahe_runner.io import (
 from ahe_runner.loading import load_adapter
 
 _MAX_READ_BYTES = 160_000
+_DEFAULT_READ_BYTES = 64_000
 _MAX_SEARCH_MATCHES = 300
 _MAX_LIST_ENTRIES = 5_000
 _EVOLVE_RESEARCH_BUDGET_BEFORE_COMMIT = 36
@@ -45,6 +47,9 @@ def list_files(
     base = _resolve_virtual(agent_state, root, relative_path, write=False)
     if not base.exists():
         return _json({"ok": False, "error": f"path does not exist: {relative_path}"})
+    glob_path = Path(file_glob)
+    if glob_path.is_absolute() or ".." in glob_path.parts:
+        return _json({"ok": False, "error": "file_glob must stay within the root"})
     if base.is_file():
         return _json({"ok": True, "entries": [_entry(base, base.parent)]})
     iterator = base.rglob("*") if recursive else base.iterdir()
@@ -70,6 +75,9 @@ def read_file(
     relative_path: str,
     start_line: int = 1,
     end_line: int = 400,
+    start_byte: int | None = None,
+    end_byte: int | None = None,
+    max_bytes: int = _DEFAULT_READ_BYTES,
     agent_state: AgentState | None = None,
 ) -> str:
     blocked = _research_gate(agent_state)
@@ -78,26 +86,105 @@ def read_file(
     path = _resolve_virtual(agent_state, root, relative_path, write=False)
     if not path.is_file():
         return _json({"ok": False, "error": f"not a file: {relative_path}"})
-    if path.stat().st_size > _MAX_READ_BYTES:
+    if max_bytes < 1 or max_bytes > _MAX_READ_BYTES:
         return _json(
             {
                 "ok": False,
-                "error": f"file exceeds {_MAX_READ_BYTES} byte read limit",
-                "size": path.stat().st_size,
+                "error": f"max_bytes must be between 1 and {_MAX_READ_BYTES}",
+            }
+        )
+    file_size = path.stat().st_size
+    if start_byte is not None or end_byte is not None:
+        if (
+            start_byte is None
+            or end_byte is None
+            or start_byte < 0
+            or end_byte <= start_byte
+        ):
+            return _json(
+                {
+                    "ok": False,
+                    "error": ("byte reads require 0 <= start_byte < end_byte"),
+                }
+            )
+        requested = end_byte - start_byte
+        if requested > max_bytes:
+            return _json(
+                {
+                    "ok": False,
+                    "error": "requested byte range exceeds max_bytes",
+                    "requested_bytes": requested,
+                    "max_bytes": max_bytes,
+                }
+            )
+        with path.open("rb") as handle:
+            handle.seek(start_byte)
+            content_bytes = handle.read(min(requested, max(file_size - start_byte, 0)))
+        _record_debugger_artifact(agent_state, root, relative_path)
+        return _json(
+            {
+                "ok": True,
+                "mode": "bytes",
+                "path": relative_path,
+                "start_byte": start_byte,
+                "end_byte": start_byte + len(content_bytes),
+                "requested_end_byte": end_byte,
+                "file_size": file_size,
+                "bytes_returned": len(content_bytes),
+                "has_more": start_byte + len(content_bytes) < file_size,
+                "content": content_bytes.decode("utf-8", errors="replace"),
+                "sha256": sha256_file(path),
             }
         )
     if start_line < 1 or end_line < start_line:
         return _json({"ok": False, "error": "invalid line range"})
-    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-    selected = lines[start_line - 1 : end_line]
+    selected: list[str] = []
+    bytes_returned = 0
+    last_line = start_line - 1
+    lines_seen = 0
+    total_lines: int | None = None
+    content_truncated = False
+    has_more_after_range = False
+    with path.open("r", encoding="utf-8", errors="replace") as handle:
+        for line_number, line in enumerate(handle, start=1):
+            lines_seen = line_number
+            if line_number < start_line:
+                continue
+            if line_number > end_line:
+                has_more_after_range = True
+                break
+            encoded = line.encode("utf-8")
+            remaining = max_bytes - bytes_returned
+            if len(encoded) > remaining:
+                if remaining:
+                    selected.append(
+                        encoded[:remaining].decode("utf-8", errors="replace")
+                    )
+                    bytes_returned += remaining
+                last_line = line_number
+                content_truncated = True
+                has_more_after_range = True
+                break
+            selected.append(line)
+            bytes_returned += len(encoded)
+            last_line = line_number
+        else:
+            total_lines = lines_seen
+    _record_debugger_artifact(agent_state, root, relative_path)
     return _json(
         {
             "ok": True,
+            "mode": "lines",
             "path": relative_path,
             "start_line": start_line,
-            "end_line": min(end_line, len(lines)),
-            "total_lines": len(lines),
-            "content": "\n".join(selected),
+            "end_line": last_line,
+            "requested_end_line": end_line,
+            "total_lines": total_lines,
+            "file_size": file_size,
+            "bytes_returned": bytes_returned,
+            "content_truncated": content_truncated,
+            "has_more_after_range": has_more_after_range,
+            "content": "".join(selected),
             "sha256": sha256_file(path),
         }
     )
@@ -119,51 +206,149 @@ def search_text(
     if not base.exists():
         return _json({"ok": False, "error": f"path does not exist: {relative_path}"})
     flags = 0 if case_sensitive else re.IGNORECASE
-    pattern = re.compile(query if regex else re.escape(query), flags)
+    try:
+        pattern = re.compile(query if regex else re.escape(query), flags)
+    except re.error as exc:
+        return _json({"ok": False, "error": f"invalid regular expression: {exc}"})
     candidates = [base] if base.is_file() else sorted(base.glob(file_glob))
+    root_base = _resolve_virtual(agent_state, root, ".", write=False)
     matches: list[dict[str, Any]] = []
-    skipped: list[str] = []
+    skipped: list[dict[str, str]] = []
+    searched_files = 0
     for path in candidates:
-        if (
-            not path.is_file()
-            or path.is_symlink()
-            or ".git" in path.parts
-            or path.stat().st_size > _MAX_READ_BYTES
-        ):
+        if not path.is_file() or ".git" in path.parts:
+            continue
+        root_relative = path.relative_to(root_base).as_posix()
+        if path.is_symlink():
+            skipped.append({"path": root_relative, "reason": "symlink"})
             continue
         try:
-            text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            skipped.append(path.as_posix())
+            handle = path.open("r", encoding="utf-8")
+        except OSError as exc:
+            skipped.append(
+                {
+                    "path": root_relative,
+                    "reason": f"{type(exc).__name__}: {exc}",
+                }
+            )
             continue
-        for line_number, line in enumerate(text.splitlines(), start=1):
-            if pattern.search(line):
-                matches.append(
-                    {
-                        "path": path.relative_to(
-                            base if base.is_dir() else base.parent
-                        ).as_posix(),
-                        "line": line_number,
-                        "text": line[:2_000],
-                    }
-                )
-                if len(matches) >= _MAX_SEARCH_MATCHES:
-                    return _json(
+        relative = path.relative_to(base if base.is_dir() else base.parent).as_posix()
+        try:
+            searched_files += 1
+            for line_number, line in enumerate(handle, start=1):
+                if pattern.search(line):
+                    _record_debugger_artifact(agent_state, root, root_relative)
+                    matches.append(
                         {
-                            "ok": True,
-                            "matches": matches,
-                            "truncated": True,
-                            "skipped": skipped[:20],
+                            "path": relative,
+                            "line": line_number,
+                            "text": line[:2_000].rstrip("\n"),
+                            "text_truncated": len(line) > 2_000,
                         }
                     )
+                    if len(matches) >= _MAX_SEARCH_MATCHES:
+                        return _json(
+                            {
+                                "ok": True,
+                                "matches": matches,
+                                "truncated": True,
+                                "match_limit": _MAX_SEARCH_MATCHES,
+                                "searched_files": searched_files,
+                                "skipped": skipped[:20],
+                                "skipped_total": len(skipped),
+                                "skipped_truncated": len(skipped) > 20,
+                            }
+                        )
+        except UnicodeDecodeError:
+            skipped.append({"path": relative, "reason": "non-UTF-8 content"})
+        except OSError as exc:
+            skipped.append(
+                {
+                    "path": relative,
+                    "reason": f"{type(exc).__name__}: {exc}",
+                }
+            )
+        finally:
+            handle.close()
     return _json(
         {
             "ok": True,
             "matches": matches,
             "truncated": False,
+            "match_limit": _MAX_SEARCH_MATCHES,
+            "searched_files": searched_files,
             "skipped": skipped[:20],
+            "skipped_total": len(skipped),
+            "skipped_truncated": len(skipped) > 20,
         }
     )
+
+
+def submit_debugger_diagnosis(
+    primary_failure_class: str,
+    earliest_failure: str,
+    evidence: list[dict[str, str]],
+    evidence_coverage: dict[str, Any],
+    paired_comparison: dict[str, Any],
+    root_cause: str,
+    contributing_factors: list[str],
+    recommended_changes: list[dict[str, str]],
+    recurrent_pattern_key: str,
+    confidence: float,
+    falsifier: str,
+    agent_state: AgentState | None = None,
+) -> dict[str, Any]:
+    if str(_context_value(agent_state, "meta_role")) != "debugger":
+        return _completion_error("submit_debugger_diagnosis is debugger-only")
+    task = dict(_context_value(agent_state, "debugger_task"))
+    expected_task_id = task.get("task_id")
+    payload = {
+        "schema_version": 2,
+        "task_id": expected_task_id,
+        "primary_failure_class": primary_failure_class,
+        "earliest_failure": earliest_failure,
+        "evidence": evidence,
+        "evidence_coverage": evidence_coverage,
+        "paired_comparison": paired_comparison,
+        "root_cause": root_cause,
+        "contributing_factors": contributing_factors,
+        "recommended_changes": recommended_changes,
+        "recurrent_pattern_key": recurrent_pattern_key or None,
+        "confidence": confidence,
+        "falsifier": falsifier,
+    }
+    try:
+        diagnosis = validate_debugger_diagnosis(
+            payload,
+            expected_task_id=expected_task_id,
+        )
+    except Exception as exc:
+        return _completion_error(
+            f"invalid debugger diagnosis: {type(exc).__name__}: {exc}"
+        )
+    accessed = set(_storage_get(agent_state, "debugger_artifacts_read", []))
+    claimed = set(diagnosis.evidence_coverage.artifacts_read)
+    primary = str(_context_value(agent_state, "debugger_primary_artifact"))
+    if primary not in claimed:
+        return _completion_error(
+            "evidence_coverage.artifacts_read must include the primary task detail: "
+            + primary
+        )
+    if not claimed <= accessed:
+        return _completion_error(
+            "evidence_coverage.artifacts_read includes files not read through "
+            "the bounded tools: " + ", ".join(sorted(claimed - accessed))
+        )
+    output_dir = Path(str(_context_value(agent_state, "meta_output_dir"))).resolve()
+    path = output_dir / "submitted_diagnosis.json"
+    atomic_write_json(path, diagnosis.model_dump(mode="json"))
+    _storage_set(agent_state, "debugger_diagnosis", diagnosis.model_dump(mode="json"))
+    _storage_set(agent_state, "task_complete", True)
+    return {
+        "ok": True,
+        "task_key": str(_context_value(agent_state, "debugger_task_key")),
+        "diagnosis_sha256": sha256_file(path),
+    }
 
 
 def write_file(
@@ -701,6 +886,19 @@ def _record_mutation(agent_state: AgentState | None) -> None:
         int(progress.get("mutations_since_commit", 0)) + 1
     )
     _store_progress(agent_state, key, progress)
+
+
+def _record_debugger_artifact(
+    agent_state: AgentState | None,
+    root: str,
+    relative_path: str,
+) -> None:
+    if str(_context_value(agent_state, "meta_role")) != "debugger":
+        return
+    value = _storage_get(agent_state, "debugger_artifacts_read", [])
+    artifacts = {str(item) for item in value if str(item).strip()}
+    artifacts.add(f"{root}:{Path(relative_path).as_posix()}")
+    _storage_set(agent_state, "debugger_artifacts_read", sorted(artifacts))
 
 
 def _deliverable_write_error(

@@ -1,6 +1,6 @@
 type: tool
 name: read_file
-description: Read a bounded line range from a file in an exposed virtual root.
+description: Read a bounded line or byte range from any sized file in an exposed virtual root, with explicit truncation metadata.
 input_schema:
   type: object
   properties:
@@ -16,5 +16,16 @@ input_schema:
       type: integer
       minimum: 1
       default: 400
+    start_byte:
+      type: integer
+      minimum: 0
+    end_byte:
+      type: integer
+      minimum: 1
+    max_bytes:
+      type: integer
+      minimum: 1
+      maximum: 160000
+      default: 64000
   required: [root, relative_path]
   additionalProperties: false

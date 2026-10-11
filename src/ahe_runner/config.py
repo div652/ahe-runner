@@ -89,6 +89,7 @@ class EvaluationSettings(StrictModel):
 
 class DebuggerSettings(StrictModel):
     max_concurrency: int = Field(default=8, gt=0)
+    max_iterations: int = Field(default=80, gt=0)
 
 
 class RecoverySettings(StrictModel):

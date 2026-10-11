@@ -1,0 +1,133 @@
+type: tool
+name: submit_debugger_diagnosis
+description: Validate and persist the final structured diagnosis after bounded evidence investigation.
+input_schema:
+  type: object
+  properties:
+    primary_failure_class:
+      type: string
+      enum:
+        - reasoning
+        - prompt
+        - tool_description
+        - tool_implementation
+        - middleware
+        - skill
+        - sub_agent
+        - memory
+        - stopping
+        - framework_or_adapter
+        - environment
+        - none
+    earliest_failure:
+      type: string
+    evidence:
+      type: array
+      minItems: 1
+      items:
+        type: object
+        properties:
+          location:
+            type: string
+          observation:
+            type: string
+          implication:
+            type: string
+        required: [location, observation, implication]
+        additionalProperties: false
+    evidence_coverage:
+      type: object
+      properties:
+        artifacts_read:
+          type: array
+          minItems: 1
+          items:
+            type: string
+        limitations:
+          type: array
+          items:
+            type: string
+      required: [artifacts_read, limitations]
+      additionalProperties: false
+    paired_comparison:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [performed, unavailable]
+        passing_evidence:
+          type: array
+          items:
+            type: string
+        failing_evidence:
+          type: array
+          items:
+            type: string
+        earliest_divergence:
+          type: string
+        limitation:
+          type: string
+      required:
+        - status
+        - passing_evidence
+        - failing_evidence
+        - earliest_divergence
+        - limitation
+      additionalProperties: false
+    root_cause:
+      type: string
+    contributing_factors:
+      type: array
+      items:
+        type: string
+    recommended_changes:
+      type: array
+      items:
+        type: object
+        properties:
+          component_class:
+            type: string
+            enum:
+              - system_prompt
+              - tool_description
+              - tool_implementation
+              - middleware
+              - skill
+              - sub_agent
+              - memory
+          change:
+            type: string
+          expected_effect:
+            type: string
+          risk:
+            type: string
+          verification:
+            type: string
+        required:
+          - component_class
+          - change
+          - expected_effect
+          - risk
+          - verification
+        additionalProperties: false
+    recurrent_pattern_key:
+      type: string
+    confidence:
+      type: number
+      minimum: 0
+      maximum: 1
+    falsifier:
+      type: string
+  required:
+    - primary_failure_class
+    - earliest_failure
+    - evidence
+    - evidence_coverage
+    - paired_comparison
+    - root_cause
+    - contributing_factors
+    - recommended_changes
+    - recurrent_pattern_key
+    - confidence
+    - falsifier
+  additionalProperties: false
