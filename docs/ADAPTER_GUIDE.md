@@ -64,7 +64,10 @@ class MyAdapter(BenchmarkAdapterV2):
     def meta_prompt_context(self) -> MetaPromptContext: ...
 ```
 
-Use `src/ahe_runner/example/adapter.py` as an executable reference.
+Use `src/ahe_runner/example/adapter.py` for the offline lifecycle fixture and
+`src/ahe_runner/example/runtime_adapter.py` for a real evaluated-session and
+protected-action reference. The latter is walked through in
+`RUNTIME_BACKED_EXAMPLE.md`.
 
 `BenchmarkAdapter` remains available only for existing V1 projects. New
 projects should implement `BenchmarkAdapterV2`.

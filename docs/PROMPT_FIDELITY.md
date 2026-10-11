@@ -1,76 +1,92 @@
-# AHE Prompt and Mechanism Fidelity
+# AHE Prompt and Meta-Agent Fidelity Matrix
 
-The reusable prompts are benchmark-generic, but they retain the operating
-mechanisms that make the original AHE agents effective. This matrix prevents a
-future refactor from replacing full contracts with short role summaries.
+This runner preserves the original roles' operating contracts where they
+define the AHE method, while recording product adaptations and known
+configuration differences. Similar role names or prompt lengths are not
+evidence of fidelity; prompts, tools, roots, budgets, compaction, persistence,
+and enforced deliverables must agree.
 
-| Dimension | Source Explore | Web Explore | Debugger | Evolve |
-|---|---|---|---|---|
-| Full versioned system prompt | Yes | Yes | Yes | Yes |
-| Project domain specialization | Protected append-only supplement | Protected append-only supplement | Protected append-only supplement | Protected append-only supplement |
-| Explicit evidence boundary | Source/seed only | Public, leakage-guarded | Training task only | Training evidence only |
-| Mandatory investigation procedure | Framework call paths | Multi-source research | Earliest causal failure | History-to-change workflow |
-| Concrete deliverable schema | `SKILL.md` | `SKILL.md` | Strict JSON | Git state + change manifest |
-| Deliverable validation | Frontmatter/content gate | Frontmatter/content gate | Field/type/range checks | Candidate validator + clean Git |
-| Durable partial progress | Valid skill reused | Valid skill reused | Per-task result reused | Committed `HEAD` reused |
-| Context compaction | Yes | Yes | Direct bounded task payload | Yes |
-| Model identity fail-closed | Every call | Every call | Every call | Every call |
-| Explicit stop mechanism | `complete_task` | `complete_task` | Valid JSON result | `complete_task` |
+Protected core prompts are packaged runner resources. Projects may append a
+hashed role supplement, but cannot replace the core procedure without creating
+an explicit methodology fork.
 
-## Explore handoff
+## Source Explore
 
-| Aspect | Original AHE mechanism | Reusable runner |
-|---|---|---|
-| Source output | Framework-internals `SKILL.md` | `source-exploration/SKILL.md` |
-| Web output | Agent-research `SKILL.md` | `web-research/SKILL.md` |
-| Registration | Evolve `skills` list | Evolve `skills` list |
-| Access | `LoadSkill` | `LoadSkill` |
-| Disclosure | Description first, content on demand | Description first, content on demand |
-| Mutability | Generated before Evolve | Copied read-only before Evolve |
-| Lifecycle | Run once by controller | Run once by controller |
+| Original function | Runner translation | Preserved or approved deviation | Executable check |
+|---|---|---|---|
+| Objective | Explain framework and harness interfaces deeply enough for later implementation | Preserved | Source skill must cover architecture, configuration, tools, and failures |
+| Evidence inputs | Installed framework, seed implementation, exact interfaces and source evidence | NexAU source, seed harness, manifest, packaged method reference, and only operator-declared public adapter roots | Hidden adapter implementation and held-out fixtures are absent from authorized roots |
+| Analysis workflow | Trace call paths, configurations, templates, and implementation constraints | Core prompt requires source-backed architecture and attachment analysis | Read/search tools are bounded to declared roots |
+| Tools and writable roots | Read source; persist one knowledge artifact | Read-only source roots; write only `knowledge/source-exploration/SKILL.md` | Tool context contains no candidate or benchmark-private write root |
+| Output contract | Substantial reusable source skill | Native `SKILL.md` with frontmatter and required topics; the runner's minimum-content gate is weaker than a proof of full original depth | Completion is rejected if the skill gate fails |
+| Iteration/output budget | Public role used a long one-shot budget and large output allowance | Default 200 iterations; output tokens come from the configured meta model rather than a separate role setting | Generated `agent.yaml` records effective values |
+| Middleware/compaction | Role-specific context policy, approximately threshold 0.75 and 15 retained results in the pinned setup | Shared tested compactor, threshold 0.72 and preferred 12-iteration window; this is a documented implementation substitution | Large-result compaction tests preserve latest structure and references |
+| Lifecycle | One Explore run creates reusable knowledge | Run once and freeze as a read-only skill; later mutation is intentionally not implemented | Skill hash and read-only state are stage outputs |
 
-The runner intentionally does not register live Source/Web agents as the
-primary Evolve handoff. Their durable skills are the authoritative mechanism.
-This is closer to the original AHE flow and avoids silently replacing
-progressive disclosure with ad hoc `read_file` access.
+## Web Explore
 
-## Preserved Evolve semantics
+| Original function | Runner translation | Preserved or approved deviation | Executable check |
+|---|---|---|---|
+| Objective | Find evidence-backed, implementable agent-design methods | Preserved with benchmark-family context and leakage guard | Skill must contain sources, patterns, evidence, and recommendations |
+| Evidence inputs | Seeded public URLs plus broad research | Explicit configured research seed URLs, then Web search/read tools | Seed URLs are present in the Web query and campaign identity |
+| Analysis workflow | Many searches; exact methods, parameters, results, negative findings, and implementation examples | Core prompt requires at least four distinct authoritative sources and concrete mechanism/tradeoff/verification mapping; this is less prescriptive than the original search count | Source metadata and recommendation sections are required |
+| Tools and writable roots | Public Web access; persist one knowledge artifact | `web_search`, `web_read`, bounded file tools, and only the knowledge write root | Research streaks are bounded by durable-write gates |
+| Output contract | Reusable research skill | Native `SKILL.md` loaded by Evolve through `LoadSkill` | Frontmatter/content gate and stage hash |
+| Iteration/output budget | Long one-shot role with large output allowance | Default 200 iterations and configured meta-model output limit | Runtime config records effective values |
+| Middleware/compaction | Role-specific compaction, approximately threshold 0.75 and 15 retained results | Shared threshold 0.72/preferred 12-window compactor; documented substitution | Compaction preserves latest message/tool-call structure |
+| Lifecycle | One-shot research seed | Run once, then copied read-only into Evolve | Changing URLs, prompt, supplement, or skill invalidates/recomputes the relevant identity |
 
-The Evolve prompt retains:
+## Debugger
 
-- complete-history review before local edits;
-- aggregate plus task-level causal synthesis;
-- all Debugger outputs, not cherry-picked examples;
-- prior-change attribution;
-- seven explicit evolvable component classes;
-- protected benchmark/controller/model boundaries;
-- benchmark-memorization prohibition;
-- coherent intervention design;
-- regression-risk and falsifier reasoning;
-- framework verification before configuration changes;
-- Git commits as the executable deliverable;
-- a committed change manifest;
-- candidate validation after the final commit;
-- context-management and recovery instructions;
-- completion only after clean, validated state.
+| Original function | Runner translation | Preserved or approved deviation | Executable check |
+|---|---|---|---|
+| Objective | Turn scalar outcomes plus dense traces/verifier output into causal failure evidence | Preserved per training task | Every task produces a structured diagnosis or the stage fails |
+| Evidence inputs | Dense task-local execution and verifier artifacts supplied to the public debugger | Verified schema-V2 task detail plus authorized raw training artifacts; validation/test remain unavailable | Submitted evidence may cite only artifacts actually read/searched |
+| Analysis workflow | Identify causal failure and reusable correction | Requires earliest failure, paired pass/fail comparison when available, limitations, root cause, recommendation, confidence, and falsifier | Diagnosis validator enforces all fields and paired-analysis rules |
+| Tools and writable roots | Pinned public implementation was not itself an interactive file-tool agent | Runner adds bounded list/read/search tools as approved hardening; no candidate write root | Large-file range/search tests and read-evidence gate |
+| Output contract | Dense diagnosis consumed by Evolve | Strict JSON diagnosis plus task result and aggregate overview | Pydantic validation and request hash |
+| Iteration/output budget | Public debugger was effectively one host invocation per task | Configurable bounded NexAU agent, default 80 iterations | Runtime config/request records effective values |
+| Middleware/compaction | Not directly comparable to the public one-shot host call | Uses the shared tested meta-agent compactor | Runtime agent config contains the middleware |
+| Lifecycle | Diagnose completed training experience | Parallel per-task units are independently resumable and immutable once verified | Request/output hashes permit reuse only for the same evidence |
 
-## Generic adaptations
+## Evolve
 
-Some wording must differ because the runner supports arbitrary typed benchmark
-adapters:
+| Original function | Runner translation | Preserved or approved deviation | Executable check |
+|---|---|---|---|
+| Optimization objective | Improve one shared harness from completed experience | Adapter-native training metric and task states; one shared checkpoint harness | Every produced checkpoint is evaluated, including the last |
+| Evidence inputs | Aggregate results, debugger reports, raw artifacts, Explore knowledge, and history | Verified training evidence, all task diagnoses, raw training artifacts, immutable checkpoint history, attribution, and both skills | Validation/test roots are never mounted |
+| Analysis workflow | Synthesize causes, choose component changes, predict effects/risks, validate, attribute, and pivot/rollback | Preserved with explicit `KEEP`, `IMPROVE`, or `ROLLBACK + PIVOT` and selective checkpoint restore | Strict per-change manifest must cover the complete final component diff |
+| Tools and writable roots | Read evidence/source/history; edit and commit the harness | Bounded read roots, Git/workspace tools, validation, and selective restore; only the workspace is writable | Clean committed `HEAD` and final-HEAD validation are mandatory |
+| Output contract | Executable updated harness plus hypothesis record | Git commit(s), strict `change_manifest.json`, successful candidate validation, and `complete_task` | Stage rejects no-op, dirty, unvalidated, or uncovered changes |
+| Iteration/output budget | Pinned Evolve configuration used 500 iterations, high output allowance, and a different temperature | Default 500 iterations; model, temperature, reasoning, and output limit are explicit campaign settings, not silently claimed equal | Request-boundary policy rejects drift before provider contact |
+| Middleware/compaction | Pinned setup used approximately threshold 0.75 and 10 retained tool results | Shared adaptive compactor at threshold 0.72/preferred 12-window; tested behaviorally but not an exact parameter reproduction | Large realistic traces must stay below target while preserving latest structure |
+| Lifecycle and persistence | One global update role with Git-backed progress | One logical resumable stage per round; infrastructure retry continues from the last clean Evolve commit | Attempt history and recovery artifacts remain immutable |
 
-- benchmark-specific metrics and domain terminology come from
-  `meta_prompt_context()`;
-- native evaluation schemas are normalized into the standard training evidence
-  bundle;
-- held-out split details remain adapter-owned;
-- Source and Evolve receive only operator-declared public adapter roots rather
-  than the inferred adapter implementation file;
-- all four roles receive the same resolved benchmark-family context, and Web
-  Explore additionally receives explicit research seed URLs;
-- the Debugger's failure taxonomy includes adapter/environment causes but
-  cannot edit those protected surfaces.
+## Cross-role protected inputs
 
-Role supplements specialize the domain but cannot replace the protected core
-procedure. Full prompt replacement would be a methodology fork rather than a
-configuration option.
+The following are frozen into campaign identity:
+
+- resolved `MetaPromptContext`;
+- append-only Source, Web, Debugger, and Evolve supplements;
+- declared public adapter source roots;
+- declared adapter code/data dependencies;
+- Web research seed URLs;
+- complete runner package content;
+- core prompts, tool descriptions, tool implementation, and middleware;
+- packaged AHE method reference.
+
+Changing any item prevents resume in the existing campaign directory.
+
+## Known scope and methodology choices
+
+- Explore outputs remain immutable research seeds. The paper discusses later
+  refinement, but the pinned public implementation does not establish that as
+  a required executable mechanism.
+- Attribution is heuristic prediction matching for a combined candidate, not
+  isolated causal proof for each edit.
+- Rollback is selected by Evolve; there is no automatic aggregate-score
+  rollback.
+- The evaluated-session ABI is text-interactive. Typed multimodal content,
+  dynamic tool sets, interruptions, and event streams are future contracts.
+- Candidate and adapter Python execute on the host in the trusted-local model;
+  static validation is not a kernel sandbox.

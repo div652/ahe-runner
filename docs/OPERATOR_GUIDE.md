@@ -258,7 +258,9 @@ ahe validate --config /path/to/my-ahe-project/ahe.yaml
 active ABI registrations, and NexAU load smoke. `validate` additionally
 returns the full resolved project and split report.
 
-For a server-free lifecycle rehearsal, leave:
+### Route A: offline lifecycle rehearsal
+
+For a server-free lifecycle rehearsal, use the generated `ahe.yaml` unchanged:
 
 ```yaml
 meta:
@@ -271,8 +273,33 @@ Run the deterministic example first:
 ahe run --config /path/to/my-ahe-project/ahe.yaml
 ```
 
-Then create a new campaign directory before switching immutable settings to
-the real backend.
+This phrase-scoring fixture does not call the evaluated agent. Its purpose is
+to verify controller lifecycle, recovery, evidence, selection, export, and
+idempotent resume.
+
+### Route B: runtime-backed integration example
+
+Use the separate generated configuration:
+
+```bash
+ahe conformance --config /path/to/my-ahe-project/ahe.runtime.yaml
+ahe validate --config /path/to/my-ahe-project/ahe.runtime.yaml
+ahe run --config /path/to/my-ahe-project/ahe.runtime.yaml
+```
+
+Before running, replace the exact endpoint/model placeholders and configure
+credentials. This adapter opens actual evaluated-agent sessions for a direct
+task and a protected `lookup_code` action. It requires the `web` extra because
+the production meta backend uses `ddgs`.
+
+### Route C: research campaign
+
+Replace the runtime example with your benchmark adapter, native task splits,
+reward verifier, trace conversion, candidate checks, public source roots,
+adapter dependency paths, role supplements, and research seeds. Use a new
+campaign artifacts directory whenever a frozen protected input changes.
+
+See `RUNTIME_BACKED_EXAMPLE.md` for the complete Route B walkthrough.
 
 ## 8. Run or resume
 

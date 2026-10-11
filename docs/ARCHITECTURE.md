@@ -41,6 +41,11 @@ Version 2 supports:
 - a complete evolution, validation-selection, and final-test lifecycle;
 - durable stage recovery from the last verified checkpoint.
 
+The current evaluated-session ABI is text-interactive. It supports stateful
+turns and runtime-injected structured actions, but does not yet preserve typed
+image/audio blocks, dynamic tool-set changes, asynchronous interruptions, or a
+benchmark event stream.
+
 Legacy `BenchmarkAdapter` plugins remain loadable. Version 2 intentionally
 does not claim to support arbitrary agent frameworks. The benchmark protocol
 is pluggable; the harness runtime is NexAU-specific.
@@ -389,9 +394,10 @@ The Evolve Agent is always reminded that the available component classes are:
 6. sub-agents;
 7. long-term memory.
 
-The runner validates both file visibility and runtime attachment. It also
-states explicitly that middleware imported into the host process is not
-kernel-isolated merely because static checks exist.
+The runner validates both file visibility and runtime attachment. Candidate
+tool implementations, middleware, sub-agent imports, and other imported
+Python execute in the host process; static checks do not create kernel
+isolation.
 
 ## Meta-agent fidelity
 
@@ -677,7 +683,9 @@ The runner enforces filesystem allowlists for meta-agents and keeps benchmark
 hidden state outside those roots. This is a real access-control boundary for
 the runner's own tools.
 
-Arbitrary candidate Python middleware imported into the evaluated process is
-not made safe by static validation. Operators requiring hostile-code isolation
-must configure a process/container/VM boundary in their benchmark adapter.
-The runner reports this limitation rather than claiming a kernel sandbox.
+Arbitrary candidate tool implementations, middleware, sub-agents, import-time
+Python, and adapter code are not made safe by static validation. The initial
+deployment model is trusted local operators and benchmark authors. Operators
+requiring hostile-code isolation must configure a process/container/VM
+boundary around evaluated execution. The runner reports this limitation rather
+than claiming a kernel sandbox.

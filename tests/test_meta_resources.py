@@ -165,13 +165,13 @@ def test_meta_agents_mount_only_declared_public_adapter_roots(
     adapter_source = Path(inspect.getsourcefile(type(controller.adapter)) or "")
     assert "validation-confirm-actions" in adapter_source.read_text(encoding="utf-8")
     assert backend._safe_source_roots == {  # type: ignore[attr-defined]
-        "adapter_public_1": config_path.parent / "benchmark_public"
+        "adapter_public_1": config_path.parent / "benchmark_public" / "ADAPTER.md"
     }
     assert adapter_source not in backend._safe_source_roots.values()  # type: ignore[attr-defined]
     authorized_text = "\n".join(
         path.read_text(encoding="utf-8")
         for root in backend._safe_source_roots.values()  # type: ignore[attr-defined]
-        for path in root.rglob("*")
+        for path in ([root] if root.is_file() else root.rglob("*"))
         if path.is_file()
     )
     assert "validation-confirm-actions" not in authorized_text

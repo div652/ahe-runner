@@ -29,6 +29,8 @@ Operational documentation:
   configure a campaign, run, resume, and inspect outputs;
 - [`docs/ADAPTER_GUIDE.md`](docs/ADAPTER_GUIDE.md) - implement a new typed
   benchmark adapter;
+- [`docs/RUNTIME_BACKED_EXAMPLE.md`](docs/RUNTIME_BACKED_EXAMPLE.md) - run the
+  bundled evaluated-agent and protected-action example;
 - [`docs/TAU2_MIGRATION.md`](docs/TAU2_MIGRATION.md) - map the existing
   Tau2/NexAU experiment into the reusable interface;
 - [`docs/PROMPT_FIDELITY.md`](docs/PROMPT_FIDELITY.md) - preserved AHE prompt
@@ -55,24 +57,36 @@ ahe conformance --config ./my-ahe-project/ahe.yaml
 
 The generated project uses Harness ABI V2 and `BenchmarkAdapterV2`, with an
 actively registered internal tool, skill, reviewer sub-agent, and explicit
-long-term-memory attachment. Its deterministic `scripted` meta backend lets
-the complete lifecycle run without a model server:
+long-term-memory attachment. `ahe.yaml` is an **offline lifecycle rehearsal**:
+its deterministic phrase-scoring adapter and `scripted` meta backend prove the
+controller, checkpoints, evidence, selection, export, and resume flow without a
+model server:
 
 ```bash
 ahe run --config ./my-ahe-project/ahe.yaml
 ```
 
-For a real campaign, edit the explicit endpoint, exact model IDs, reasoning
-efforts, concurrency, and round count in `ahe.yaml`, then set:
+It does not execute the evaluated agent. Merely changing
+`meta.backend: nexau` does not turn it into a live benchmark.
 
-```yaml
-meta:
-  backend: nexau
+For a genuine evaluated-agent integration, edit the endpoint and exact model
+IDs in the generated `ahe.runtime.yaml`, install the `web` extra, and run:
+
+```bash
+ahe conformance --config ./my-ahe-project/ahe.runtime.yaml
+ahe validate --config ./my-ahe-project/ahe.runtime.yaml
+ahe run --config ./my-ahe-project/ahe.runtime.yaml
 ```
 
-Configure the API-key environment variable named by
-`transport.api_key_env`. A loopback GH Copilot Server may use a non-secret
-placeholder; never put a provider credential in `ahe.yaml`.
+That example opens real runner-owned NexAU sessions for a direct task and an
+adapter-owned `lookup_code` structured action. For research work, replace it
+with your benchmark adapter and declare all public source roots, protected
+dependencies, domain supplements, research seeds, native metrics, and held-out
+policy. See the runtime example and operator guides.
+
+Configure the API-key environment variable named by `transport.api_key_env`.
+A loopback GH Copilot Server may use a non-secret placeholder; never put a
+provider credential in a YAML file.
 
 The selected harness is exported under:
 

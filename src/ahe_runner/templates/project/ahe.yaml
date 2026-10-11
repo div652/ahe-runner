@@ -14,7 +14,7 @@ project:
   adapter_dependency_paths:
     - ./benchmark_adapter.py
   meta_agent_source_roots:
-    - ./benchmark_public
+    - ./benchmark_public/ADAPTER.md
 
 models:
   evaluated:
