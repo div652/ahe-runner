@@ -23,6 +23,12 @@ memory. Their benchmark can sit above the existing agent loop through a
 bridge they implement (an **adapter**). That is the right overall design.
 Keeping the original harness as a possible final selection is also good.
 
+One shared harness is improved across the task set, rather than being tailored
+separately to each example. Version and result records make decisions
+inspectable. Selecting candidates on tasks kept separate from training is
+also a useful addition, even though it is not the paper's exact experiment.
+Not every difference from the original is a problem.
+
 ## The most important AHE deviations
 
 **1. The Debugger cannot investigate like the original.** Original AHE lets it
@@ -31,17 +37,30 @@ Here it receives one bundle of text and returns a diagnosis. If that bundle
 contains a path to a trace, it cannot open the trace. Other research tools
 also refuse large files even when asked for just a few lines.
 
+For example, comparing a successful attempt with a failed one should reveal
+where their actions diverged and why that mattered. Without access to those
+records, a convincing diagnosis can still be a guess. The fix is better access
+to evidence, not simply a more detailed instruction to "diagnose carefully."
+
 **2. Predictions do not reliably connect to results.** The editing agent is
 told to write predictions in one format, but the comparison code expects
 another. Predictions following the prompt are ignored. Results are summarized
 for the whole update instead of each meaningful edit (**per-change
 attribution**).
 
+Suppose one edit improves planning while another makes the agent stop too
+early. An overall score increase does not tell the next agent which edit to
+keep. Each edit needs its own predicted benefits and risks, followed by a
+comparison with what actually happened.
+
 **3. Undoing a bad idea is harder than in original AHE.** Old versions exist,
 but the editing agent does not get the historical files and Git operations
 needed to conveniently restore them. The original instructions to keep,
 improve, or undo-and-change-direction are also weakened (**rollback and
 pivot**).
+
+The agent should be able to undo one harmful edit while keeping an unrelated
+improvement. Retaining backup copies for a human is not enough.
 
 One important nuance: the paper describes automatic rollback, but the public
 code normally leaves that decision to the editing agent. Not adding automatic
@@ -53,20 +72,31 @@ Several ordinary integration paths need fixing:
 
 - A failed "I am finished" tool call can stop the agent instead of letting it
   repair missing work. A benchmark action can also be followed by another
-  model call before the benchmark has supplied its actual result.
+  model call before the benchmark has supplied its actual result. For an
+  account lookup, that means reasoning further before the account information
+  has arrived.
 - Files available to the research/editing agents include the sample adapter's
   hidden evaluation cases. Keeping result folders hidden is not sufficient
-  (**held-out data leakage**).
-- Some settings and evidence records are trusted more than the documentation
-  suggests. Valid helper modules and nondefault config filenames can also
-  fail unexpectedly.
+  (**held-out data leakage**). A better score on those cases could then reflect
+  prior exposure rather than an ability to handle genuinely unseen tasks.
+- Some fixed model settings are not fully enforced, and evidence can be
+  accepted without checking which evaluation it came from. That makes
+  comparisons less trustworthy. Ordinary helper files and valid alternative
+  config filenames can also fail unexpectedly.
 - Task-specific guidance exists, but there is no complete project-level way
   to customize all four roles while preserving the fixed AHE instructions.
+  The useful middle ground is to keep the core procedure fixed while letting
+  each project add its terminology, research sources, and domain guidance.
 
 The starter example is useful for rehearsing the workflow, but it scores
 phrases in prompt files rather than actually running the evaluated agent.
 Changing the meta backend does not change that. The README's live-backend
 switch also misses a required web-search setting.
+
+So the example demonstrates that the stages can be connected, not that they
+can improve a real agent. The missing demonstration is an actual task run
+producing execution records, an edit based on those records, and another run
+showing what changed.
 
 ## Where benchmark tools should live
 
@@ -80,12 +110,19 @@ improve when it requests confirmation or checks the result; it must not
 redefine cancellation to make itself score better. The runner already makes
 the right architectural choice here; its execution boundary needs repair.
 
+The separation is about ownership, not hiding tools from the agent: it should
+know how to call an official action, but cannot rewrite what that action does.
+
 ## What I would do next
 
 First restore the Debugger's evidence access, repair prediction checking,
 and make rollback usable. Fix the demonstrated runtime and evidence-boundary
 failures. Then provide one small, genuine benchmark that runs entirely through
 the public adapter interface, with matching newcomer instructions.
+
+That is a more useful next milestone than adding many more features. It would
+show that a user can supply a harness and benchmark without patching runner
+internals, and that the resulting edits actually follow the intended process.
 
 Your idea does not need a new foundation. It needs a narrower initial promise:
 **bring a compatible NexAU harness and benchmark, search for improvements,
@@ -94,4 +131,6 @@ and receive the best verified candidate, possibly the original.**
 Do not promise inevitable improvement or universal support for every UI and
 multimodal agent. Track cost and reliability alongside score, and separate
 trusted local use from accepting arbitrary uploaded code. Those are practical
-boundaries, not reasons to delay building a useful first version.
+boundaries, not reasons to delay building a useful first version. A score gain
+from extra retries may be useful, for example, but its additional cost should
+be visible rather than mistaken for a free improvement.
