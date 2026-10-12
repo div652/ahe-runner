@@ -28,7 +28,7 @@ The assistant announces new permanent files before creating them.
 |---|---|---|---|
 | AHE-001 | Evaluated-agent sessions skipped the configured model preflight | Explained; repair authorized on 2026-10-12 | Fixed in `4a4e57b`; targeted offline regressions and lint passed |
 | AHE-002 | Registered skill folders' helper/resource files are not recognized as active skill components | Explained; operator chose a skills-free initial harness instead of a repair | No patch; outside the initial harness scope, potentially relevant to future scripted skills |
-| LAB-001 | Filename helper bypasses configured Copilot routing and suppresses its API failure | Explained in plain language; repair authorized on 2026-10-12 | Optional LAB callback and protected Copilot implementation added; offline verification pending |
+| LAB-001 | Filename helper bypasses configured Copilot routing and suppresses its API failure | Explained in plain language; repair authorized on 2026-10-12 | Fixed in LAB `86678eba6` and AHE `f0e3b0b`; 92 LAB and 19 AHE offline cases passed |
 
 Other potential integration limitations in the implementation plan still
 require investigation and the operator's case-by-case approval.
@@ -399,3 +399,36 @@ For AHE maintainers, operator guidance should enumerate all model-calling
 roles, including benchmark-owned filename helpers, and require their settings,
 proofs, and completion labels in protected evidence. A runner-owned evaluated
 preflight alone does not cover arbitrary SDK calls inside benchmark libraries.
+
+### Final offline verification and source pins
+
+Verified source revisions:
+
+- LAB: `86678eba6fcbc6c03958742c6e9e75737514f513`.
+- AHE helper: `f0e3b0b55dae4732cc974e356a4b97e3438d18e1`.
+- Earlier regression correction: `bfb1748`, committed before rerunning.
+
+Results:
+
+- LAB matching and grading API selectors: **92 passed**.
+- Final AHE recorded-helper selector: **19 passed in 0.86 seconds**.
+- Both repositories' selected lint checks: passed.
+- New callback plus public grading entry point: **0 type errors and
+  0 warnings**, with the editable source roots explicitly configured.
+- Full legacy scoring file: the unchanged Anthropic SDK overload diagnostic
+  remains, reproduced against the original baseline; it was not suppressed
+  or repaired as part of this Copilot-use-case fix.
+
+Integration environment: AHE Runner `0.3.0`, LAB Core `1.2.0`,
+OpenAI SDK `3.29.0`, Anthropic SDK `1.13.0`, jsonschema `4.26.0`,
+pytest `9.1.1`.
+
+All model requests in regression coverage use `httpx.MockTransport`.
+No live catalog request, positive/negative probe, grading, benchmark campaign,
+or final AHE command was executed. Temporary type-check configuration and
+baseline source snapshots are removed afterward; no additional repository
+configuration or legacy source edits were made.
+
+The helper hook and callback are ready. Wiring the callback into the main
+Harvey `BenchmarkAdapterV2` remains part of the unfinished operator-project
+implementation; this repair does not claim that the full integration is ready.
