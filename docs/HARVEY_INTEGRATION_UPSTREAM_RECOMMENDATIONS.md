@@ -25,7 +25,7 @@ The assistant announces new permanent files before creating them.
 
 | ID | Confirmed issue | Operator approval | Branch-local status |
 |---|---|---|---|
-| AHE-001 | Evaluated-agent sessions skipped the configured model preflight | Explained; repair authorized on 2026-10-12 | Implemented; offline verification pending at the initial fix commit |
+| AHE-001 | Evaluated-agent sessions skipped the configured model preflight | Explained; repair authorized on 2026-10-12 | Fixed in `4a4e57b`; targeted offline regressions and lint passed |
 
 No other framework deficiency is recorded as confirmed yet. Potential
 integration limitations in the implementation plan still require investigation
@@ -135,9 +135,23 @@ Targeted offline command, to be executed only after the fix commit:
 .venv/bin/python -m pytest tests/test_runtime.py tests/test_model_access.py tests/test_runtime_example_adapter.py tests/test_evaluation_store.py -q
 ```
 
-Initial record: **not executed yet**. This commit records the intended fix
-and coverage before testing. Any result or corrective iteration will be
-added below in a subsequent commit rather than amending this record's history.
+The initial fix/coverage record was committed as `4a4e57b` before testing.
+The first run from the checkout returned **26 passed, 1 failed**: an existing
+runtime test assumes the current directory has no `.skills` cache. The
+checkout's ignored cache predates this patch (2026-10-12 14:40 UTC), so this
+was an environment precondition failure, not a failed preflight regression.
+
+The same four test files were run from a fresh temporary working directory:
+**27 passed in 1.80 seconds**. No existing cache was deleted and no source
+change was made to bypass the assertion. Ruff also passed for both changed
+Python files. All requests used the in-memory mock HTTP transport; the
+assistant did not invoke the operator's final CLI checks or live model calls.
+
+For an existing checkout with a skill cache, run the above absolute test
+paths from a fresh empty working directory. As a test-harness improvement,
+maintainers could snapshot pre-existing cache state and assert that it was
+not modified, instead of asserting that no cache exists. This observation
+does not establish a new runtime defect and is not a second local repair.
 
 ### Upstream recommendations
 
@@ -165,6 +179,13 @@ task selection, native scores, prompts, or the AHE evolution algorithm.
 | Check | Outcome |
 |---|---|
 | Baseline source/call-site inspection | Confirmed missing evaluated preflight; no live requests |
-| Approved fix implementation | Recorded in the initial branch-local fix commit |
-| Targeted offline regressions | Pending |
+| Approved fix implementation | Committed as `4a4e57b` before tests |
+| Initial targeted run from checkout | 26 passed, 1 pre-existing cwd/cache assertion failed |
+| Targeted run from isolated cwd | 27 passed; same four files, no source changes |
+| Python lint | Passed for `runtime.py` and `test_runtime.py` |
 | Final conformance/validation/live campaign | Operator-owned; not executed by the assistant |
+
+The patch changes protected runner content. Existing completed quick-start
+artifacts remain untouched, but their campaign identity must not be resumed
+with the patched package. Use a fresh Harvey campaign directory; the original
+commits remain the reproduction source for the old example.

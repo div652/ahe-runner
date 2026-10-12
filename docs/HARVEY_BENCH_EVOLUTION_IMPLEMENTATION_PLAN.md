@@ -23,11 +23,11 @@ The operator clarified the boundary on 2026-10-12:
   minimal branch-local fix and proceed. This is not blanket approval to repair
   unrelated defects or redesign the AHE algorithm.
 
-**Current status: applying approved fix AHE-001 before Harvey integration.**
+**Current status: approved fix AHE-001 completed before Harvey integration.**
 The evaluated preflight-coverage gap was explained and the operator authorized
 a local repair. The branch now wires the existing preflight into evaluated
 attempts, preserves their proofs, and adds offline regression coverage. See the
-separate recommendations record for the rationale and verification status.
+separate recommendations record for the rationale and offline verification.
 No final CLI commands, live probes, or Harvey integration files have been
 created or executed.
 
