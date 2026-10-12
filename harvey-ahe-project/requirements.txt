@@ -1,0 +1,2 @@
+# Install from the AHE_Harvey repository root into its existing environment.
+-e ../harvey-labs

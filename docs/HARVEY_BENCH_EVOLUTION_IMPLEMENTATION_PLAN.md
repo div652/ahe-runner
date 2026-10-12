@@ -2,9 +2,10 @@
 
 Date: 2026-10-12.
 
-**Planning only.** This document proposes implementation work; it does not
-implement an adapter, change benchmark semantics, install dependencies, or
-start a Harvey evaluation/evolution campaign.
+**Implementation plan and progress.** This document tracks the approved
+integration work. An evaluated preflight repair and a protected filename
+helper are implemented separately; the main Harvey benchmark adapter and
+seed harness are not complete. No Harvey campaign has been started.
 
 ### Implementation and execution ownership
 
@@ -28,8 +29,8 @@ The evaluated preflight-coverage gap was explained and the operator authorized
 a local repair. The branch now wires the existing preflight into evaluated
 attempts, preserves their proofs, and adds offline regression coverage. See the
 separate recommendations record for the rationale and offline verification.
-No final CLI commands, live probes, or Harvey integration files have been
-created or executed.
+No final CLI commands or live probes have been executed. LAB-001's approved
+helper callback and protected operator support files are now being added.
 
 The operator subsequently approved a **skills-free initial evaluated
 harness**: `skills: []`, no bundled skill manuals/scripts, and no `LoadSkill`
@@ -38,6 +39,13 @@ seed behavior. AHE-002 (skill-asset registration) is documented but not patched
 because it is unnecessary for this initial scope. Meta-agent research and the
 core evolution loop are unchanged; future scripted skills require revisiting
 that limitation.
+
+The operator also approved editable workspace-tool descriptions and
+implementations, a grouped pilot of six training/three validation/three test
+tasks excluding shared-DMS tasks initially, dense train-only evidence with
+true training IDs, and Copilot routing for rubric judges and the filename
+helper. Exact live model IDs/efforts remain operator-configured before running.
+LAB-001 records the authorized transport hook without changing native metrics.
 
 ## 1. Checkpoint and source baseline
 
