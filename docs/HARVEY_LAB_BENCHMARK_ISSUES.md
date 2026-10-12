@@ -109,6 +109,25 @@ is not covered by this limit. An output with an extreme number of files could
 still overflow the helper. That case halts the stage (fail-closed) rather than
 producing a fabricated score.
 
+### Offline verification (2026-10-12)
+
+`tests/test_harvey_grading.py` runs LAB's real `score_rubric` against a
+scripted model client, with no network or model calls. It covers:
+
+- an over-limit prompt scored fail with no model call, counted per judge;
+- the exact boundary of LAB's formatted prompt length;
+- dual aggregation, including a 0.5 disagreement that is not all-pass;
+- error classification: transient and unparseable errors are retryable;
+  integrity errors stay integrity errors; other errors are configuration
+  errors;
+- in-attempt retries that keep each failed try's directory;
+- rejection of non-LAB judge settings and identical judges.
+
+First run: 47 passed, 1 failed. The failing test's precondition was wrong:
+two test criteria had equal-length titles. That was fixed in a separate
+commit. Second run, together with the AHE-003 and LAB-001 suites: 48 passed.
+Ruff and Pyright (0 errors) are clean on the changed files.
+
 ### Recommendations for Harvey
 
 1. Define an explicit outcome for outputs that cannot be graded because of
