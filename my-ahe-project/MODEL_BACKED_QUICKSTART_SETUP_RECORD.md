@@ -238,4 +238,69 @@ For version control, track the generated configurations, adapters, harness,
 manifest, public documents, role supplements, and this setup record. Stage
 those source paths explicitly; do not stage `my-ahe-project/` wholesale,
 because it also contains campaign artifacts and checkpoint Git repositories.
+
+## Completed quick-start checkpoint (2026-10-12)
+
+The sections above preserve the pre-run setup snapshot. The operator later
+approved and completed the model-backed checks using setup commit `1839473`.
+This section records the resulting state; it does not change the runner,
+benchmark adapters, harness, prompts, or campaign configuration.
+
+| Command or result | Observed outcome |
+|---|---|
+| Runtime `conformance` | Passed |
+| Runtime `validate` | Passed |
+| Runtime `run` | Exit 0; 17 stages and 17 attempts completed |
+| Runtime `status` | Exit 0; 17 completed stages; no blocked or interrupted stages |
+| Produced checkpoints | `C0`, `C1` |
+| Validation | Both checkpoints scored `mean_exact_success: 1.0`, or 2/2 tasks |
+| Selection | `C0`, using the earliest-checkpoint tie-breaker |
+| Final test | Selected `C0` passed 2/2 tasks; `mean_exact_success: 1.0` |
+| Export | 14 files; export hash matched the selected checkpoint |
+| Runtime `resume` | Not run; campaign was complete and the operator declined the optional step |
+
+The offline rehearsal is a separate campaign: 34 completed stages and
+attempts, checkpoints `C0` through `C3`, and selected/exported `C3`. These
+counts must not be combined with the model-backed campaign.
+
+The recorded runtime configuration SHA-256 was:
+
+```text
+2fcf2a080d10ce09a69d1ef340c13f62222a601ecdff5b39ea1c248c7d50d803
+```
+
+The selected/exported runtime harness SHA-256 was:
+
+```text
+420837f4a04f9d7c34fab4eaea3b7fe84c57e89cfad154c2bb63659f30459c45
+```
+
+The local evidence is under
+`campaign-artifacts/runtime-example-campaign/`: `campaign_manifest.json`,
+`campaign_state.json`, checkpoint/evaluation records, recorded model calls,
+and `final/final_test.json`. The exported harness is
+`final/selected-harness/`. The project ignore entry keeps raw campaign
+outputs and nested checkpoint Git repositories out of the setup/results
+commits; these artifacts remain local, not part of the published checkpoint.
+
+The earlier model-record inspection found 68 unique normal recorded
+completion requests/responses: 53 labelled `gpt-5.4` and 15 labelled
+`gpt-5.4-mini`. Requested/returned labels, output limits, non-streaming
+settings, and reasoning settings matched the approved configuration.
+No recorded model-call errors or failed stage attempts were found.
+These counts exclude standalone preflight calls and do not count possible
+upstream retries. Proxy labels still cannot independently exclude upstream
+model substitution, and actual token usage/cost remains unavailable.
+
+Three standalone positive/negative preflight reports were observed for the
+meta model: Explore, round-1 Debugger, and C1 Evolve. Evaluated-model
+completions were label-checked but did not receive equivalent standalone
+probes. This is narrower than the operator guide's broad per-stage wording.
+The discrepancy was reported, not repaired.
+
+The non-fatal `E2B SDK not installed` message continued to appear, including
+on `status`. The host-middleware isolation warning was also reported.
+No SDK, sandbox, source, or documentation repair was applied for either
+warning. This successful sample walkthrough is not a Harvey benchmark run
+and does not demonstrate that evolution improved a real benchmark.
 Do not include `.venv/`, `__pycache__/`, or generated campaign outputs.
