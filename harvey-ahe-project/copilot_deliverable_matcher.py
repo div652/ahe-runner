@@ -34,6 +34,13 @@ class CopilotDeliverableMatcher:
             raise ConfigurationError(
                 "The LAB filename helper requires max_tokens=1024 and temperature=0.0"
             )
+        if (
+            transport.model_catalog != "required"
+            or transport.negative_control != "required"
+        ):
+            raise ConfigurationError(
+                "The filename helper requires catalog and negative-control preflights"
+            )
         self._settings = settings.model_copy(deep=True)
         self._transport = transport.model_copy(deep=True)
         self._api_key = api_key

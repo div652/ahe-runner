@@ -302,3 +302,65 @@ def test_native_helper_budget_and_temperature_are_preserved(
             artifact_root=tmp_path / "helper-artifacts",
         )
     assert endpoint.requests == []
+
+
+@pytest.mark.parametrize(
+    ("catalog", "negative"),
+    [
+        ("disabled", "required"),
+        ("optional", "required"),
+        ("required", "disabled"),
+        ("required", "best_effort"),
+    ],
+)
+def test_helper_controls_cannot_be_weakened(
+    tmp_path: Path,
+    matcher_module: ModuleType,
+    endpoint: _Endpoint,
+    catalog: str,
+    negative: str,
+) -> None:
+    with pytest.raises(ConfigurationError, match="requires catalog"):
+        matcher_module.CopilotDeliverableMatcher(
+            settings=ModelSettings(
+                model="test-helper", max_tokens=1024, temperature=0.0
+            ),
+            transport=TransportSettings.model_validate(
+                {
+                    "base_url": "http://127.0.0.1:3141/v1",
+                    "model_catalog": catalog,
+                    "negative_control": negative,
+                }
+            ),
+            api_key="offline-placeholder",
+            artifact_root=tmp_path / "helper-artifacts",
+        )
+    assert endpoint.requests == []
+
+
+def test_explicit_reasoning_is_forwarded_to_probes_and_matching(
+    tmp_path: Path, matcher_module: ModuleType, endpoint: _Endpoint
+) -> None:
+    callback = matcher_module.CopilotDeliverableMatcher(
+        settings=ModelSettings(
+            model="test-helper",
+            max_tokens=1024,
+            temperature=0.0,
+            reasoning_effort="high",
+        ),
+        transport=TransportSettings(
+            base_url="http://127.0.0.1:3141/v1",
+            model_catalog="required",
+            negative_control="required",
+        ),
+        api_key="offline-placeholder",
+        artifact_root=tmp_path / "helper-artifacts",
+    )
+    try:
+        callback("Match files", _schema())
+        assert all(
+            request["reasoning"] == {"effort": "high"}
+            for request in endpoint.requests[1:]
+        )
+    finally:
+        callback.close()

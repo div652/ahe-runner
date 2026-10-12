@@ -293,6 +293,8 @@ On the AHE operator-project branch:
   proxy does not forward temperature, and token usage remains unavailable.
 - Lazily preflight only when the helper is used; retain each callback
   instance's proof and calls in a fresh attempt directory.
+- Require catalog and negative-control checks, rather than allowing generic
+  transport defaults to weaken this helper's observable-contract policy.
 - Cache preflight failure without a hidden retry; validate every normal
   completion's observable model label.
 - Validate JSON output against the native schema and record validation
@@ -371,6 +373,19 @@ the intended exact-budget regression had not been added. Three boundary
 cases (1,023/1,025 tokens and non-native temperature) were added in a
 separate correction commit before rerunning the checks. No framework repair
 or model call was required for this test-coverage correction.
+
+The first AHE callback run then passed **14 tests in 2.37 seconds**, and
+both repositories' selected lint checks passed. A final contract review added
+constructor rejection of weakened preflight settings and coverage of explicit
+reasoning forwarding, before rerunning those regressions.
+
+Cross-repository type checking first needed explicit source roots for the
+editable AHE install. With those roots fixed, it identified an Anthropic SDK
+overload diagnostic in the unchanged legacy helper call. The same diagnostic
+was reproduced against the exact `d7e56d455` baseline source. It is not caused
+by the callback patch and is bypassed by the injected Copilot path; no
+unrelated legacy repair was made. The new callback and grading entry point
+are checked separately without suppressing that diagnostic.
 
 ### Recommendations
 
