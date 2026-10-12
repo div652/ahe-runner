@@ -30,9 +30,16 @@ The assistant announces new permanent files before creating them.
 | AHE-002 | Registered skill folders' helper/resource files are not recognized as active skill components | Explained; operator chose a skills-free initial harness instead of a repair | No patch; outside the initial harness scope, potentially relevant to future scripted skills |
 | LAB-001 | Filename helper bypasses configured Copilot routing and suppresses its API failure | Explained in plain language; repair authorized on 2026-10-12 | Fixed in LAB `86678eba6` and AHE `f0e3b0b`; 92 LAB and 19 AHE offline cases passed |
 | AHE-003 | Candidate harness folders can shadow protected Python modules during evaluation and grading | Explained in plain language; adapter-level repair authorized on 2026-10-12 | Adapter-level rejection in Harvey `validate_candidate`; AHE source unchanged |
+| AHE-004 | `ahe-runner` cannot be declared as a dependency of an operator package under uv, because of its NexAU git-URL pin | Explained; recording authorized on 2026-10-12 | Worked around in the Harvey `pyproject.toml`; AHE source unchanged |
+| LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
+| LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
 Other potential integration limitations in the implementation plan still
 require investigation and the operator's case-by-case approval.
+
+Harvey LAB issues (LAB-002 onward) are recorded in full in
+`docs/HARVEY_LAB_BENCHMARK_ISSUES.md` so they can be shared with Harvey
+separately; LAB-001 stays here for continuity and is summarized there.
 
 ## AHE-001: enforce preflight for evaluated-model attempts
 
@@ -545,3 +552,27 @@ The guard and tests were committed in `15cbf91` before running checks.
 - Pyright on the guard and its tests: **0 errors, 0 warnings**.
 
 No model call, harness evaluation, or AHE CLI command was run.
+
+## AHE-004: operator packages cannot depend on `ahe-runner` under uv
+
+### Plain-language summary
+
+AHE Runner lists NexAU as a direct git link rather than a released package
+version (`pyproject.toml:12-13`: `nexau @ git+https://github.com/nex-agi/NexAU.git@v0.3.9`).
+uv only accepts such links from packages that are installed directly. If an
+operator's adapter package declares `ahe-runner==0.3.0` as a dependency, uv
+stops with: "Package `nexau` was included as a URL dependency. URL dependencies
+must be expressed as direct requirements or constraints."
+
+### Local workaround (setup only)
+
+The Harvey package (`harvey-ahe-project/pyproject.toml`) no longer restates
+`ahe-runner`. AHE is the host environment, installed from this repository as
+the README describes. The adapter records installed package versions at run
+time instead. No AHE source was changed.
+
+### Upstream recommendations
+
+1. Publish NexAU to a package index and depend on a version pin, or
+2. document that operator packages must not restate `ahe-runner`, or must add
+   the NexAU URL as a direct requirement or constraint.
