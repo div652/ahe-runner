@@ -277,3 +277,28 @@ def test_non_loopback_endpoint_is_rejected_before_any_request(
             artifact_root=tmp_path / "helper-artifacts",
         )
     assert endpoint.requests == []
+
+
+@pytest.mark.parametrize(
+    ("max_tokens", "temperature"),
+    [(1023, 0.0), (1025, 0.0), (1024, 0.2)],
+)
+def test_native_helper_budget_and_temperature_are_preserved(
+    tmp_path: Path,
+    matcher_module: ModuleType,
+    endpoint: _Endpoint,
+    max_tokens: int,
+    temperature: float,
+) -> None:
+    with pytest.raises(ConfigurationError, match="max_tokens=1024"):
+        matcher_module.CopilotDeliverableMatcher(
+            settings=ModelSettings(
+                model="test-helper",
+                max_tokens=max_tokens,
+                temperature=temperature,
+            ),
+            transport=TransportSettings(base_url="http://127.0.0.1:3141/v1"),
+            api_key="offline-placeholder",
+            artifact_root=tmp_path / "helper-artifacts",
+        )
+    assert endpoint.requests == []

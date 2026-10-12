@@ -362,6 +362,16 @@ proof preservation, and no hidden retries. HTTP traffic is fully mocked.
 being committed before execution. Actual outcomes will be appended afterward
 without amending the initial record.
 
+The initial AHE helper/coverage record was committed as
+`25ff53bff0a73f6d6c449a37a9e4efd04af5e382` before testing. The LAB targeted
+run then passed **92 tests in 2.43 seconds**. Installing the declared local
+LAB dependency in the AHE virtual environment completed successfully.
+The first AHE lint check found an unused `ConfigurationError` test import:
+the intended exact-budget regression had not been added. Three boundary
+cases (1,023/1,025 tokens and non-native temperature) were added in a
+separate correction commit before rerunning the checks. No framework repair
+or model call was required for this test-coverage correction.
+
 ### Recommendations
 
 For LAB maintainers, retain a client/callback injection seam for optional
