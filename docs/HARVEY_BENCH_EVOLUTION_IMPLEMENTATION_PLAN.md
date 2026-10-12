@@ -31,6 +31,14 @@ separate recommendations record for the rationale and offline verification.
 No final CLI commands, live probes, or Harvey integration files have been
 created or executed.
 
+The operator subsequently approved a **skills-free initial evaluated
+harness**: `skills: []`, no bundled skill manuals/scripts, and no `LoadSkill`
+tool. Native LAB's skills-enabled baseline is a reference, not the intended
+seed behavior. AHE-002 (skill-asset registration) is documented but not patched
+because it is unnecessary for this initial scope. Meta-agent research and the
+core evolution loop are unchanged; future scripted skills require revisiting
+that limitation.
+
 ## 1. Checkpoint and source baseline
 
 The completed AHE quick-start state was committed and pushed before this
@@ -194,7 +202,7 @@ prerequisites; table order alone does not imply a dependency.
 | H05 | Implement immutable grouped train/validation/test definitions | H01, H04 | Nonempty disjoint task sets; scenario/template and shared-corpus policy enforced; deterministic regeneration and overlap checks |
 | H06 | Implement the per-trial sandbox/workspace lifecycle and trusted execution boundary | H02, H04 | Read-only input documents, writable scratch/output, no network, no task JSON/rubric mount; unique workspaces and ownership-scoped cleanup |
 | H07 | Prove the NexAU/LAB compatibility contract for the selected tool route | H01, H02, H06 | Scripted turns preserve tool order/results, finish rejection/acceptance, terminal pairing, cumulative limits, and asset attachment; missing required runner contracts cause a halt and upstream report, not a repair |
-| H08 | Build the file-backed LAB-derived base harness | H03, H07 | Native prompt intent, task-as-user-message, Office skills/scripts, and tool behavior preserved or explicitly approved as deviations; no task answers in the seed |
+| H08 | Build the file-backed skills-free LAB-derived base harness | H03, H07 | Preserve native prompt intent, task-as-user-message, and workspace tools; omit all initial skill manuals/scripts per operator approval; no task answers in the seed |
 | H09 | Implement Harness ABI V2 manifest and component registrations | H07, H08 | All evolvable files are actually attached; schema/signature checks pass; model/routing/ceiling fields protected; recursive sub-agents conform if enabled |
 | H10 | Integrate native criterion grading and the deliverable-matching helper | H01, H02, H04 | Native scoping/extraction/prompt and profile retained; every model-calling helper declared; incomplete/invalid judging never becomes a valid zero reward |
 | H11 | Implement native summaries, task states, comparisons, and selection key | H01, H10 | Exact `0/0.5/1` dual behavior; averaged all-pass primary; macro/pooled criterion diagnostics and both-agree rate separate; fractional gains/regressions retained |

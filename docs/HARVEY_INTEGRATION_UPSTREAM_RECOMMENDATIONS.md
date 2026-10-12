@@ -26,10 +26,10 @@ The assistant announces new permanent files before creating them.
 | ID | Confirmed issue | Operator approval | Branch-local status |
 |---|---|---|---|
 | AHE-001 | Evaluated-agent sessions skipped the configured model preflight | Explained; repair authorized on 2026-10-12 | Fixed in `4a4e57b`; targeted offline regressions and lint passed |
+| AHE-002 | Registered skill folders' helper/resource files are not recognized as active skill components | Explained; operator chose a skills-free initial harness instead of a repair | No patch; outside the initial harness scope, potentially relevant to future scripted skills |
 
-No other framework deficiency is recorded as confirmed yet. Potential
-integration limitations in the implementation plan still require investigation
-and the operator's case-by-case approval.
+Other potential integration limitations in the implementation plan still
+require investigation and the operator's case-by-case approval.
 
 ## AHE-001: enforce preflight for evaluated-model attempts
 
@@ -189,3 +189,48 @@ The patch changes protected runner content. Existing completed quick-start
 artifacts remain untouched, but their campaign identity must not be resumed
 with the patched package. Use a fresh Harvey campaign directory; the original
 commits remain the reproduction source for the old example.
+
+## AHE-002: account for declared files inside registered skill folders
+
+### Evidence and impact
+
+NexAU `0.3.9` registers each skill directory as a sandbox upload asset
+(`nexau/archs/main_sub/agent.py:587-600`), including its helper/resource files.
+Native LAB skills include Python, JavaScript, and shell executables; for
+example, `lab_core/harness/skills/pptx/scripts/generate_pptxgenjs.js`.
+
+AHE's `src/ahe_runner/conformance.py:360-409` registers only each skill's
+`SKILL.md`. Declaring executable/resources paths in the manifest's `skills`
+component class therefore results in a "not runtime-attached" error, despite
+their membership in the folder mapped by NexAU. Leaving them unclassified
+would not satisfy the stated every-evolvable-file attachment contract.
+
+### Operator decision: no initial skills
+
+After this issue was explained, the operator requested a base harness without
+any skills. The initial evaluated configuration will contain `skills: []`,
+with no copied manuals, skill helper directories, or `LoadSkill` tool.
+Ordinary workspace/document tools and installed document-processing libraries
+remain available; they are not skill bundles.
+
+This is an approved behavioral deviation from the native LAB baseline, which
+eagerly loads its document manuals/scripts. Label the new seed as a
+skills-free LAB-derived NexAU harness, not an exact skills-enabled LAB port.
+Native tasks, scoring, and judge semantics are not changed by this decision.
+
+The decision concerns the initial evaluated harness only. It does not remove
+AHE meta-agent research procedures or automatically prohibit evolution from
+adding skills later. If later evolution requires scripted skill assets,
+revisit this recorded limitation rather than claiming it has been fixed.
+
+### Upstream recommendation; no local repair
+
+Consider recognizing explicitly declared regular-file assets beneath
+registered skill folders as active skill dependencies. Preserve compatibility
+with existing Markdown-only manifests; retain path/symlink checks and ensure
+asset registration does not execute helper code on the host.
+
+Add coverage for Python/JavaScript/shell resources, undeclared or unregistered
+folders, malicious paths, and skill-asset changes in candidate attribution.
+This recommendation is deferred; no conformance code or asset policy was
+patched as part of the skills-free baseline decision.
