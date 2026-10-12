@@ -100,9 +100,7 @@ def _module_inside(module: object, root: Path) -> bool:
 def _spec_inside(spec: importlib.machinery.ModuleSpec, root: Path) -> bool:
     locations = [
         Path(value)
-        for value in (
-            [spec.origin] if spec.origin and spec.has_location else []
-        )
+        for value in ([spec.origin] if spec.origin and spec.has_location else [])
         + list(spec.submodule_search_locations or [])
     ]
     return bool(locations) and all(_inside(path, root) for path in locations)

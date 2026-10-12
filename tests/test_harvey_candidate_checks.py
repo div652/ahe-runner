@@ -5,13 +5,13 @@ import sys
 from pathlib import Path
 
 import pytest
-
-from ahe_runner.harness_imports import HarnessImportScope
 from harvey_ahe.candidate_checks import (
     PROTECTED_MODULE_NAMES,
     module_shadowing_errors,
     top_level_import_names,
 )
+
+from ahe_runner.harness_imports import HarnessImportScope
 
 
 def _write(root: Path, relative: str, text: str = "") -> None:

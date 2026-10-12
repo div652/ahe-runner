@@ -531,3 +531,17 @@ does not sandbox it.
    process, so evaluated code cannot affect protected scoring.
 4. Add regressions that try to shadow a standard-library module, a runner
    module, and an adapter dependency.
+
+### Offline verification
+
+The guard and tests were committed in `15cbf91` before running checks.
+
+- `tests/test_harvey_candidate_checks.py` plus the existing filename-helper
+  suite: **32 passed** (13 new guard cases, 19 helper cases).
+- Ruff on the first run: one import-order finding (`harvey_ahe` sorts as a
+  third-party package) and one line-wrapping difference. Neither changed
+  behavior. Both were fixed with `ruff check --fix` and `ruff format`;
+  tests passed again afterwards.
+- Pyright on the guard and its tests: **0 errors, 0 warnings**.
+
+No model call, harness evaluation, or AHE CLI command was run.
