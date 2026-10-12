@@ -1,0 +1,72 @@
+schema_version: 1
+
+campaign:
+  name: runtime-example-campaign
+  artifacts_dir: ./campaign-artifacts/runtime-example-campaign
+  rounds: 1
+  root_seed: 42
+
+project:
+  harness_dir: ./harness
+  harness_manifest: ./harness_manifest.yaml
+  adapter: runtime_benchmark_adapter:RuntimeExampleAdapter
+  adapter_settings: {}
+  adapter_dependency_paths:
+    - ./runtime_benchmark_adapter.py
+  meta_agent_source_roots:
+    - ./benchmark_public/RUNTIME_ADAPTER.md
+
+models:
+  evaluated:
+    model: gpt-5.4-mini
+    max_tokens: 4096
+    reasoning_effort: provider-default
+    temperature: 0.2
+  meta:
+    model: gpt-5.4
+    max_tokens: 32000
+    reasoning_effort: high
+    temperature: 0.2
+
+transport:
+  base_url: http://127.0.0.1:3141/v1
+  api_key_env: null
+  api_mode: chat_completions
+  stream: false
+  request_timeout_seconds: 300
+  observable_model_policy: exact
+  model_catalog: required
+  negative_control: required
+
+evaluation:
+  train_trials: 1
+  validation_trials: 1
+  test_trials: 1
+  max_concurrency: 2
+
+debugger:
+  max_concurrency: 2
+  max_iterations: 80
+
+recovery:
+  maximum_stage_attempts: 3
+  archive_incomplete_attempts: true
+
+meta:
+  backend: nexau
+  explore:
+    source_enabled: true
+    web_enabled: true
+    web_search_backend: ddgs
+    research_seed_urls:
+      - https://github.com/nex-agi/NexAU
+  role_supplements:
+    source: ./runtime_meta_supplements/source.md
+    web: ./runtime_meta_supplements/web.md
+    debugger: ./runtime_meta_supplements/debugger.md
+    evolve: ./runtime_meta_supplements/evolve.md
+  max_concurrent_model_calls: 2
+  max_context_tokens: 200000
+  max_running_subagents: 5
+  evolve_max_iterations: 500
+  explore_max_iterations: 200
