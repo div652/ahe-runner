@@ -105,7 +105,7 @@ def _criteria() -> list[dict[str, Any]]:
         },
         {
             "id": "c2",
-            "title": "Names the governing law",
+            "title": "Names the governing law of the agreement",
             "match_criteria": "The memo names the governing law.",
             "deliverables": ["memo.md"],
         },
