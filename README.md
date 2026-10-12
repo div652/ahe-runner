@@ -32,6 +32,31 @@ ahe validate --config ./my-ahe-project/ahe.yaml
 ahe run --config ./my-ahe-project/ahe.yaml
 ```
 
+`ahe init-project ./my-ahe-project` creates:
+
+```text
+my-ahe-project/
+├── ahe.yaml
+├── ahe.runtime.yaml
+├── benchmark_adapter.py
+├── runtime_benchmark_adapter.py
+├── harness_manifest.yaml
+├── harness/
+├── benchmark_public/
+└── meta_supplements/
+```
+
+The important generated files are:
+
+| File | Meaning |
+|---|---|
+| `harness/` | Agent components that AHE is allowed to improve |
+| `benchmark_adapter.py` | Toy offline benchmark |
+| `runtime_benchmark_adapter.py` | Toy benchmark that actually runs a NexAU agent |
+| `ahe.yaml` | Configuration for the offline rehearsal |
+| `ahe.runtime.yaml` | Configuration for the model-backed example |
+| `harness_manifest.yaml` | Declares which harness files are evolvable |
+
 The generated `ahe.yaml` is an offline lifecycle rehearsal: it verifies
 checkpointing, evidence, evolution, selection, export, and recovery without
 calling an evaluated agent. For a real NexAU evaluation, configure the endpoint
