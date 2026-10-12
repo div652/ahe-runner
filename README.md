@@ -32,6 +32,23 @@ ahe validate --config ./my-ahe-project/ahe.yaml
 ahe run --config ./my-ahe-project/ahe.yaml
 ```
 
+On Debian or Ubuntu, a `venv` failure mentioning missing `ensurepip` means the
+optional OS package is absent. Install it, then retry:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y python3.12-venv
+python3.12 -m venv .venv
+```
+
+If you do not have `sudo` but already have `uv`, use:
+
+```bash
+uv venv --python 3.12 .venv
+. .venv/bin/activate
+uv pip install --python .venv/bin/python -e '.[web,dev]'
+```
+
 `ahe init-project ./my-ahe-project` creates:
 
 ```text
@@ -56,6 +73,11 @@ The important generated files are:
 | `ahe.yaml` | Configuration for the offline rehearsal |
 | `ahe.runtime.yaml` | Configuration for the model-backed example |
 | `harness_manifest.yaml` | Declares which harness files are evolvable |
+
+The generated project is a complete, conformant sample. You do **not** need to
+implement your own benchmark before running its first `conformance`,
+`validate`, and offline `run` commands. Those commands verify the included toy
+harness and `ExampleAdapter`.
 
 The generated `ahe.yaml` is an offline lifecycle rehearsal: it verifies
 checkpointing, evidence, evolution, selection, export, and recovery without
@@ -82,8 +104,10 @@ remain under the same campaign directory.
 
 ## Implement your own benchmark
 
-1. Implement the evolvable files under `harness/` according to the Harness
-   ABI.
+After the generated sample succeeds:
+
+1. Replace or modify the evolvable files under `harness/` according to the
+   Harness ABI.
 2. Implement `BenchmarkAdapterV2` for the benchmark's tasks, native execution,
    metrics, traces, and split policy.
 3. Configure models, transports, rounds, seeds, and adapter paths in
