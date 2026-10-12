@@ -29,6 +29,7 @@ The assistant announces new permanent files before creating them.
 | AHE-001 | Evaluated-agent sessions skipped the configured model preflight | Explained; repair authorized on 2026-10-12 | Fixed in `4a4e57b`; targeted offline regressions and lint passed |
 | AHE-002 | Registered skill folders' helper/resource files are not recognized as active skill components | Explained; operator chose a skills-free initial harness instead of a repair | No patch; outside the initial harness scope, potentially relevant to future scripted skills |
 | LAB-001 | Filename helper bypasses configured Copilot routing and suppresses its API failure | Explained in plain language; repair authorized on 2026-10-12 | Fixed in LAB `86678eba6` and AHE `f0e3b0b`; 92 LAB and 19 AHE offline cases passed |
+| AHE-003 | Candidate harness folders can shadow protected Python modules during evaluation and grading | Explained in plain language; adapter-level repair authorized on 2026-10-12 | Adapter-level rejection in Harvey `validate_candidate`; AHE source unchanged |
 
 Other potential integration limitations in the implementation plan still
 require investigation and the operator's case-by-case approval.
@@ -432,3 +433,101 @@ configuration or legacy source edits were made.
 The helper hook and callback are ready. Wiring the callback into the main
 Harvey `BenchmarkAdapterV2` remains part of the unfinished operator-project
 implementation; this repair does not claim that the full integration is ready.
+
+## AHE-003: prevent harness folders from shadowing protected modules
+
+### Plain-language summary
+
+During an evaluation, AHE puts the candidate harness folder at the front of
+Python's import search list. A candidate that adds a top-level folder or file
+named after a protected package can therefore replace that package with its
+own copy for the rest of the evaluation, including grading (module shadowing).
+For example, a top-level `lab_core/evaluation/scoring.py` could return perfect
+scores without any judge call (reward hacking).
+
+### Evidence
+
+Inspected AHE revision: `7107b55e20f8e712e37a4635f9633cdadd77bf31`.
+
+- `src/ahe_runner/runtime.py:258-259` enters `HarnessImportScope` when the
+  evaluated-agent runtime is constructed. `runtime.py:388` leaves it only in
+  `close()`.
+- `src/ahe_runner/controller.py:337-350` constructs that runtime, then calls
+  `adapter.evaluate(request, runtime)`. Grading runs inside `evaluate`, so it
+  runs while the scope is active.
+- `src/ahe_runner/harness_imports.py:23-31,47-67` inserts the harness root at
+  `sys.path[0]`. It also removes already-loaded modules whose top-level name
+  matches any root-level harness `.py` file or folder containing `.py` files.
+  Later imports therefore resolve to the harness copy.
+- `src/ahe_runner/harness.py:97-230` checks size, symlinks, required files,
+  component coverage, agent references, conformance, compilation, task
+  memorization, and runtime-owned files. It does not reject extra root-level
+  Python folders that match no component glob.
+
+An offline reproduction (temporary directory, no model calls) created
+`harness/ahe_runner/errors.py`. Inside `HarnessImportScope`,
+`importlib.import_module("ahe_runner.errors")` loaded the harness copy.
+After the scope closed, the real module was restored.
+
+### Impact on the Harvey integration
+
+Harvey grading imports `lab_core.evaluation`, `harvey_ahe.grading`, AHE model
+clients, and document libraries while the scope is active. A candidate could
+replace any of them without editing protected files. It could also shadow
+standard-library modules such as `json` that are imported lazily.
+
+### Approved local repair (adapter level only)
+
+The operator authorized an adapter-level guard. AHE source is unchanged.
+
+The Harvey adapter's `validate_candidate` lists every top-level importable
+name in the candidate harness: root files with a Python import suffix
+(`importlib.machinery.all_suffixes()`), and root folders containing such a
+file anywhere beneath them. It rejects a name when any of these holds:
+
+- it is a standard-library or built-in module name;
+- it is already loaded in `sys.modules`;
+- `importlib.util.find_spec` resolves it outside the harness;
+- it is one of the protected names `ahe_runner`, `benchmark_adapter`,
+  `harvey_ahe`, `lab_core`, or `nexau`.
+
+AHE calls `validate_candidate` before evaluating every evolved candidate
+(`controller.py:597-640`). The seed's only top-level module is `tools`, which
+collides with nothing in the integration environment. If an installed package
+named `tools` ever appears, every candidate fails validation, which is the
+safe outcome.
+
+Files:
+
+- `harvey-ahe-project/harvey_ahe/candidate_checks.py`: `top_level_import_names`
+  and `module_shadowing_errors`. They inspect names only and import nothing;
+  `find_spec` on a top-level name runs no module code.
+- `tests/test_harvey_candidate_checks.py`: offline regressions covering a
+  seed-shaped harness (allowed), standard-library, protected, installed,
+  deeply nested, and compiled-extension names (rejected), unique helper
+  packages and Python-free or hidden folders (allowed), plus the original
+  reproduction showing the rejected layout really shadows `ahe_runner.errors`.
+
+The adapter's `validate_candidate` reports these errors. Its implementation is
+part of the still-unfinished Harvey adapter.
+
+Residual limitation: a protected module that imports a package lazily, where
+that package is not installed, cannot be detected by "already importable".
+Inspection found no such optional import in LAB grading or sandbox code, AHE
+Runner, or the Harvey adapter. The adapter imports its grading dependencies at
+module load, before the scope opens. Candidate Python is still imported and
+run on the host, an existing risk that AHE already documents; this guard
+does not sandbox it.
+
+### Upstream recommendations
+
+1. In `validate_harness`, reject root-level importable names that collide with
+   the standard library, built-ins, loaded modules, or installed distributions.
+   Alternatively, only allow root-level Python under declared component folders.
+2. Prefer isolating harness code under a unique package namespace, for
+   example a generated `_ahe_harness_<digest>` loaded via `importlib`, instead
+   of placing the harness root first on `sys.path`.
+3. Consider running grading outside the import scope, or in a separate
+   process, so evaluated code cannot affect protected scoring.
+4. Add regressions that try to shadow a standard-library module, a runner
+   module, and an adapter dependency.

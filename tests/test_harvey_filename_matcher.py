@@ -68,6 +68,7 @@ def matcher_module() -> ModuleType:
     path = (
         Path(__file__).resolve().parents[1]
         / "harvey-ahe-project"
+        / "harvey_ahe"
         / "copilot_deliverable_matcher.py"
     )
     spec = importlib.util.spec_from_file_location("harvey_filename_matcher", path)
