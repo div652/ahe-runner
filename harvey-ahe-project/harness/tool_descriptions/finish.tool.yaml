@@ -1,0 +1,24 @@
+type: tool
+name: finish
+description: >-
+  Signal that the task is complete after all required deliverables have been
+  created in the output directory. Do not call this until there is no more
+  work to do.
+input_schema:
+  type: object
+  additionalProperties: false
+  properties:
+    summary:
+      type: string
+      description: Brief summary of the completed work.
+    deliverables:
+      type: array
+      items:
+        type: string
+      description: >-
+        Paths of the deliverable files you produced, relative to the output
+        directory (e.g. ['response.md', 'memo.docx']).
+  required:
+    - summary
+disable_parallel: true
+binding: tools.finish:finish

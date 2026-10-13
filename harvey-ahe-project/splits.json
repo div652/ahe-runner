@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "identity": "harvey-lab-ahe-pilot-v1",
+  "lab_commit": "86678eba6fcbc6c03958742c6e9e75737514f513",
+  "selection_policy": "Eligible LAB tasks: no docs_dir; inline instructions; top-level deliverables; own documents/ with 1-10 files totalling <= 5,000,000 bytes; 20-40 criteria. Group eligible tasks by practice area (first task-id segment), order areas by sha256(area), take the first 12, and pick the task with the minimum sha256(task_id) in each area. Areas 1-6 are train, 7-9 validation, 10-12 test. Pins are sha256 of task.json and of the documents/ tree hash map.",
+  "splits": {
+    "train": [
+      {
+        "task_id": "energy-natural-resources/identify-issues-in-tax-equity-flip-partnership-agreement",
+        "task_json_sha256": "c7c37233de36abc56ca9631332280260e8c5ceaf46b16abb6eab31f4140c11c6",
+        "documents_sha256": "fe0fe31d47388265b7367ad5e843816c3f865b271b6352fa07a22f4b571b002b"
+      },
+      {
+        "task_id": "environmental-esg/identify-issues-in-expert-remediation-report",
+        "task_json_sha256": "3acee32078e48f530dd8c0ed6cc3e0c4831850b614ad4b6f32401a8e3cfd58d3",
+        "documents_sha256": "36f91580edc761e0f82e649479bea4300b6d286ebec404a45c4a7d8cf59de16b"
+      },
+      {
+        "task_id": "banking-finance/identify-issues-in-officer-certificate",
+        "task_json_sha256": "244619894cb07150b0e9caab08e72902970c6daec7d692efbae367406b673ff9",
+        "documents_sha256": "021f25c255a409cb7b3af93dcb44b5372ce04db7ae08085bb602a1406f6bfd59"
+      },
+      {
+        "task_id": "real-estate/draft-warranty-deed",
+        "task_json_sha256": "dce9961460cb7d1f6283ff58e76465bc10032bca2795a504be22d37888f9a6f6",
+        "documents_sha256": "7110a18b08004d7c1137505a7eeef075d9ab1751cb95c5850cf46c5684e19510"
+      },
+      {
+        "task_id": "corporate-ma/compare-credit-agreement-to-commitment-letter",
+        "task_json_sha256": "1bb3d87ac5299c93eb17e6d2c205c9a34f3cbf1e7122aaf45b15f75d1944a0b8",
+        "documents_sha256": "a372be6d48f61c647fd974783767a49caf1512be3c0c6ffe456dac1fc5ef90b6"
+      },
+      {
+        "task_id": "tax/identify-tax-issues-in-irs-closing-agreement",
+        "task_json_sha256": "8e1acb6b13187f1ad0d2ca0b0bc2cc76695e27759da2b4740337f8e6ad4e7e8c",
+        "documents_sha256": "098c58e53b7cccec2714c94ef9e477623d64ac7a5f617370accab8dd890a0ef1"
+      }
+    ],
+    "validation": [
+      {
+        "task_id": "emerging-companies-venture-capital/identify-governance-issues-in-stockholder-agreement",
+        "task_json_sha256": "c4b9e3b10ba51200ebfffb03f73f849f21a459708ff349ff3eb5e87bfeb5c481",
+        "documents_sha256": "acc705fac38c49ec8917b78d2ac27fef462b719e67ebe66ef305b280b114b355"
+      },
+      {
+        "task_id": "bankruptcy-restructuring/identify-issues-in-plan-of-reorganization",
+        "task_json_sha256": "ef048f74f20d5a42c68b63ad499422c77c18b251bdb0ea2834c46779fe8338ac",
+        "documents_sha256": "64629501a5ae9344dbdcd084ae0a389946d5687bb24dd20c3bddb00d09a92c66"
+      },
+      {
+        "task_id": "data-privacy-cybersecurity/identify-issues-in-transfer-impact-assessment",
+        "task_json_sha256": "4bc24eab744c53a40a9b50caa8520faa4b0640b86f38db564a109127cd48f6da",
+        "documents_sha256": "9a97d59c4f5f2166409d233057f5d8579fb33040736d25853576614a55bdc27d"
+      }
+    ],
+    "test": [
+      {
+        "task_id": "employment-labor/identify-issues-in-counterparty-motion-brief",
+        "task_json_sha256": "c117cc3faf49b879f3c475b097bd67293ca79fa5b9e3d9cd91782b0f70f687e4",
+        "documents_sha256": "c626ed29298862ebaa0996c0dd0536b7501419cab44b232fdd31de5f770b5082"
+      },
+      {
+        "task_id": "healthcare-life-sciences/identify-compliance-issues-in-medicare-enrollment-application-package",
+        "task_json_sha256": "85c6658060a482d1f52ad362c9a177cda705d1a51d46c3925dcfc5da5cb0edc7",
+        "documents_sha256": "b442a380b3192a40333f6282577bf440ab27ed150f184a65764033943a7fdb5f"
+      },
+      {
+        "task_id": "international-trade-sanctions/review-draft-voluntary-self",
+        "task_json_sha256": "cae3e61cf61b22a369de4bbd7c56971e05cf5583a5da98efaf328f93aaf9c23b",
+        "documents_sha256": "599d25179dfed6476e5b7e93fe2417474d63d2dabd963fe6c73e145bb0838a07"
+      }
+    ]
+  }
+}

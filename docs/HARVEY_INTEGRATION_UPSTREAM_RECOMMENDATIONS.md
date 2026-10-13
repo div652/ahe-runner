@@ -35,6 +35,7 @@ The assistant announces new permanent files before creating them.
 | AHE-006 | Routing a session to its resource through session `context` is unsafe: NexAU's current context is one process-wide slot that concurrent sessions' sub-agents can read | Explained in plain language; on 2026-10-13 the operator chose orchestrator-owned binding (the runner hands each session its own resources) | Branch-local `AgentSessionRequest.session_resources` in `runtime.py`; Harvey adapter binds the sandbox handle through it |
 | AHE-007 | The static import scan misreads `from pkg import name` as `pkg.n.a.m.e` | Explained with AHE-006; recording only | No patch; the Harvey seed imports helpers as `from tools._common import ...`, which is unaffected |
 | AHE-008 | Meta-agents have no sandbox work folder, so NexAU copies the Explore skills, read-only, into the operator's current directory; a later Evolve run there fails with `Permission denied` | Explained in plain language; on 2026-10-13 the operator approved a private per-run folder and deleting the leftover `AHE_Harvey/.skills` | Branch-local `LocalSandboxConfig(work_dir=<runtime_dir>/sandbox)` in `meta/nexau_backend.py`, plus a regression test |
+| AHE-009 | Project role supplements are rendered as Jinja together with the core meta prompt, so template markup in a supplement crashes that meta-agent at its first model call; config loading does not check this | Explained in plain language; recording approved on 2026-10-13 | No AHE patch; the Harvey supplements avoid Jinja markup, and an offline render check passes for all four roles |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -871,3 +872,55 @@ runtime leaves no `.skills` in the current directory.
    failing fast when a NexAU config has skills but no `sandbox_config`.
 3. Add a test that runs two Evolve sandbox starts in one campaign and checks
    the launch directory stays clean.
+
+## AHE-009: project role supplements are rendered as Jinja templates
+
+### Plain-language summary
+
+A project can add its own guidance to each meta-agent's prompt (a "role
+supplement"). AHE glues that text under the protected core prompt, saves the
+result as a file, and gives NexAU the file as the meta-agent's system prompt.
+NexAU treats a file prompt as a fill-in-the-blanks template (a Jinja
+template). So if the supplement contains template symbols, such as two
+opening curly braces, NexAU tries to fill them in. Unbalanced symbols crash
+the meta-agent on its first model call; balanced ones silently change the
+text. AHE checks only that the supplement file exists when it loads the
+config. The failure therefore appears mid-campaign, after evaluation spend,
+rather than at `ahe validate`.
+
+Example: the first Harvey `evolve.md` draft told the Evolve Agent not to put
+Jinja markup in `systemprompt.md`, and quoted the markup literally. Rendering
+the combined Evolve prompt failed with
+`ValueError: Error processing Jinja template ...: unexpected char '`'`.
+
+### Evidence (NexAU 0.3.9, AHE `harveybench`)
+
+- `src/ahe_runner/meta/nexau_backend.py:761-782` (`_resolved_prompt_text`):
+  the supplement text is appended to the core prompt without escaping.
+- `src/ahe_runner/meta/nexau_backend.py:624-635`: the combined text is written
+  to `<runtime_dir>/system_prompt.md` and configured with
+  `system_prompt_type: file`.
+- `nexau/archs/main_sub/prompt_builder.py:148-153`: the base system prompt is
+  built with `create_dynamic_prompt(..., template_type=system_prompt_type)`.
+- `nexau/archs/main_sub/prompt_handler.py:211-213`: the `file` type is
+  rendered by `_process_jinja_prompt`.
+- `src/ahe_runner/config.py:230-242`: role supplements are resolved as
+  declared files only; their content is not checked.
+
+### Local handling (no AHE patch)
+
+- The Harvey supplements describe Jinja markup in words instead of quoting it.
+- Offline check (2026-10-13): each core prompt plus its Harvey supplement,
+  joined exactly as `_resolved_prompt_text` does, was rendered through NexAU's
+  `PromptHandler._process_jinja_prompt`. All four roles (source, web,
+  debugger, evolve) rendered byte-identical to the input. Before the wording
+  fix, source and evolve failed.
+
+### Upstream recommendations
+
+1. Treat supplements as literal text. For example, wrap them in a Jinja
+   `raw` block, or escape them before they are joined to the core prompt.
+2. Alternatively, render every resolved meta prompt during `ahe validate`
+   and `ahe conformance`, failing fast and also catching silent changes.
+3. Document in the role-supplement docs that supplement text is otherwise
+   rendered as a template.

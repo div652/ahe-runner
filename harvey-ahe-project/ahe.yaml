@@ -1,0 +1,112 @@
+# AHE campaign configuration for evolving a NexAU harness on Harvey LAB.
+#
+# Operator-owned values (fill before any command; see HARVEY_AHE_RUNBOOK.md):
+#   * every `replace-with-exact-...` model ID: use the exact IDs advertised by
+#     the endpoint's /v1/models catalog, without `copilot/` or `openai/` prefixes;
+#   * the live budget: campaign.rounds, evaluation.*_trials, and concurrency.
+# The budget below is a deliberately small first campaign, not a recommendation.
+schema_version: 1
+
+campaign:
+  name: harvey-lab-first-campaign
+  artifacts_dir: ./campaign-artifacts/harvey-lab-first-campaign
+  rounds: 1
+  root_seed: 42
+
+project:
+  harness_dir: ./harness
+  harness_manifest: ./harness_manifest.yaml
+  adapter: benchmark_adapter:HarveyAdapter
+  adapter_settings:
+    # Relative paths resolve against this file's directory.
+    lab_root: ../../harvey-labs
+    split_file: ./splits.json
+    # LAB's standard judge pair is claude-sonnet-4-6 and gpt-5.5. The results
+    # carry the `lab-standard-dual-v1` profile label only when the configured IDs
+    # equal those strings; any other IDs are labelled `custom-dual`.
+    judges:
+      - model: replace-with-exact-claude-sonnet-4-6-model
+        max_tokens: 64000
+        temperature: 0.0
+      - model: replace-with-exact-gpt-5.5-model
+        max_tokens: 64000
+        temperature: 0.0
+    # LAB's deliverable filename helper (claude-sonnet-4-6, 1024 tokens, T=0).
+    helper:
+      model: replace-with-exact-claude-sonnet-4-6-model
+      max_tokens: 1024
+      temperature: 0.0
+    judge_max_prompt_chars: 240000
+    # Must already exist locally (pull or build; the runbook shows both).
+    sandbox_image: lab-sandbox:latest
+    shell_timeout: 60
+    # null uses the system temporary directory for per-trial scratch copies.
+    scratch_root: null
+    grading_parallel: 1
+    grading_attempts: 2
+  adapter_dependency_paths:
+    - ./benchmark_adapter.py
+    - ./harvey_ahe
+    - ./splits.json
+    - ./pyproject.toml
+    - ./requirements.txt
+  meta_agent_source_roots:
+    - ./benchmark_public
+
+models:
+  evaluated:
+    model: replace-with-exact-evaluated-model
+    max_tokens: 64000
+    reasoning_effort: provider-default
+    temperature: 0.0
+  meta:
+    model: replace-with-exact-meta-model
+    max_tokens: 32000
+    reasoning_effort: provider-default
+    temperature: 0.2
+
+transport:
+  base_url: http://127.0.0.1:3141/v1
+  api_key_env: null
+  api_mode: chat_completions
+  stream: false
+  request_timeout_seconds: 600
+  observable_model_policy: exact
+  model_catalog: required
+  negative_control: required
+
+evaluation:
+  train_trials: 1
+  validation_trials: 1
+  test_trials: 1
+  max_concurrency: 2
+
+debugger:
+  max_concurrency: 2
+  max_iterations: 80
+
+recovery:
+  maximum_stage_attempts: 3
+  archive_incomplete_attempts: true
+
+meta:
+  backend: nexau
+  explore:
+    source_enabled: true
+    web_enabled: true
+    web_search_backend: ddgs
+    research_seed_urls:
+      - https://github.com/nex-agi/NexAU
+      - https://python-docx.readthedocs.io/en/latest/
+      - https://openpyxl.readthedocs.io/en/stable/
+      - https://python-pptx.readthedocs.io/en/latest/
+  role_supplements:
+    source: ./meta_supplements/source.md
+    web: ./meta_supplements/web.md
+    debugger: ./meta_supplements/debugger.md
+    evolve: ./meta_supplements/evolve.md
+  max_concurrent_model_calls: 2
+  max_context_tokens: 200000
+  max_running_subagents: 5
+  evolve_max_iterations: 500
+  explore_max_iterations: 200

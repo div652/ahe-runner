@@ -3,9 +3,10 @@
 Date: 2026-10-12.
 
 **Implementation plan and progress.** This document tracks the approved
-integration work. An evaluated preflight repair and a protected filename
-helper are implemented separately; the main Harvey benchmark adapter and
-seed harness are not complete. No Harvey campaign has been started.
+integration work. As of 2026-10-13 the adapter, seed harness, manifest,
+campaign config, public contract, meta supplements, and runbook exist on
+`harveybench` (see "Progress" in section 5). Offline Harvey tests are next.
+No Harvey campaign, AHE CLI check, or live model call has been run.
 
 ### Implementation and execution ownership
 
@@ -198,8 +199,9 @@ held-out query definitions or rubrics to evolution.
 
 ## 5. Implementation task list
 
-All tasks below are **planned, not started**. Dependencies name actual
-prerequisites; table order alone does not imply a dependency.
+The table below is the original plan. Status is tracked in "Progress" after
+it. Dependencies name actual prerequisites; table order alone does not imply a
+dependency.
 
 | ID | Task / deliverable | Depends on | Acceptance criterion |
 |---|---|---|---|
@@ -231,18 +233,55 @@ H07 is an early design gate, not a request to implement runtime changes.
 Missing contracts must be resolved upstream before a dependent harness port.
 H19's final CLI checks and all execution in H20-H23 are operator-owned.
 
-### Suggested project layout
+### Progress (2026-10-13)
 
-This is a proposed layout, not files created by this planning task:
+"Implemented" means written and statically checked offline; offline tests
+are H19.
+
+| ID | Status | Where |
+|---|---|---|
+| H01 | Done: decisions recorded above, in the issue records, and in the runbook | this file, `HARVEY_AHE_RUNBOOK.md` |
+| H02 | Partly: AHE venv with editable `lab-core`; operator builds or pulls the image; each trial records the image ID | `requirements.txt`, runbook section 2 |
+| H03 | Done | `harvey-ahe-project/`, `.gitignore` |
+| H04 | Done for the pilot scope (no `docs_dir` tasks) | `harvey_ahe/tasks.py` |
+| H05 | Done: 6/3/3 grouped pilot, hash-pinned | `splits.json` |
+| H06 | Implemented | `harvey_ahe/adapter.py`, `harvey_ahe/workspace.py` |
+| H07 | Runner seams added with approval (AHE-005, AHE-006, AHE-008); scripted tool tests pending | `src/ahe_runner/runtime.py`, recommendations doc |
+| H08 | Implemented: skills-free LAB tool set and prompt | `harness/` |
+| H09 | Implemented; NexAU load and tool-signature checks pass offline | `harness_manifest.yaml` |
+| H10 | Done (LAB-001, LAB-002) | `harvey_ahe/grading.py`, `copilot_deliverable_matcher.py` |
+| H11 | Implemented (LAB-003) | `harvey_ahe/adapter.py` |
+| H12 | Implemented | `harvey_ahe/adapter.py` |
+| H13 | Implemented | `harvey_ahe/adapter.py` |
+| H14 | Implemented | `harvey_ahe/adapter.py` |
+| H15 | Implemented; the seed passes offline | `harvey_ahe/candidate_checks.py` |
+| H16 | Approved by the operator on 2026-10-13. Source, web, and evolve supplements follow the official AHE explore/evolve prompt style; debugger supplement, `meta_prompt_context()`, and seed URLs approved as written. AHE-009 found and recorded: supplements must avoid Jinja markup; an offline render check passes for all four roles. | `meta_prompt_context()` in `adapter.py`, `meta_supplements/`, `benchmark_public/ADAPTER.md` |
+| H17 | Implemented with placeholder model IDs for the operator | `ahe.yaml` |
+| H18 | Runbook written; reports are the adapter's per-trial artifacts | `HARVEY_AHE_RUNBOOK.md` |
+| H19 | Pending: offline tests | - |
+| H20-H23 | Operator | - |
+
+### Project layout
+
+Actual layout on `harveybench` (originally proposed with an
+`adapter_support/` folder; the protected helpers became the installable
+`harvey_ahe` package instead):
 
 ```text
 harvey-ahe-project/
-  ahe.yaml
-  harness_manifest.yaml
-  benchmark_adapter.py
-  adapter_support/             # protected loader/execution/grading/evidence helpers
-  splits.json                 # protected split identities and grouping policy
-  benchmark_public/           # safe interface/trace/scoring descriptions only
+  ahe.yaml                     # campaign config; operator fills model IDs/budget
+  harness_manifest.yaml        # Harness ABI v2 manifest and protected fields
+  benchmark_adapter.py         # entry point: re-exports HarveyAdapter
+  harvey_ahe/                  # protected adapter package (not meta-readable)
+    adapter.py                 # BenchmarkAdapterV2: evaluate/verify/evidence
+    workspace.py               # WorkspaceHandle + handle_for (harness-importable)
+    tasks.py                   # pinned task loader and splits
+    grading.py                 # LAB rubric grading with recorded Copilot judges
+    copilot_deliverable_matcher.py  # LAB-001 filename helper callback
+    candidate_checks.py        # Harvey candidate rules
+  pyproject.toml, requirements.txt
+  splits.json                  # protected split identities and pins
+  benchmark_public/ADAPTER.md  # public contract (meta-readable)
   meta_supplements/
     source.md
     web.md
@@ -252,11 +291,12 @@ harvey-ahe-project/
     agent.yaml
     systemprompt.md
     LongTermMEMORY.md
-    tool_descriptions/
-    tools/
-    skills/
-    middleware/
-    sub_agents/
+    ShortTermMEMORY.md
+    tool_descriptions/         # bash, read, write, edit, glob, grep, finish
+    tools/                     # same seven + _common.py
+    skills/                    # README only (skills-free seed)
+    middleware/                # README only
+    sub_agents/                # README only
   HARVEY_AHE_RUNBOOK.md
   campaign-artifacts/          # ignored; native and AHE artifacts
 ```
