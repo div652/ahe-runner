@@ -42,6 +42,7 @@ The assistant announces new permanent files before creating them.
 | AHE-013 | Meta agents have no general tool-output safety net (the original AHE evolve agent uses NexAU's `LongToolOutputMiddleware`) and no shell or structured way to read one field of a very long JSON trace line | Raised by the operator on 2026-10-13 after comparing with the original AHE `evolve_agent.yaml`; recording approved | No AHE patch at first; the safety-net part is addressed locally by AHE-014 |
 | AHE-014 | `list_files` has no output-size budget: in campaign 3 round 1, one recursive Evolve listing of `raw_evaluation` returned 274,020 characters into the context | Explained in plain language; on 2026-10-13 the operator approved option 2b (a long-output safety net for Evolve and both Explore agents, not the Debugger), a 64,000-character limit with a 24,000 + 8,000 preview, and campaign name `harvey-lab-campaign-4-gp50-output-backstop` (later renamed `harvey-lab-campaign-4-judge-cap-output-backstop`; runbook section 5d) | Branch-local `MetaToolOutputBackstopMiddleware` in `meta/middleware.py`, wired for Evolve and Explore in `meta/nexau_backend.py`; 191 offline tests passed, and a replay of the 274,020-character listing showed the agent 32,734 characters |
 | AHE-015 | AHE has no endpoint-wide limit on model calls in flight: the evaluated agent, the benchmark judges, and the meta agents each send calls independently, and a burst above the Copilot limit is refused instead of waiting | Explained in plain language; on 2026-10-13 the operator asked that calls above the limit be queued, and approved `transport.max_concurrent_requests: 24` with the Harvey judge cap lowered to 18 | Branch-local `transport.max_concurrent_requests` and a shared queue in `meta/model_client.py`; 199 offline tests passed |
+| AHE-016 | The meta agents' harnesses differ from the original AHE agents: different file tools without binary or line-length protection, no long-output middleware for the Debugger, a context compaction that stops the agent instead of falling back, no shell, an 80-iteration debugger, and a debugger failure blocks the round. In campaign 4 round 2 a debugger read four `.docx` files as text and was stopped | Explained; on 2026-10-13 the operator asked for full parity with the original AHE meta agents and chose: path guard, Docker-sandboxed shell, original debugger budget, non-blocking debugger failures, original temperatures, readable evidence, `nexau-evolution-guide` skill (runbook section 5f) | Proposal committed; implementation pending |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -1424,3 +1425,54 @@ rather than rejecting them."
 - Offline checks on 2026-10-13: the full suite passed 199/199. ruff is
   clean. pyright reports no new errors.
 
+## AHE-016: meta agents differ from the original AHE agent harnesses
+
+### Plain-language summary
+
+The runner's meta agents (Debugger, Evolve, Source and Web Explore) were
+written for the runner and do not use the original AHE agents' tools or
+middleware. The gaps were found one at a time (AHE-010, AHE-013, AHE-014)
+and caused stops. In campaign 4 round 2, two debuggers read `.docx`
+deliverables with `read_file`. The tool decoded the zip bytes as text,
+about 36,000 tokens per file. The runner's compaction then stopped the agent
+with `IntegrityError`, which blocks the stage permanently (AHE-011).
+
+### Evidence
+
+- Original AHE `8b2a55d`: `agents/evolve_agent/evolve_agent.yaml`, the
+  `adb` debugger `runtime/agent_config.yaml` and `system_prompt.md`, and the
+  explorer `agent.yaml` files. NexAU 0.3.9 in the runner's environment ships
+  the same tool and middleware code (byte-identical tools; only import lines
+  differ in the middleware).
+- The original `read_file` reads lines (offset/limit, 2,000 lines, 2,000
+  characters per line) and refuses binary files instead of decoding them.
+  `LongToolOutputMiddleware` keeps every tool result under 10,000 characters
+  and saves the full text to a file. `ContextCompactionMiddleware` has an
+  emergency summary-and-retry path instead of a hard stop.
+- The original debugger has 25 iterations, a hard prompt budget of 20, and
+  its failures never block the run.
+- Campaign 4 round 2 log: runbook section 5e.
+
+### Approved local repair
+
+The operator's decisions are listed in runbook section 5f: the original
+tools behind a path guard, a Docker-sandboxed `run_shell_command`, the
+original middleware and debugger budget, non-blocking debugger failures,
+original role temperatures, readable evidence, and the
+`nexau-evolution-guide` skill for Evolve.
+
+### Upstream recommendations
+
+1. Build the runner's meta agents from the original AHE harnesses (or
+   document each difference), so known safety nets are not lost.
+2. Keep path restrictions as a guard around the original tools rather than
+   as separate tools with different behaviour.
+3. Give meta agents a sandboxed shell; reading one field of a long JSON
+   trace line needs one.
+4. Let a failed per-task debugger degrade to "diagnosis unavailable" instead
+   of blocking the round.
+5. Provide readable views of binary deliverables and long trace lines.
+
+### Local result
+
+Pending implementation.

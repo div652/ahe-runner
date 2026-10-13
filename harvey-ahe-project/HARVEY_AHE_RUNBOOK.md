@@ -947,6 +947,68 @@ its artifacts are kept unchanged.
   tools, descriptions, skills and middleware brought in line (AHE-016).
   Campaign 5 follows.
 
+## 5f. Campaign 5 proposal: original-AHE meta-agent parity (AHE-016)
+
+Approved by the operator on 2026-10-13 after the campaign 4 block: compare
+every meta agent with the original AHE (upstream
+`china-qijizhifeng/agentic-harness-engineering` at `8b2a55d`, cloned to
+`~/ahe-original-upstream`), adopt the same tools, tool descriptions, skills
+and middleware, write a detailed runner guide, then run campaign 5.
+
+### What the original uses (and NexAU 0.3.9 already ships)
+
+The installed NexAU 0.3.9 contains the original's tool code unchanged
+(`read_file`, `search_file_content`, `glob`, `list_directory`, `write_file`,
+`replace`, `run_shell_command`) and its two middlewares
+(`LongToolOutputMiddleware`, `ContextCompactionMiddleware`; only import lines
+differ). The tool description YAMLs (MIT licence) are copied unchanged.
+
+| Agent | Original setting |
+|---|---|
+| Debugger (`adb`) | 25 iterations, prompt "HARD budget of 20 tool-calling iterations", temperature 0.4, max_tokens 20000; failures fall back and never block |
+| Evolve | 500 iterations, temperature 0.7, skill `nexau-evolution-guide` |
+| Source / Web Explore | 200 iterations, temperature 0.2 |
+| Debugger and Evolve middleware | long tool output: 10,000 characters, keep 50 + 30 lines or 5,000 + 5,000 characters, full text saved to a file; compaction: 220,000 × 0.75, keep 10 iterations, emergency summary-and-retry |
+| Explore middleware | long tool output: 20,000 characters, 100 + 80 lines; compaction 200,000 × 0.75, keep 15 |
+
+### Operator decisions
+
+1. File access: the original tools sit behind a path guard. Each agent can
+   reach only its allowed roots, and the roots are the same as today.
+2. Shell: `run_shell_command` runs in a Docker container. Allowed roots are
+   mounted at their real paths (read-only, except the agent's write root).
+   There is no network, and the container's root filesystem is read-only.
+3. Debugger: the original budget (25 iterations, prompt limit 20,
+   temperature 0.4, max_tokens 20000) and the original workflow phases.
+4. A failed debugger does not block the round. The task is recorded as
+   "diagnosis unavailable", and Evolve reads that task's evidence directly.
+   Model or endpoint failures still retry the stage.
+5. Original temperatures per role: Evolve 0.7, both Explorers 0.2.
+6. Readable evidence: the Harvey evidence stage also writes each trace as
+   text with real line breaks, and each deliverable as the same text the
+   judges read (LAB `read_file_as_text`: pandoc for `.docx`, pandas for
+   `.xlsx`). The original `read_file` cuts lines at 2,000 characters, and
+   our trace lines reach 30,000.
+7. Evolve gets the original `nexau-evolution-guide` skill, unchanged.
+
+### What stays from the runner
+
+The submit/complete gates (debugger citation coverage, explorer skill gates,
+Evolve clean-commit, manifest and validation gate), the Git, checkpoint and
+`validate_candidate` tools, `delete_path`, the ddgs web tools (the original
+`web_search` needs a Serper key), and the per-role root lists.
+
+### Plan
+
+1. Proposal commit (this section and AHE-016).
+2. Implementation with offline tests, then a commit: guarded original tools,
+   Docker shell, original middleware, debugger budget and non-blocking
+   failures, role temperatures, readable evidence, evolution-guide skill,
+   updated prompts and role supplements.
+3. New file `docs/AHE_RUNNER_GUIDE.md`: a detailed guide to the runner.
+4. Campaign 5 config, `ahe conformance`, `ahe validate`, then rounds one at
+   a time with the operator's approval.
+
 
 ## 6. Known deviations and limits to report with results
 
