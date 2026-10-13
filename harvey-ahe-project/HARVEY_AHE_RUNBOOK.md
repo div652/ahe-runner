@@ -133,6 +133,7 @@ Values chosen:
 | `evaluation.max_concurrency` | 20 (in practice capped at 6 train and 3 validation/test units per evaluation) |
 | `debugger.max_concurrency` | 20 |
 | `meta.max_concurrent_model_calls` | 6 (raised from 2). AHE runs `min(debugger.max_concurrency, this)` debuggers at once, so 6 is the useful maximum for 6 training tasks. Explore still uses at most 2 workers. |
+| `project.adapter_settings.grading_parallel` | 1 for campaigns 1 and 2; 6 (LAB's own default) from campaign 3 on, approved 2026-10-13 after the timing review in section 5b |
 
 Endpoint caveats that apply to every role: the extension ignores
 `temperature`, reports zero token usage, and synthesizes the response
@@ -251,13 +252,57 @@ AHE-010 and AHE-011 in
 This campaign ends here. Its artifacts are kept unchanged. The operator
 chose to repair `search_text` and start a new campaign (section 5b).
 
-## 5b. Campaign log: `harvey-lab-campaign-2-search-cap`
+## 5b. Campaign log: `harvey-lab-campaign-2-search-cap` (stopped in round 1)
 
 Same pinned inputs, models, judges, budget, and seed as section 3a. One
 difference: the AHE-010 `search_text` output cap (branch-local, in
 `src/ahe_runner/meta/tools.py`). The protected-runner fingerprint changes,
 so this is a separate campaign, run from round 1. The operator approved the
 same phased sequence: rounds 1, 2, and 3, then `run-final-test`.
+
+What happened:
+- **08:34 UTC, endpoint outage.** Round 1 started (log
+  `campaign-artifacts/c2-run-round-1.log`). All six C0 trials hung on their
+  first model call. The operator's VS Code connection had dropped. Its old
+  extension host (pid 3352855) still held port 3141 but answered nothing:
+  `/v1/models` timed out. Steps taken:
+  1. Stopped the run and removed the six orphaned `lab-sandbox` containers.
+  2. With approval, killed pid 3352855.
+  3. The operator started the server in the reconnected window (extension
+     host pid 16603).
+  4. Checked the restarted endpoint: catalog of 31 models, including all four
+     campaign models; extension 0.1.0 file hashes unchanged.
+  No trial had produced output or grades.
+- **08:55 UTC, resume.** `ahe run-round --round 1` marked attempt 1 of
+  `evaluation.C0.train` `interrupted` and started attempt 2 (log
+  `c2-run-round-1-resume.log`). Model calls and grading resumed normally.
+- **About 09:05 UTC, stopped on purpose.** A timing review of campaign 1,
+  round 1 (below) showed grading was the bottleneck. The operator chose LAB's
+  default grading parallelism. `ahe.yaml` is fingerprinted, so this campaign
+  was stopped and campaign 3 started. Artifacts are kept as they are.
+
+Where campaign 1's round 1 time went (46.5 min, measured from stage records
+and artifact timestamps):
+
+| Stage | Time | Main cost |
+|---|---|---|
+| `evaluation.C0.train` (6 trials) | 11.2 min | Agent 1.0-1.6 min per trial. Grading 6.5-9.0 min per trial: about 35 criteria per judge, one call at a time (about 6.5 s each), judge 1 then judge 2 |
+| `exploration` | 8.9 min | Source and web explorers already run concurrently |
+| `round.1.debugger` (6 tasks) | 4.9 min | Already concurrent; bounded by the slowest debugger |
+| `round.1.evolve` | 7.0 min | One agent, 30 model calls |
+| `round.1.validate` and `freeze` | 0.2 min | |
+| `evaluation.C1.train` (6 trials) | 13.9 min | Agent 1.7-4.9 min, grading 6.3-8.7 min |
+
+## 5c. Campaign log: `harvey-lab-campaign-3-grading-parallel`
+
+Same as campaign 2 (section 5b), including the AHE-010 repair, except that
+`grading_parallel` is 6 instead of 1. Each judge grades up to six rubric
+criteria at once. LAB's own `run_eval.py` default is 6. Every criterion is
+an independent, stateless judge call, and LAB returns verdicts in rubric
+order, so the scores do not depend on this setting. Offline test:
+`tests/test_harvey_grading.py::test_parallel_criteria_grading_matches_serial_in_rubric_order`.
+Expected effect: about 6 fewer minutes per evaluation. The cost is up to 36
+concurrent judge requests during a 6-trial evaluation.
 
 ## 6. Known deviations and limits to report with results
 

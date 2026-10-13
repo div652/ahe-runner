@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, ClassVar
@@ -164,6 +165,65 @@ def test_both_judges_pass_writes_dual_scores(tmp_path: Path) -> None:
     assert judge_1["judge_model"] == f"copilot/{JUDGE_A}"
     assert judge_1["n_passed"] == 2
     assert not (tmp_path / "run" / "scores_dual.json").exists()
+
+
+def test_parallel_criteria_grading_matches_serial_in_rubric_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    criteria = [
+        {
+            "id": f"c{index}",
+            "title": f"Criterion number {index}",
+            "match_criteria": f"The memo satisfies check {index}.",
+            "deliverables": ["memo.md"],
+        }
+        for index in range(8)
+    ]
+
+    def create(self: FakeClient, **kwargs: Any) -> Any:
+        prompt = json.dumps(kwargs["messages"])
+        index = next(i for i in range(8) if f"Criterion number {i}" in prompt)
+        # Later criteria answer first, so parallel completion order is reversed.
+        time.sleep(0.005 * (8 - index))
+        FakeClient.calls.append(self.model)
+        verdict = "fail" if index % 3 == 0 else "pass"
+        message = SimpleNamespace(content=_verdict(verdict))
+        return SimpleNamespace(
+            model=kwargs["model"], choices=[SimpleNamespace(message=message)]
+        )
+
+    monkeypatch.setattr(FakeClient, "_create", create)
+    run_dir = _run_dir(tmp_path)
+    results = {}
+    for parallel in (1, 6):
+        name = f"grading-parallel-{parallel}"
+        results[parallel] = grading.grade_task(
+            task_id="area/task",
+            task_config={"title": TASK_TITLE, "criteria": criteria},
+            run_dir=run_dir,
+            grading_dir=tmp_path / name,
+            judges=(_judge(JUDGE_A), _judge(JUDGE_B)),
+            helper=ModelSettings(model=HELPER, max_tokens=1024, temperature=0.0),
+            transport=_transport(),
+            api_key="test-key",
+            max_prompt_chars=240000,
+            parallel=parallel,
+        )
+
+    assert results[1] == results[6]
+    assert results[6]["n_passed"] == [5, 5]
+    assert len(FakeClient.calls) == 32
+    for index in (1, 2):
+        serial, concurrent = (
+            json.loads(
+                (tmp_path / name / f"scores_judge-{index}.json").read_text("utf-8")
+            )["criteria_results"]
+            for name in ("grading-parallel-1", "grading-parallel-6")
+        )
+        assert concurrent == serial
+        assert [row["verdict"] for row in concurrent] == [
+            "fail" if position % 3 == 0 else "pass" for position in range(8)
+        ]
 
 
 def test_disagreement_scores_half_and_is_not_all_pass(tmp_path: Path) -> None:

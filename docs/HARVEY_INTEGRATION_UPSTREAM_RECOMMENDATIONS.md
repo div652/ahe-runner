@@ -38,6 +38,7 @@ The assistant announces new permanent files before creating them.
 | AHE-009 | Project role supplements are rendered as Jinja together with the core meta prompt, so template markup in a supplement crashes that meta-agent at its first model call; config loading does not check this | Explained in plain language; recording approved on 2026-10-13 | No AHE patch; the Harvey supplements avoid Jinja markup, and an offline render check passes for all four roles |
 | AHE-010 | `search_text` has no total output budget, so a few parallel searches over the debugger's raw model-call logs overflowed the Evolve context (617,681 tokens against 200,000) and stopped round 2 of the first live campaign | Explained in plain language; on 2026-10-13 the operator approved a per-call output cap with match snippets | Branch-local cap (about 32,000 characters per call), 400-character match snippets, `truncation_reason`, and a regression test in `meta/tools.py`; 179 offline tests passed, and a replay of the failing searches dropped from about 617,681 to about 48,000 tokens |
 | AHE-011 | A non-infrastructure meta-agent failure permanently blocks its stage with attempts left, no command unblocks it, and protected-code fingerprints forbid continuing the campaign after any AHE repair | Explained in plain language; on 2026-10-13 the operator chose a new campaign with the AHE-010 repair | No AHE patch; first campaign kept as evidence, new campaign `harvey-lab-campaign-2-search-cap` started from round 1 |
+| AHE-012 | Independent evaluations run one after another (validation of C0..Cn, the final test pair), and exploration waits for the C0 evaluation it does not use, leaving most allowed concurrency idle | Timing review explained on 2026-10-13; recording approved (performance recommendation, not a correctness defect) | No AHE patch. The Harvey side switched to LAB's default `grading_parallel: 6` (campaign 3) |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -1089,3 +1090,65 @@ chosen:
    runner fingerprint as a manifest amendment that later reports show,
    instead of forcing a full restart for a fix that does not change the
    evaluation contract.
+
+## AHE-012: independent evaluations and exploration run sequentially
+
+### Plain-language summary
+
+This is a speed issue, not a correctness bug. Several AHE steps do not
+depend on each other, yet the controller runs them one after another. The
+allowed concurrency is mostly left idle:
+
+1. **Validation.** `run_validation` evaluates C0, C1, ..., Cn on the
+   validation split in a plain loop, one checkpoint at a time. With the
+   Harvey pilot split (3 validation tasks, 1 trial), each evaluation has
+   only 3 units, while `evaluation.max_concurrency` is 20. Up to 12 units
+   could run at once; instead there are four waits of about 11 minutes each.
+2. **Final test.** `run_final_test` evaluates C0 and the selected checkpoint
+   one after another, though they are independent.
+3. **Exploration.** In round 1, `run_round` finishes the C0 training
+   evaluation before exploration starts. Exploration reads only the seed
+   harness and the prompt context, not C0's results, so it could overlap
+   that evaluation. In the first Harvey campaign that would have saved
+   about 9 minutes.
+
+Each evaluation is already checkpointed as its own stage, with its own
+semantic inputs and artifacts, so running them at the same time would not
+change any result.
+
+### Evidence (AHE `harveybench`, first Harvey campaign, round 1)
+
+- `src/ahe_runner/controller.py` `run_validation`: a `for index in
+  range(rounds + 1)` loop calling `_ensure_evaluation(index,
+  SplitName.VALIDATION)`. `run_final_test`: a dict comprehension calling
+  `_ensure_evaluation` for `{0, selected}` in turn.
+- `src/ahe_runner/controller.py` `run_round`: `_ensure_training_evaluation(0)`
+  and `_ensure_evidence(0)` come before `_ensure_exploration()`. The
+  exploration stage's semantic inputs are `baseline_harness_sha256`,
+  `meta_model`, `source_enabled`, `web_enabled`, and `prompt_context`; there
+  are no evaluation inputs.
+- Measured stage times (2026-10-13): `evaluation.C0.train` 07:02:44-07:13:53
+  (669 s), then `exploration` 07:13:54-07:22:50 (536 s). Per-trial grading
+  took 6.3-9.0 minutes of each 11-14-minute training evaluation (details in
+  `harvey-ahe-project/HARVEY_AHE_RUNBOOK.md` section 5b).
+
+### Local handling (no AHE patch)
+
+The largest Harvey-side cost was in the adapter's own configuration:
+`grading_parallel: 1` graded each judge's rubric criteria one at a time.
+From campaign 3 on, `ahe.yaml` uses 6, which is LAB's own `run_eval.py`
+default. The verdicts are independent calls returned in rubric order; an
+offline test checks that serial and parallel grading give identical rows.
+This adapter-side change does not address AHE-012 itself.
+
+### Upstream recommendations
+
+1. Run validation evaluations of all checkpoints in one concurrent batch,
+   sharing one `evaluation.max_concurrency` budget across checkpoints. Keep
+   one stage per checkpoint, so resume semantics do not change.
+2. Run the final-test evaluations of C0 and the selected checkpoint the
+   same way.
+3. Start exploration in parallel with the C0 training evaluation. It depends
+   only on the frozen baseline.
+4. Optionally, report per-stage wall-clock times in `ahe status`, so
+   operators can see where time goes without reading artifact timestamps.
