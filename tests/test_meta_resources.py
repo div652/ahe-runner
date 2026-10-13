@@ -448,7 +448,7 @@ def test_search_text_bounds_total_output_and_returns_match_snippets(
     assert long_match["column"] > 3_000
     assert long_match["snippet_start_column"] == long_match["column"] - 150
 
-    accesses = state.global_storage.get("debugger_artifact_accesses") or []
+    accesses = tools._debugger_accesses(state)  # type: ignore[arg-type]
     assert all("model_calls" not in str(item["artifact"]) for item in accesses)
 
     short = json.loads(
@@ -470,7 +470,7 @@ def test_search_text_bounds_total_output_and_returns_match_snippets(
             "text_truncated": False,
         }
     ]
-    accesses = state.global_storage.get("debugger_artifact_accesses") or []
+    accesses = tools._debugger_accesses(state)  # type: ignore[arg-type]
     assert {
         "artifact": "evidence:short.txt",
         "mode": "lines",

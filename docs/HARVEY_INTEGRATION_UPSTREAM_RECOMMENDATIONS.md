@@ -36,7 +36,7 @@ The assistant announces new permanent files before creating them.
 | AHE-007 | The static import scan misreads `from pkg import name` as `pkg.n.a.m.e` | Explained with AHE-006; recording only | No patch; the Harvey seed imports helpers as `from tools._common import ...`, which is unaffected |
 | AHE-008 | Meta-agents have no sandbox work folder, so NexAU copies the Explore skills, read-only, into the operator's current directory; a later Evolve run there fails with `Permission denied` | Explained in plain language; on 2026-10-13 the operator approved a private per-run folder and deleting the leftover `AHE_Harvey/.skills` | Branch-local `LocalSandboxConfig(work_dir=<runtime_dir>/sandbox)` in `meta/nexau_backend.py`, plus a regression test |
 | AHE-009 | Project role supplements are rendered as Jinja together with the core meta prompt, so template markup in a supplement crashes that meta-agent at its first model call; config loading does not check this | Explained in plain language; recording approved on 2026-10-13 | No AHE patch; the Harvey supplements avoid Jinja markup, and an offline render check passes for all four roles |
-| AHE-010 | `search_text` has no total output budget, so a few parallel searches over the debugger's raw model-call logs overflowed the Evolve context (617,681 tokens against 200,000) and stopped round 2 of the first live campaign | Explained in plain language; on 2026-10-13 the operator approved a per-call output cap with match snippets | Branch-local cap (about 32,000 characters per call), 400-character match snippets, `truncation_reason`, and a regression test in `meta/tools.py` |
+| AHE-010 | `search_text` has no total output budget, so a few parallel searches over the debugger's raw model-call logs overflowed the Evolve context (617,681 tokens against 200,000) and stopped round 2 of the first live campaign | Explained in plain language; on 2026-10-13 the operator approved a per-call output cap with match snippets | Branch-local cap (about 32,000 characters per call), 400-character match snippets, `truncation_reason`, and a regression test in `meta/tools.py`; 179 offline tests passed, and a replay of the failing searches dropped from about 617,681 to about 48,000 tokens |
 | AHE-011 | A non-infrastructure meta-agent failure permanently blocks its stage with attempts left, no command unblocks it, and protected-code fingerprints forbid continuing the campaign after any AHE repair | Explained in plain language; on 2026-10-13 the operator chose a new campaign with the AHE-010 repair | No AHE patch; first campaign kept as evidence, new campaign `harvey-lab-campaign-2-search-cap` started from round 1 |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
@@ -999,6 +999,22 @@ snippets, and what to do when truncated. Regression test:
 
 Both files are fingerprinted into the campaign identity (see AHE-011), so
 this repair needs a new campaign.
+
+Offline verification (2026-10-13, after proposal commit `0c4fca0`):
+
+- The first run of the new test failed: it read the debugger-access record
+  under an unnamespaced storage key. It now uses `tools._debugger_accesses`
+  and passes.
+- Results: 13 of 13 in `tests/test_meta_resources.py`; the full suite, 179
+  of 179; ruff check and format clean; pyright 0 errors in `meta/tools.py`
+  and the new test. The 8 other errors are older typing issues in existing
+  test code.
+- Read-only replay: the six failing Evolve searches were re-run with the
+  patched `search_text` over the real
+  `harvey-lab-first-campaign/debugger/C2`. Each returned 31,818 to 32,437
+  characters (63 to 79 snippets, `output_char_limit`), 192,944 characters in
+  total, about 48,000 tokens. Before the repair the same six calls produced
+  about 617,681 tokens.
 
 ### Upstream recommendations
 
