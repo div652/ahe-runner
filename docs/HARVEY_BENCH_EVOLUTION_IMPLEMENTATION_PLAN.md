@@ -258,8 +258,34 @@ are H19.
 | H16 | Approved by the operator on 2026-10-13. Source, web, and evolve supplements follow the official AHE explore/evolve prompt style; debugger supplement, `meta_prompt_context()`, and seed URLs approved as written. AHE-009 found and recorded: supplements must avoid Jinja markup; an offline render check passes for all four roles. | `meta_prompt_context()` in `adapter.py`, `meta_supplements/`, `benchmark_public/ADAPTER.md` |
 | H17 | Implemented with placeholder model IDs for the operator | `ahe.yaml` |
 | H18 | Runbook written; reports are the adapter's per-trial artifacts | `HARVEY_AHE_RUNBOOK.md` |
-| H19 | Pending: offline tests | - |
+| H19 | Proposed: offline test suite (see "H19 offline tests" below); results pending | `tests/test_harvey_*.py`, `tests/harvey_fakes.py` |
 | H20-H23 | Operator | - |
+
+### H19 offline tests (proposed 2026-10-13)
+
+None of these tests calls podman, a model endpoint, or the network, and none
+runs `ahe conformance`, `validate`, `run`, `run-round`, or `resume`. Each
+test fakes only the part it cannot run offline:
+
+- **Sandbox.** `tests/harvey_fakes.py` subclasses LAB's real `Sandbox` and
+  replaces only `start`, `stop`, and `exec` (podman). Path rules, the
+  read-only documents mount, and host-file access are LAB's own code.
+- **Judges.** The two judges are replaced by a scripted grader that writes
+  `scores_judge-{1,2}.json` and `scores_dual.json` in LAB's shape. It uses
+  the real `dual_summary`. Real judge calls stay covered by
+  `test_harvey_grading.py`.
+- **Model.** Calls are scripted through AHE's existing
+  `FakeRecordedClient` and its offline preflight endpoint
+  (`tests/test_runtime.py`).
+
+| File | What it checks |
+|---|---|
+| `test_harvey_seed_tools.py` | Workspace handle: `handle_for` binding, timeout bounds, revocation fails closed, and the path rules come from LAB. The seven seed tools against the fake sandbox: path resolution, office parsing through `parse-doc`, read-only documents, mount escapes, symlink escapes in glob/grep, caps, bash stderr/exit/timeout, and finish (two rejections, then a forced accept; which paths are accepted). |
+| `test_harvey_adapter.py` | Settings validation (including the shipped `ahe.yaml`); split sizes, disjointness, and pins; leakage terms are training-only; the termination-reason table; candidate checks (the seed passes; socket/os.system/grader import/`task.json`/training-slug candidates fail); supplements render unchanged under NexAU Jinja (AHE-009). One end-to-end flow on the six real training tasks: `evaluate` with one infrastructure failure, then a resume that retries only that unit, `verify_evaluation`, AHE's `verify_evaluation_output`, `materialize_training_evidence`, AHE's `verify_evidence_bundle`, and score-file tampering detection. Also checks metrics, outcomes, termination counts, symlink skipping in outputs, scratch cleanup, sandbox stop, and handle revocation. Evidence for a non-training split is refused. |
+| `test_harvey_seed_runtime.py` | AHE's real `EvaluatedAgentRuntime` loads the real seed harness and runs it through the adapter's `_run_session` with a scripted model. Tools reach the session-bound handle (AHE-006); a finish with a missing deliverable is rejected and the run continues; an accepted finish ends the run (four model calls). Also checks the tool schemas and system prompt sent to the model, and that `_tool_counts` and `_termination_reason` read the real NexAU trace shape. |
+
+Run from the AHE root: `.venv/bin/python -m pytest -q tests/test_harvey_*.py`,
+then Ruff and Pyright on the new files.
 
 ### Project layout
 
