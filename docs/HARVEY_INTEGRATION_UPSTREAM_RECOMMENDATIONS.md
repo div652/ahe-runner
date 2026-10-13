@@ -43,6 +43,7 @@ The assistant announces new permanent files before creating them.
 | AHE-014 | `list_files` has no output-size budget: in campaign 3 round 1, one recursive Evolve listing of `raw_evaluation` returned 274,020 characters into the context | Explained in plain language; on 2026-10-13 the operator approved option 2b (a long-output safety net for Evolve and both Explore agents, not the Debugger), a 64,000-character limit with a 24,000 + 8,000 preview, and campaign name `harvey-lab-campaign-4-gp50-output-backstop` (later renamed `harvey-lab-campaign-4-judge-cap-output-backstop`; runbook section 5d) | Branch-local `MetaToolOutputBackstopMiddleware` in `meta/middleware.py`, wired for Evolve and Explore in `meta/nexau_backend.py`; 191 offline tests passed, and a replay of the 274,020-character listing showed the agent 32,734 characters |
 | AHE-015 | AHE has no endpoint-wide limit on model calls in flight: the evaluated agent, the benchmark judges, and the meta agents each send calls independently, and a burst above the Copilot limit is refused instead of waiting | Explained in plain language; on 2026-10-13 the operator asked that calls above the limit be queued, and approved `transport.max_concurrent_requests: 24` with the Harvey judge cap lowered to 18 | Branch-local `transport.max_concurrent_requests` and a shared queue in `meta/model_client.py`; 199 offline tests passed |
 | AHE-016 | The meta agents' harnesses differ from the original AHE agents: different file tools without binary or line-length protection, no long-output middleware for the Debugger, a context compaction that stops the agent instead of falling back, no shell, an 80-iteration debugger, and a debugger failure blocks the round. In campaign 4 round 2 a debugger read four `.docx` files as text and was stopped | Explained; on 2026-10-13 the operator asked for full parity with the original AHE meta agents and chose: path guard, Docker-sandboxed shell, original debugger budget, non-blocking debugger failures, original temperatures, readable evidence, `nexau-evolution-guide` skill (runbook section 5f) | Implemented and tested offline (`6f9d941`); campaign 5 is the live check |
+| AHE-017 | Change attribution compares Evolve's predicted task IDs (the debugger's per-round `task-<hash>` keys) with the evaluation's task keys, which never match, so every change was marked INEFFECTIVE with 0 hits in campaigns 3, 4 and 5 round 1, and the next Evolve read that wrong feedback | Found after campaign 5 round 1; on 2026-10-13 the operator chose to fix it, redo C1's attribution, then continue round 2 | Branch-local alias map (debugger key, task id, task key → evaluation task key) in `controller.py` and `history.py`; 229 offline tests passed |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -1567,3 +1568,56 @@ Remaining risks:
 - The preflight checks that the model accepts temperatures 0.7 and 0.4
   before each stage.
 
+
+## AHE-017: change attribution never matches the predicted tasks
+
+### Plain-language summary
+
+After each round, AHE checks every change in Evolve's `change_manifest.json`
+against the tasks that improved or regressed. Evolve names the tasks it
+expects to fix using the debugger's task keys (`task-<hash>`, built from the
+task id and the evidence hash, so they also change every round). The
+attribution step compares those names with the evaluation's task keys (a
+different hash). The two never match, so every change is reported as
+INEFFECTIVE with 0 hits, every improvement as "unattributed", and every
+regression as "unanticipated". The next round's Evolve reads this report
+when it decides what to keep or revert.
+
+### Evidence
+
+- Campaign 3 C1: `chg-c1-systemprompt-coverage-review` 0/6, INEFFECTIVE.
+- Campaign 4 C1: all three changes 0/4, 0/2, 0/4, INEFFECTIVE.
+- Campaign 5 C1: all three changes 0/6, 0/3, 0/3, INEFFECTIVE, while three
+  of the predicted tasks did improve.
+- `meta/nexau_backend.py` `_debugger_task_key` builds the debugger keys;
+  `history.write_transition` matched predictions verbatim.
+
+### Approved local repair
+
+Approved by the operator on 2026-10-13 ("fix attribution, redo C1
+attribution, then launch round 2").
+
+1. `CampaignController._attribution_task_aliases` maps the debugger key of
+   the round, the task id and the evaluation task key to the evaluation task
+   key.
+2. `write_transition` resolves `predicted_fixes` and `risk_tasks` through the
+   map, keeps Evolve's original lists, adds `predicted_fix_task_keys`,
+   `risk_task_keys` and `unresolved_task_references`.
+3. The alias map hash is a semantic input of `round.N.attribute`.
+
+### Upstream recommendations
+
+1. Use one stable task reference across debugger output, change manifests,
+   evidence and attribution, or resolve aliases in one place.
+2. Reject or warn on change-manifest task references that match no training
+   task when the candidate is validated.
+
+### Local result
+
+- Tests: `test_transition_resolves_debugger_task_aliases` and
+  `test_attribution_aliases_map_debugger_keys_to_task_keys`; the full suite
+  passed 229/229; ruff is clean.
+- Campaign 5 C1 recomputed: chg-1 3/6 PARTIALLY_EFFECTIVE, chg-2 2/3 MIXED
+  (risk task regressed), chg-3 1/3 PARTIALLY_EFFECTIVE; 2 unanticipated
+  regressions; no unresolved references. The original wrong report is kept
+  in the campaign's `archive/attribution-pre-ahe-017/`.

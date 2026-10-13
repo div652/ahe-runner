@@ -715,6 +715,7 @@ class CampaignController:
             self._checkpoint_dir(index) / "harness" / "change_manifest.json"
         )
         output_dir = self.config.campaign_dir / "attribution" / f"C{index}"
+        task_aliases = self._attribution_task_aliases(index, before, after)
 
         def action(context: StageContext) -> StageResult:
             del context
@@ -723,6 +724,7 @@ class CampaignController:
                 output_dir=output_dir,
                 transition=transition,
                 change_manifest=change_manifest,
+                task_aliases=task_aliases,
             )
             return StageResult(
                 outputs=(path,),
@@ -737,11 +739,37 @@ class CampaignController:
                 "change_manifest_sha256": sha256_json(
                     change_manifest.model_dump(mode="json")
                 ),
+                "task_aliases_sha256": sha256_json(task_aliases),
             },
             retryable=False,
             action=action,
         )
         return output_dir
+
+    def _attribution_task_aliases(
+        self,
+        index: int,
+        before: EvaluationResult,
+        after: EvaluationResult,
+    ) -> dict[str, str]:
+        """Map debugger keys, task ids and task keys to evaluation task keys."""
+        aliases: dict[str, str] = {}
+        key_by_task_id: dict[str, str] = {}
+        for task in (*before.summary.task_states, *after.summary.task_states):
+            aliases[task.task_key] = task.task_key
+            if task.task_id:
+                key_by_task_id[task.task_id] = task.task_key
+                aliases[task.task_id] = task.task_key
+        summary_path = (
+            self.config.campaign_dir / "debugger" / f"C{index}" / "summary.json"
+        )
+        if summary_path.is_file():
+            for row in read_json(summary_path).get("tasks") or []:
+                debugger_key = row.get("task_key")
+                task_key = key_by_task_id.get(row.get("task_id") or "")
+                if debugger_key and task_key:
+                    aliases[str(debugger_key)] = task_key
+        return aliases
 
     def _close_evolution_action(
         self,
