@@ -442,6 +442,79 @@ risk_tasks overlap", in both changes. This is the same recoverable
 rejection seen in round 1 of both campaigns. Evolve fixed the manifest and
 completed.
 
+### Round 3: `ahe run-round --round 3` (2026-10-13 10:13-10:30 UTC, exit 0)
+
+Log in `campaign-artifacts/c3-run-round-3.log`. The C2 evaluation and
+evidence were reused. Every new stage completed on its first attempt:
+debugger 251 s, evolve 382 s, validate and freeze 12 s, C3 train
+evaluation 339 s. Total time was about 17 minutes. Grading took 1.0-1.6
+minutes per trial, with no grading retries. There were no grading,
+judge-input-limit, or agent errors, and the judges never disagreed on
+all-pass. The evolve agent loaded both Explore skills and completed on its
+first `complete_task`.
+
+| Training task | C2 j1 | C2 j2 | C3 j1 | C3 j2 |
+|---|---|---|---|---|
+| banking-finance/identify-issues-in-officer-certificate | 15/35 | 16/35 | 13/35 | 13/35 |
+| corporate-ma/compare-credit-agreement-to-commitment-letter | 25/40 | 27/40 | 29/40 | 31/40 |
+| energy-natural-resources/identify-issues-in-tax-equity-flip-partnership-agreement | 14/36 | 18/36 | 20/36 | 22/36 |
+| environmental-esg/identify-issues-in-expert-remediation-report | 4/33 | 5/33 | 7/33 | 7/33 |
+| real-estate/draft-warranty-deed | 36/38 | 36/38 | 36/38 | 35/38 |
+| tax/identify-tax-issues-in-irs-closing-agreement | 8/33 | 8/33 | 6/33 | 8/33 |
+
+| Metric | C0 | C1 | C2 | C3 |
+|---|---|---|---|---|
+| Primary: mean dual all-pass | 0.0 | 0.0 | 0.0 | 0.0 |
+| Mean criterion pass rate | 0.533 | 0.498 | 0.477 | 0.511 |
+| Pooled criterion pass rate | 0.551 | 0.516 | 0.493 | 0.528 |
+| Terminations | 4 `finish_tool`, 2 `no_tool_calls` | 6 `finish_tool` | 6 `finish_tool` | 6 `finish_tool` |
+| Total assistant turns, 6 trials | 38 | 47 | 60 | 60 |
+| Total agent wall-clock, 6 trials | 920 s | 942 s | 903 s | 771 s |
+
+What C3 changed (`checkpoints/C3/harness/change_manifest.json`): three
+changes, all aimed at stopping the agent from finishing before a final
+audit.
+- `chg-c3-systemprompt-audit-routing`: `systemprompt.md` now requires a
+  final audit note with sections for documents read, deliverables owed,
+  open questions, and checklist dispositions. Predicted fixes: 3, risks: 1.
+- `chg-c3-finish-tool-contract`: the `finish` schema
+  (`tool_descriptions/finish.tool.yaml`) now requires the deliverable list
+  and a verification-note path. Predicted fixes: 2, risks: 1.
+- `chg-c3-finish-tool-enforcement`: `tools/finish.py` now rejects `finish`
+  unless every listed deliverable exists and is not empty, and the
+  verification note exists, has the required headings, records checklist
+  dispositions, and names every deliverable. Predicted fixes: 3, risks: 2.
+
+Effects observed in C3: all six trials wrote a final audit note and called
+`finish`. The new check rejected the first `finish` in three trials, and
+each agent fixed the problem and finished:
+- corporate-ma: the audit note did not exist yet;
+- real-estate: the deliverables were listed with an `output/` prefix, and the
+  note was missing;
+- environmental-esg: the note recorded no checklist dispositions.
+
+In corporate-ma and real-estate the agent saved `final-audit.md` in the output
+folder, so the judges graded it along with the deliverables.
+
+Attribution marked all three changes `INEFFECTIVE`. No task's primary score
+changed, because the all-pass score stayed 0.0 everywhere. No declared risks
+were observed. The attribution metadata records a mean criterion pass rate
+change of +0.033.
+
+The mean criterion pass rate rose 3.3 points from C2. C3 is still 2.2 points
+below C0, and every step remains smaller than the 5.7-point C0 difference
+between campaigns. With one trial per task, this is noise-level evidence.
+
+The five `Finish Tool ... execution failed, will continue` lines in the log
+are:
+- two debugger `submit_debugger_diagnosis` rejections, for the
+  environmental-esg trace;
+- the three evaluated-agent `finish` rejections above.
+
+The debugger cited trace lines 11 and 14, which are 93 KB and 135 KB long.
+Neither was fully covered by a read, which is the same AHE-010 follow-up
+behaviour seen in round 1. The debugger was accepted on its third submission.
+
 
 ## 6. Known deviations and limits to report with results
 
