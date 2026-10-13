@@ -1617,7 +1617,9 @@ attribution, then launch round 2").
 - Tests: `test_transition_resolves_debugger_task_aliases` and
   `test_attribution_aliases_map_debugger_keys_to_task_keys`; the full suite
   passed 229/229; ruff is clean.
-- Campaign 5 C1 recomputed: chg-1 3/6 PARTIALLY_EFFECTIVE, chg-2 2/3 MIXED
-  (risk task regressed), chg-3 1/3 PARTIALLY_EFFECTIVE; 2 unanticipated
-  regressions; no unresolved references. The original wrong report is kept
-  in the campaign's `archive/attribution-pre-ahe-017/`.
+- Campaign 5 C1 recomputed offline with the fixed code: chg-1 3/6
+  PARTIALLY_EFFECTIVE, chg-2 2/3 MIXED (risk task regressed), chg-3 1/3
+  PARTIALLY_EFFECTIVE; 2 unanticipated regressions; no unresolved
+  references. Campaign 5's stored report was left unchanged: the campaign
+  identity fingerprints the runner package, so campaign 5 cannot resume
+  under the fixed code. Campaign 6 reran the same configuration with the fix.

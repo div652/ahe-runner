@@ -1029,6 +1029,95 @@ debugger:
 Build the image once with
 `docker build -t ahe-meta-shell:py313-v2 -f harvey-ahe-project/docker/meta-shell.Dockerfile harvey-ahe-project/docker`.
 
+## 5g. Campaign logs: campaigns 5 and 6
+
+### Campaign 5: `harvey-lab-campaign-5-original-meta-agents` (stopped after round 1)
+
+Section 5f's configuration. Round 1 ran 18:38-19:09 UTC with exit 0, and
+every stage completed on its first attempt: C0 eval 295 s, exploration
+704 s, debugger 227 s (6/6 diagnosed), evolve 268 s, C1 eval 327 s.
+C0 scored 0.546 and C1 0.527.
+
+Every change was reported `INEFFECTIVE` (0/6, 0/3, 0/3). The cause was a
+runner bug, not the changes. Evolve's `predicted_fixes` use the debugger's
+per-round `task-<sha>` keys, and attribution compared them verbatim with
+the evaluation `task_key`s, so nothing could ever match. Campaigns 3 and 4
+had the same problem. AHE-017 (`db898d1`) fixes it. The campaign identity
+fingerprints the runner package, so campaign 5 cannot resume under the
+fixed code. The operator chose to start campaign 6 instead.
+
+### Campaign 6: `harvey-lab-campaign-6-attribution-fix` (complete)
+
+Campaign 5's configuration plus AHE-017, config at `2da1dee`. Each command
+ran in tmux (`ahe-c6`, `ahe-c6-r2`, `ahe-c6-r3`, `ahe-c6-final`). Logs are
+`campaign-artifacts/c6-run-*.log`. All stages completed on their first
+attempt, and the runner logged no model-call errors.
+
+| Stage (s) | Round 1 | Round 2 | Round 3 |
+|---|---|---|---|
+| exploration | 529 | - | - |
+| debugger (6/6 diagnosed) | 188 | 196 | 195 |
+| evolve | 234 | 514 | 344 |
+| next train eval (12 trials) | 369 | 457 | 511 |
+| round total | 27 min (with C0 eval 254 s) | 20 min | 18 min |
+
+Training, mean criterion pass rate (2 trials per task):
+
+| Task | C0 | C1 | C2 | C3 |
+|---|---|---|---|---|
+| energy-natural-resources/...tax-equity-flip... | 0.549 | 0.451 | 0.438 | 0.444 |
+| environmental-esg/...expert-remediation-report | 0.311 | 0.303 | 0.288 | 0.288 |
+| banking-finance/...officer-certificate | 0.400 | 0.400 | 0.350 | 0.386 |
+| real-estate/draft-warranty-deed | 0.947 | 0.954 | 0.954 | 0.954 |
+| corporate-ma/compare-credit-agreement... | 0.787 | 0.750 | 0.775 | 0.769 |
+| tax/...irs-closing-agreement | 0.258 | 0.311 | 0.250 | 0.258 |
+| **Mean** | **0.542** | **0.528** | **0.509** | **0.516** |
+
+Changes and attribution (hit rate = predicted fixes that improved):
+
+| Round | Change | Verdict |
+|---|---|---|
+| 1 | system prompt | PARTIALLY_EFFECTIVE 2/6 |
+| 1 | new skill `legal-review-coverage` | PARTIALLY_EFFECTIVE 2/6 |
+| 1 | `LongTermMEMORY.md` | INEFFECTIVE 0/3 |
+| 2 | system prompt (atomic checklist) | INEFFECTIVE 0/5 |
+| 2 | skill update | PARTIALLY_EFFECTIVE 1/4 |
+| 2 | new sub-agent `coverage-reviewer` (used in 12/12 trials) | PARTIALLY_EFFECTIVE 1/6 |
+| 2 | memory rollback, citing round 1 attribution | INEFFECTIVE 0/0 |
+| 3 | `coverage-reviewer` prompt: checklist as a minimum, exact-detail checks | MIXED 3/5 |
+
+All three transitions were classified `mixed`. There were 3, 4 and 0
+unanticipated regressions, and no unresolved task references. Debugger
+patterns: `issue-coverage-gap` on 6, 5 and 5 tasks, plus one
+false-"conforming" finding in each of rounds 2 and 3. Evolve's finish tool
+was rejected and retried once in round 2 and twice in round 3.
+
+Final test (`ahe run-final-test`, 20:36-20:51 UTC, exit 0, 1 trial per
+task):
+
+| Validation task | C0 | C1 | C2 | C3 |
+|---|---|---|---|---|
+| emerging-companies-vc/...stockholder-agreement | 0.064 | 0.141 | 0.269 | 0.128 |
+| bankruptcy-restructuring/...plan-of-reorganization | 0.231 | 0.141 | 0.128 | 0.308 |
+| data-privacy-cybersecurity/...transfer-impact-assessment | 0.379 | 0.500 | 0.530 | 0.455 |
+| **Mean** | **0.225** | **0.261** | **0.309** | **0.297** |
+
+Selected: **C2**. Test results for C2 against C0:
+
+| Test task | C0 | C2 |
+|---|---|---|
+| employment-labor/...counterparty-motion-brief | 0.174 | 0.217 |
+| healthcare-life-sciences/...medicare-enrollment... | 0.397 | 0.462 |
+| international-trade-sanctions/review-draft-voluntary-self | 0.367 | 0.400 |
+| **Mean** | **0.313** | **0.360** |
+
+C2 beat C0 on every test task, by +0.047 on the mean. It also used 62
+tool calls against 36. The two results disagree: on training every evolved
+checkpoint was below C0, while on validation and test they were above it.
+Validation and test used one trial on three tasks, and the measured
+per-trial noise is about 0.05, so this campaign does not show a reliable
+gain. Campaign 7 uses more tasks and trials for that reason.
+
 
 ## 6. Known deviations and limits to report with results
 
