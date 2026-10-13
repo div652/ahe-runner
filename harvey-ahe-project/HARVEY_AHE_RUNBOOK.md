@@ -663,6 +663,31 @@ latency at `grading_parallel` 6 was p50 6.3 s and p90 9.4 s for
 `claude-sonnet-5`, and p50 5.1 s and p90 7.0 s for `gpt-5.5`. Prompts were up
 to 11,250 characters.
 
+### Model endpoint for campaign 4: server-hosted VS Code
+
+Campaign 3's final test lost the endpoint three times. Each time, the
+operator's laptop dropped its VS Code Remote connection, and the orphaned
+extension host kept port 3141 but no longer answered chat requests. For
+campaign 4 the endpoint runs on the model host itself: VS Code desktop
+1.141.0, the same build as the laptop's remote host at the time, with built-in
+Copilot Chat 0.69.0. It runs under Xvfb in tmux session `copilot-host` and is
+started by `~/copilot-host/start-copilot-host.sh`, with its own profile. It
+uses the same GH Copilot Server 0.1.0 code (`out/server.js` `9090e9eb…`,
+`out/extension.js` `c7ef05f7…`) on the same `127.0.0.1:3141`, so `ahe.yaml`
+does not change. The laptop window's server must stay stopped.
+
+Checks on 2026-10-13 (details and hashes in
+`operator-preflight/2026-10-13-server-host/README.md`):
+
+- All four campaign models passed the exact-model and negative-control
+  probes. `/v1/models` advertised 31 IDs.
+- In a disconnect test, the laptop disconnected and VS Code Remote started a
+  new extension host. Every probe request kept returning 200 with
+  `gpt-5.4-mini`, and port 3141 stayed with the server-side VS Code.
+
+To restart the server without the viewer, run `DISPLAY=:99 xdotool key F1`,
+type `GH Copilot Server: Start Server`, then press Return.
+
 
 ## 6. Known deviations and limits to report with results
 
