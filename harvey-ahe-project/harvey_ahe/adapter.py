@@ -120,7 +120,7 @@ class HarveyAdapterSettings(BaseModel):
     sandbox_image: str = "lab-sandbox:latest"
     shell_timeout: int = Field(default=60, ge=1, le=MAX_EXEC_TIMEOUT_SECONDS)
     scratch_root: Path | None = None
-    grading_parallel: int = Field(default=1, ge=1, le=16)
+    grading_parallel: int = Field(default=1, ge=1, le=100)
     grading_attempts: int = Field(default=2, ge=1, le=5)
 
     @model_validator(mode="after")

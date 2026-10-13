@@ -114,6 +114,8 @@ def test_shipped_ahe_yaml_settings_are_accepted() -> None:
             "max_tokens",
         ),
         ({"shell_timeout": 601}, "shell_timeout"),
+        ({"grading_parallel": 0}, "grading_parallel"),
+        ({"grading_parallel": 101}, "grading_parallel"),
         ({"unexpected": True}, "unexpected"),
     ],
 )

@@ -133,7 +133,7 @@ Values chosen:
 | `evaluation.max_concurrency` | 20 (in practice capped at 6 train and 3 validation/test units per evaluation) |
 | `debugger.max_concurrency` | 20 |
 | `meta.max_concurrent_model_calls` | 6 (raised from 2). AHE runs `min(debugger.max_concurrency, this)` debuggers at once, so 6 is the useful maximum for 6 training tasks. Explore still uses at most 2 workers. |
-| `project.adapter_settings.grading_parallel` | 1 for campaigns 1 and 2; 6 (LAB's own default) from campaign 3 on, approved 2026-10-13 after the timing review in section 5b |
+| `project.adapter_settings.grading_parallel` | 1 for campaigns 1 and 2; 6 (LAB's own default) for campaign 3, approved 2026-10-13 after the timing review in section 5b; 50 from campaign 4 on (adapter limit raised from 16 to 100), approved 2026-10-13, see section 5d |
 
 Endpoint caveats that apply to every role: the extension ignores
 `temperature`, reports zero token usage, and synthesizes the response
@@ -603,6 +603,51 @@ The primary metric was 0.0 for every trial in every split, so it gave
 evolution and selection no signal. Selection fell back to the diagnostic
 tiebreaker. Under the current settings (gpt-5.4-mini, 1 trial per task,
 all-pass scoring), this result cannot show whether evolution helps.
+
+
+## 5d. Campaign 4 proposal: `harvey-lab-campaign-4-grading-parallel-50`
+
+Approved by the operator on 2026-10-13, to start after campaign 3 has
+finished. `ahe.yaml` and `harvey_ahe/` are part of the campaign fingerprint,
+so this change cannot be applied to a campaign that is still running.
+
+Changes from campaign 3:
+
+- The adapter's `grading_parallel` limit is raised from 16 to 100
+  (`harvey_ahe/adapter.py`). There was no documented reason for 16; it was a
+  safety guard against typos. LAB has no upper limit. The offline tests reject
+  0 and 101.
+- `grading_parallel` goes from 6 to 50. Tasks have 33-40 criteria, so each
+  judge sends its whole rubric at once. The two judges still run one after
+  the other for each trial.
+
+Expected load: at most about 240 concurrent judge calls, if all 6 training
+trials grade at the same moment (6 trials x up to 40 criteria). The limit is
+about 120 for 3-trial validation and test evaluations. Trials usually finish
+at different times, so the real peak is lower.
+
+Expected effect: grading drops from 1-2 minutes per trial to roughly the
+slowest single call per judge. Each evaluation still waits for its slowest
+agent (corporate-ma, 6-7.5 minutes), so it saves less than a minute.
+
+Risk: the Copilot rate limits behind the loopback endpoint are unknown. Retries
+multiply load when calls fail: the extension makes up to 3 attempts per
+request, LAB's judge up to 6 API attempts, and the adapter repeats grading up
+to `grading_attempts` (2) times.
+
+Gate before launch: a one-burst load probe that replays 60 saved judge
+requests per judge model (120 at once) from campaign 3's `C2-train` grading
+logs. It records only metadata, never prompt text. Pass means all 120 calls
+succeed, return the requested model label, and return a parseable verdict. If
+the probe fails, stop and decide before launching. Command, run from the
+repository root after campaign 3 has finished:
+
+```bash
+.venv/bin/python harvey-ahe-project/operator-preflight/judge_load_probe.py \
+  --evaluation-dir harvey-ahe-project/campaign-artifacts/harvey-lab-campaign-3-grading-parallel/evaluations/C2-train \
+  --per-model 60 \
+  --output harvey-ahe-project/operator-preflight/$(date -u +%F)/judge-load-probe-120.json
+```
 
 
 ## 6. Known deviations and limits to report with results

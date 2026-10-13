@@ -8,13 +8,14 @@
 # record is in HARVEY_AHE_RUNBOOK.md section 3a. The first campaign
 # (harvey-lab-first-campaign) stopped at round 2 on AHE-010. The second
 # (harvey-lab-campaign-2-search-cap) was stopped early in round 1 to switch to
-# LAB's default grading parallelism. This third campaign carries both changes
-# (runbook sections 5a-5c).
+# LAB's default grading parallelism. The third campaign
+# (harvey-lab-campaign-3-grading-parallel) carried both changes. This fourth
+# campaign raises grading_parallel from 6 to 50 (runbook sections 5a-5d).
 schema_version: 1
 
 campaign:
-  name: harvey-lab-campaign-3-grading-parallel
-  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-3-grading-parallel
+  name: harvey-lab-campaign-4-grading-parallel-50
+  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-4-grading-parallel-50
   rounds: 3
   root_seed: 42
 
@@ -50,9 +51,11 @@ project:
     shell_timeout: 60
     # null uses the system temporary directory for per-trial scratch copies.
     scratch_root: null
-    # Rubric criteria graded concurrently per judge; 6 is LAB's own default
-    # (lab_core/evaluation/run_eval.py --parallel). Verdicts stay in rubric order.
-    grading_parallel: 6
+    # Rubric criteria graded concurrently per judge (adapter limit 100). LAB's
+    # own default is 6 (lab_core/evaluation/run_eval.py --parallel). Tasks have
+    # 33-40 criteria, so 50 grades each judge's whole rubric at once. Verdicts
+    # stay in rubric order.
+    grading_parallel: 50
     grading_attempts: 2
   adapter_dependency_paths:
     - ./benchmark_adapter.py
