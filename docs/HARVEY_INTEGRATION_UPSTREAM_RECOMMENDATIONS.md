@@ -39,7 +39,8 @@ The assistant announces new permanent files before creating them.
 | AHE-010 | `search_text` has no total output budget, so a few parallel searches over the debugger's raw model-call logs overflowed the Evolve context (617,681 tokens against 200,000) and stopped round 2 of the first live campaign | Explained in plain language; on 2026-10-13 the operator approved a per-call output cap with match snippets | Branch-local cap (about 32,000 characters per call), 400-character match snippets, `truncation_reason`, and a regression test in `meta/tools.py`; 179 offline tests passed, and a replay of the failing searches dropped from about 617,681 to about 48,000 tokens |
 | AHE-011 | A non-infrastructure meta-agent failure permanently blocks its stage with attempts left, no command unblocks it, and protected-code fingerprints forbid continuing the campaign after any AHE repair | Explained in plain language; on 2026-10-13 the operator chose a new campaign with the AHE-010 repair | No AHE patch; first campaign kept as evidence, new campaign `harvey-lab-campaign-2-search-cap` started from round 1 |
 | AHE-012 | Independent evaluations run one after another (validation of C0..Cn, the final test pair), and exploration waits for the C0 evaluation it does not use, leaving most allowed concurrency idle | Timing review explained on 2026-10-13; recording approved (performance recommendation, not a correctness defect) | No AHE patch. The Harvey side switched to LAB's default `grading_parallel: 6` (campaign 3) |
-| AHE-013 | Meta agents have no general tool-output safety net (the original AHE evolve agent uses NexAU's `LongToolOutputMiddleware`) and no shell or structured way to read one field of a very long JSON trace line | Raised by the operator on 2026-10-13 after comparing with the original AHE `evolve_agent.yaml`; recording approved | No AHE patch. Locally, the AHE-010 cap plus byte-range `read_file` was enough: debuggers recovered on their own |
+| AHE-013 | Meta agents have no general tool-output safety net (the original AHE evolve agent uses NexAU's `LongToolOutputMiddleware`) and no shell or structured way to read one field of a very long JSON trace line | Raised by the operator on 2026-10-13 after comparing with the original AHE `evolve_agent.yaml`; recording approved | No AHE patch at first; the safety-net part is addressed locally by AHE-014 |
+| AHE-014 | `list_files` has no output-size budget: in campaign 3 round 1, one recursive Evolve listing of `raw_evaluation` returned 274,020 characters into the context | Explained in plain language; on 2026-10-13 the operator approved option 2b (a long-output safety net for Evolve and both Explore agents, not the Debugger), a 64,000-character limit with a 24,000 + 8,000 preview, and campaign name `harvey-lab-campaign-4-gp50-output-backstop` | Proposed; not yet implemented |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -1266,3 +1267,67 @@ This is our reading of the code; the maintainers have not confirmed it.
 No AHE patch; this branch keeps ahe-runner's meta-agent configuration.
 AHE-010's per-tool cap prevents the observed overflow, and byte-range
 `read_file` was enough for the debuggers to recover (campaign 3, round 1).
+
+Update (AHE-014): campaign 4 adds a branch-local safety net for Evolve and
+both Explore agents. It does not cover the Debugger. See AHE-014.
+
+## AHE-014: `list_files` has no output-size budget
+
+### Plain-language summary
+
+`list_files` stops after 5,000 entries but does not limit how many
+characters it returns. In campaign 3, round 1, Evolve listed the whole
+`raw_evaluation` root recursively. The single answer was 274,020 characters,
+about a third of the context limit. The stage did not fail, because context
+compaction later removed it, but one or two similar calls in the same turn
+would have repeated the AHE-010 blockage. This is the concrete case behind
+the general gap recorded in AHE-013.
+
+### Evidence
+
+Campaign 3 (`harvey-lab-campaign-3-grading-parallel`), measured as the
+JSON-encoded tool result in each Evolve `conversation_trace.json`:
+
+| Evolve run | Results over 30,000 characters |
+|---|---|
+| C1 | `list_files` 274,020 (`root=raw_evaluation`, `recursive=true`); `list_files` 52,917; `LoadSkill` 44,225 and 36,596 |
+| C2 | `LoadSkill` 44,225 and 36,596; `list_files` 42,384 |
+| C3 | `LoadSkill` 44,225 and 36,596; `list_files` 42,386 |
+
+`LoadSkill` returns the two Explore skills, which the Evolve agent is meant
+to read in full.
+
+### Approved local repair (option 2b)
+
+Approved by the operator on 2026-10-13. A protected middleware is added to
+the Evolve and both Explore agents (not the Debugger). After each tool call:
+
+1. If the result has at most 64,000 characters, nothing changes.
+2. Otherwise the agent sees the first 24,000 and last 8,000 characters, plus
+   a note with the original size and where the full result is saved.
+3. The full result is saved in the run's own folder,
+   `<runtime_dir>/tool_outputs/`, reformatted one JSON item per line when it
+   is JSON, so it can be read in line ranges.
+4. That folder is added as a read-only root named `tool_outputs`.
+   `read_file`, `search_text`, and `list_files` can open it; the write tools
+   cannot.
+5. `LoadSkill` and the finishing tool (`complete_task`) are never shortened.
+   Other fields of the tool result, such as NexAU's stop-tool flag, are kept.
+
+Why not the Debugger: its tools record which parts of an artifact they
+returned, and `submit_debugger_diagnosis` accepts only citations that those
+records cover. If the safety net cut a result afterwards, the Debugger could
+cite text it never saw. Its tools keep their own limits (`read_file` up to
+160,000 bytes, `search_text` about 32,000 characters, `list_files` 5,000
+entries).
+
+Runner code is part of the campaign fingerprint, so campaign 4 is renamed
+`harvey-lab-campaign-4-gp50-output-backstop` before it starts.
+
+### Upstream recommendations
+
+1. Give `list_files` its own character budget and a `max_depth` argument,
+   like the AHE-010 `search_text` cap.
+2. Adopt a protected safety net like this one for all meta agents, and make
+   the Debugger's access records reflect only the text actually returned
+   after shortening (see AHE-013).

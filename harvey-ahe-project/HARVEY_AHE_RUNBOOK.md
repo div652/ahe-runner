@@ -605,13 +605,24 @@ tiebreaker. Under the current settings (gpt-5.4-mini, 1 trial per task,
 all-pass scoring), this result cannot show whether evolution helps.
 
 
-## 5d. Campaign 4 proposal: `harvey-lab-campaign-4-grading-parallel-50`
+## 5d. Campaign 4 proposal: `harvey-lab-campaign-4-gp50-output-backstop`
 
 Approved by the operator on 2026-10-13, to start after campaign 3 has
-finished. `ahe.yaml` and `harvey_ahe/` are part of the campaign fingerprint,
-so this change cannot be applied to a campaign that is still running.
+finished. `ahe.yaml`, `harvey_ahe/`, and the runner code are part of the
+campaign fingerprint, so these changes cannot be applied to a campaign that
+is still running. The campaign was first proposed as
+`harvey-lab-campaign-4-grading-parallel-50`; it was renamed when AHE-014 was
+added.
 
 Changes from campaign 3:
+
+- AHE-014: Evolve and both Explore agents get a long-output safety net. A
+  tool result over 64,000 characters is shortened to its first 24,000 and
+  last 8,000 characters. The full result is saved in the run's
+  `runtime/tool_outputs/` folder, which the agent can read through the
+  read-only root `tool_outputs`. `LoadSkill` and `complete_task` are never
+  shortened, and the Debugger is not covered. Details in
+  `docs/HARVEY_INTEGRATION_UPSTREAM_RECOMMENDATIONS.md`, AHE-014.
 
 - The adapter's `grading_parallel` limit is raised from 16 to 100
   (`harvey_ahe/adapter.py`). There was no documented reason for 16; it was a
@@ -701,5 +712,8 @@ type `GH Copilot Server: Start Server`, then press Return.
   diagnostic. See `docs/HARVEY_LAB_BENCHMARK_ISSUES.md`.
 - Harness Python runs on the host; the adapter's import and call bans are
   static checks, not an OS boundary (AHE-005).
+- From campaign 4 on, Evolve and Explore tool results over 64,000 characters
+  are shortened, with the full result saved under the run's own folder
+  (AHE-014). The original AHE shortens at 10,000 characters.
 - Branch-local AHE fixes AHE-001 to AHE-008 are listed in
   `docs/HARVEY_INTEGRATION_UPSTREAM_RECOMMENDATIONS.md`.
