@@ -12,6 +12,7 @@ import pytest
 import yaml
 from openai import OpenAI
 from openai.types.chat import ChatCompletion
+from pydantic import ValidationError
 
 import ahe_runner.meta.preflight as preflight_module
 import ahe_runner.runtime as runtime_module
@@ -584,6 +585,57 @@ def test_failed_evaluated_preflight_blocks_clients_and_is_not_retried(
     assert proofs[0].read_bytes() == original_proof
     assert FakeRecordedClient.instances == []
     assert not (request.artifact_dir / "runtime_manifest.json").exists()
+
+
+def test_session_resources_are_bound_to_their_own_session(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    runtime_factory: Callable[[], EvaluatedAgentRuntime],
+) -> None:
+    runtime = runtime_factory()
+    artifact_root = tmp_path / "runtime-artifacts"
+    FakeRecordedClient.instances = []
+    FakeRecordedClient.scenarios = [[], []]
+    monkeypatch.setattr(runtime_module, "RecordedExactModelClient", FakeRecordedClient)
+    resources = {name: object() for name in ("first", "second")}
+    sessions = {
+        name: runtime.open_session(
+            AgentSessionRequest(
+                session_id=name,
+                artifact_dir=artifact_root / name,
+                session_resources={"trial_workspace": resource},
+            )
+        )
+        for name, resource in resources.items()
+    }
+    try:
+        storages = {}
+        for name, session in sessions.items():
+            agent = session._agent
+            storage = agent.global_storage
+            assert storage.get("trial_workspace") is resources[name]
+            # Sub-agents are created with this same storage object.
+            assert agent.executor.subagent_manager.global_storage is storage
+            storages[name] = storage
+        assert storages["first"] is not storages["second"]
+    finally:
+        for session in sessions.values():
+            session.close()
+
+
+@pytest.mark.parametrize(
+    "key", ["", "_private", "not-an-identifier", "tracer", "skill_registry"]
+)
+def test_session_resources_reject_reserved_or_invalid_keys(
+    tmp_path: Path,
+    key: str,
+) -> None:
+    with pytest.raises(ValidationError, match="session resource"):
+        AgentSessionRequest(
+            session_id="resource-keys",
+            artifact_dir=tmp_path,
+            session_resources={key: object()},
+        )
 
 
 def test_concurrent_sessions_share_one_evaluated_preflight(

@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from nexau import Agent
+from nexau.archs.main_sub.agent_context import GlobalStorage
 from nexau.archs.main_sub.config import AgentConfig
 from nexau.archs.main_sub.context_value import ContextValue
 from nexau.archs.main_sub.execution.hooks import (
@@ -35,6 +36,10 @@ from .io import atomic_write_json, sha256_file, tree_sha256
 from .meta.model_client import RecordedExactModelClient
 from .meta.preflight import run_model_preflight
 
+_NEXAU_RESERVED_STORAGE_KEYS = frozenset(
+    {"tracer", "skill_registry", "parallel_execution_id"}
+)
+
 
 class RuntimeModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -48,6 +53,23 @@ class AgentSessionRequest(RuntimeModel):
     working_directory: Path | None = None
     benchmark_tools: tuple[BenchmarkToolSpec, ...] = ()
     context: dict[str, str] = Field(default_factory=dict)
+    # Adapter-owned objects bound to this session only. They are placed in the
+    # session Agent's own NexAU GlobalStorage, which its sub-agents share and no
+    # other session can reach. Unlike `context`, routing never passes through
+    # NexAU's process-wide current-context slot.
+    session_resources: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("session_resources")
+    @classmethod
+    def validate_session_resources(cls, value: dict[str, Any]) -> dict[str, Any]:
+        for key in value:
+            if not key.isidentifier() or key.startswith("_"):
+                raise ValueError(
+                    "session resource keys must be public Python identifiers"
+                )
+            if key in _NEXAU_RESERVED_STORAGE_KEYS:
+                raise ValueError(f"session resource key {key!r} is reserved by NexAU")
+        return value
 
     @field_validator("session_id")
     @classmethod
@@ -336,7 +358,18 @@ class EvaluatedAgentRuntime:
             settings=self._model,
             log_dir=artifact_dir / "model_calls",
         )
-        agent = Agent(config=config)
+        if request.session_resources:
+            storage = GlobalStorage()
+            storage.update(dict(request.session_resources))
+            agent = Agent(config=config, global_storage=storage)
+            for key, value in request.session_resources.items():
+                if agent.global_storage.get(key) is not value:
+                    raise IntegrityError(
+                        f"session resource {key!r} was replaced while the agent "
+                        "was initialized"
+                    )
+        else:
+            agent = Agent(config=config)
         base_context = {
             **request.context,
             "working_directory": str(working_directory),

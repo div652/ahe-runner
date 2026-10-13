@@ -31,6 +31,9 @@ The assistant announces new permanent files before creating them.
 | LAB-001 | Filename helper bypasses configured Copilot routing and suppresses its API failure | Explained in plain language; repair authorized on 2026-10-12 | Fixed in LAB `86678eba6` and AHE `f0e3b0b`; 92 LAB and 19 AHE offline cases passed |
 | AHE-003 | Candidate harness folders can shadow protected Python modules during evaluation and grading | Explained in plain language; adapter-level repair authorized on 2026-10-12 | Adapter-level rejection in Harvey `validate_candidate`; AHE source unchanged |
 | AHE-004 | `ahe-runner` cannot be declared as a dependency of an operator package under uv, because of its NexAU git-URL pin | Explained; recording authorized on 2026-10-12 | Worked around in the Harvey `pyproject.toml`; AHE source unchanged |
+| AHE-005 | V2 offers no way to give editable harness tools a benchmark-owned isolated execution environment | Explained; option A (adapter-owned per-session container lookup) chosen on 2026-10-12 | Adapter-owned sandbox handle in `harvey_ahe.workspace`; its token-in-context routing was replaced under AHE-006 |
+| AHE-006 | Routing a session to its resource through session `context` is unsafe: NexAU's current context is one process-wide slot that concurrent sessions' sub-agents can read | Explained in plain language; on 2026-10-13 the operator chose orchestrator-owned binding (the runner hands each session its own resources) | Branch-local `AgentSessionRequest.session_resources` in `runtime.py`; Harvey adapter binds the sandbox handle through it |
+| AHE-007 | The static import scan misreads `from pkg import name` as `pkg.n.a.m.e` | Explained with AHE-006; recording only | No patch; the Harvey seed imports helpers as `from tools._common import ...`, which is unaffected |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -576,3 +579,191 @@ time instead. No AHE source was changed.
 1. Publish NexAU to a package index and depend on a version pin, or
 2. document that operator packages must not restate `ahe-runner`, or must add
    the NexAU URL as a direct requirement or constraint.
+
+## AHE-005: no seam for a benchmark-owned execution environment
+
+### Plain-language summary
+
+LAB runs every agent command and document parse inside a per-run container
+that has no network and sees only that task's documents (read-only) plus an
+output folder. In AHE V2, editable harness tools run through NexAU's sandbox.
+The runtime always makes that a local sandbox on the host, in the session's
+working directory. An adapter can pass only text values to a session.
+
+Example: an agent runs `cat ~/harvey-labs/tasks/<task>/task.json`. Inside
+LAB's container, that file does not exist. Through the local sandbox, the
+command succeeds and reveals the grading rubric. Network commands would also
+succeed.
+
+### Evidence
+
+- `src/ahe_runner/runtime.py:635-640`: with no sandbox configured, or with a
+  local one, the runtime installs `LocalSandboxConfig(work_dir=working_directory)`.
+- `src/ahe_runner/runtime.py:43-50`: `AgentSessionRequest` carries only
+  `session_id`, `artifact_dir`, `working_directory`, protected tool schemas, and
+  `context: dict[str, str]`.
+- `docs/ADAPTER_GUIDE.md:254-259`: context values are string-valued template
+  variables; structured payloads must not be hidden in context.
+- NexAU v0.3.9 ships only `local_sandbox.py` and `e2b_sandbox.py`
+  (`nexau/archs/sandbox/`), with no container-runtime sandbox.
+- LAB: `lab_core/sandbox/sandbox.py` starts Podman with `--network none`,
+  read-only documents and writable output/workspace mounts.
+  `lab_core/harness/tools.py` routes `bash` and binary `read` through it.
+
+### Local repair (operator choice A, 2026-10-12)
+
+- The adapter starts LAB's own `Sandbox` for each unit and wraps it in a
+  narrow `harvey_ahe.workspace.WorkspaceHandle` (`exec`, path mapping, and
+  writability checks).
+- Routing (revised under AHE-006, 2026-10-13): the first version kept handles
+  in a process-wide table and passed a token through the session `context`.
+  AHE-006 showed that context can leak between concurrent sessions, so the
+  table and token were removed. The handle is now bound to its own session
+  through `AgentSessionRequest.session_resources`.
+- Editable harness tools call `harvey_ahe.workspace.handle_for(agent_state)`.
+- `validate_candidate` permits importing `harvey_ahe.workspace` and nothing
+  else from `harvey_ahe`, and rejects imports of grading internals.
+- The adapter revokes the handle (later calls fail) and stops the container in
+  `finally`.
+
+Residual risk: candidate Python is still imported on the host, as AHE already
+documents for its trusted-local model. The container bounds agent commands,
+not arbitrary edits to the tool code itself.
+
+### Upstream recommendation
+
+Let a V2 adapter provide a per-session execution capability for harness tools
+without a side channel. Examples: an adapter-supplied NexAU sandbox
+implementation or config, or a typed capability object reachable from
+`AgentState`. The runtime would own its lifecycle and record it in
+`runtime_manifest.json`.
+
+## AHE-006: per-session resources must be bound by the runner, not looked up through context
+
+### Plain-language summary
+
+When several trials run at once, each trial's tools must reach only that
+trial's sandbox. The right owner of that routing is the orchestrator: it
+creates the session, so it should hand the session its own resources
+(dependency injection). AHE V2 has no such hook. The only per-session channel
+is `context`, a dictionary of strings. The first Harvey version (AHE-005)
+therefore put a lookup token in `context`.
+
+That channel is unsafe because NexAU keeps the "current context" in one
+process-wide variable, not one per thread or per session. The root agent of a
+session keeps its own copy, so root-agent tools are correct. A sub-agent,
+however, is started with a copy of whatever is in the process-wide slot at that
+moment. With two concurrent trials, A's sub-agent can receive B's context.
+
+Example: trials A and B run in parallel and A's agent calls a helper
+sub-agent. The helper gets B's token, reads B's documents, and writes into B's
+output folder. Both trials are graded on mixed work and no error is raised.
+The same applies to any context value, including the `working_directory` value
+that AHE itself adds.
+
+### Evidence (NexAU 0.3.9, AHE `harveybench`)
+
+- `nexau/archs/main_sub/agent_context.py:156-160`: `_current_context` is a
+  module-level global. `AgentContext.__enter__` and `__exit__` (lines 41-65)
+  overwrite and restore it with no thread or session scoping.
+- `nexau/archs/main_sub/execution/executor.py:972`: before dispatching
+  sub-agents, the executor reads `get_context()` (the process-wide slot). The
+  `copy_context()` snapshots at lines 1019 and 1042 do not help because the
+  slot is not a `ContextVar`.
+- `nexau/archs/main_sub/execution/subagent_manager.py:143-151`: that copy is
+  passed to the child agent's `run`.
+- `nexau/archs/main_sub/agent.py:801-907`: the root `AgentState` gets its own
+  `AgentContext` object, which is why root-agent tools are unaffected.
+- `src/ahe_runner/runtime.py` (before this repair): `AgentSessionRequest` had
+  no field other than `context` for per-session values.
+- Offline reproduction (no model calls): thread A enters
+  `AgentContext({"harvey_workspace": "token-A"})`, thread B then enters
+  `AgentContext({"harvey_workspace": "token-B"})`, and A's
+  `get_context().context["harvey_workspace"]` returns `token-B`.
+
+### Impact on the Harvey integration
+
+The seed harness has no sub-agents, so the first version was not yet affected.
+Evolution may add sub-agents, after which concurrent evaluation
+(`evaluation.max_concurrency > 1`) could silently mix trials.
+
+### Approved local repair (operator decision, 2026-10-13)
+
+The runner now owns the binding.
+
+- `src/ahe_runner/runtime.py`: `AgentSessionRequest.session_resources:
+  dict[str, Any]`, default empty. Keys must be public Python identifiers and
+  may not be NexAU-reserved storage keys (`tracer`, `skill_registry`,
+  `parallel_execution_id`). When non-empty, `open_session` creates a fresh
+  NexAU `GlobalStorage` holding the resources and passes it to
+  `Agent(config=..., global_storage=...)`. It then checks that initialization
+  did not replace any resource. With no resources, construction is unchanged.
+- Why `GlobalStorage`: NexAU creates one per root `Agent`. The executor and
+  sub-agent manager receive that same object, and every sub-agent is
+  constructed with it (`subagent_manager.py:123,133`). It is therefore
+  session-scoped, shared down the session's agent tree, and unreachable from
+  other sessions. NexAU skips non-serializable values when persisting session
+  state, so live objects are never written out.
+- Harvey adapter: no process-wide table and no token. It creates the
+  `WorkspaceHandle`, passes `session_resources={"harvey_workspace": handle}`,
+  and calls `handle.revoke()` before stopping the container. Tools call
+  `harvey_ahe.workspace.handle_for(agent_state)`, which reads the session's
+  storage and fails closed if the handle is missing or revoked.
+- `docs/ADAPTER_GUIDE.md` documents the field and warns against routing
+  through `context`.
+- Regression tests in `tests/test_runtime.py`:
+  - two concurrent sessions each see only their own resource;
+  - each session's sub-agent manager holds the same storage object;
+  - reserved and invalid keys are rejected.
+
+Residual risk: candidate tool code still runs in the host Python process
+(AHE-005), so deliberately malicious code could search process memory. This
+repair removes accidental cross-trial routing; it is not a security boundary
+against hostile harness code.
+
+### Upstream recommendations
+
+1. Add a supported per-session resource or capability seam to
+   `AgentSessionRequest`, for example `session_resources` or a typed capability
+   object. The runtime should own it, record resource keys and types in
+   `runtime_manifest.json`, and document the lifecycle (who closes it, and
+   when). Benchmarks with containers, simulators, or databases all need this.
+2. State in `ADAPTER_GUIDE.md` that session `context` must not be used for
+   routing while NexAU's context is process-global.
+3. Report upstream to NexAU that `_current_context` should be a `ContextVar`
+   (or that sub-agents should inherit the parent `AgentState.context` instead
+   of the global). Until then, AHE should pass the parent state's context
+   explicitly to sub-agents or document the limitation.
+4. Add a concurrency regression test that runs two sessions with sub-agents
+   in parallel and checks that context values and resources stay separate.
+
+## AHE-007: static import scan splits `from pkg import name` into characters
+
+### Plain-language summary
+
+To learn which harness files a tool depends on, conformance parses the tool's
+imports. For `from pkg import name` it builds the module path from the
+characters of `name`, so `from tools import helpers` is recorded as
+`tools.h.e.l.p.e.r.s`. The real helper file is then not found by the static
+scan.
+
+### Evidence
+
+- `src/ahe_runner/conformance.py:572`, in `_local_import_names` (from line 545):
+  `names.add(".".join([*base_parts, *alias.name]))`. Here `alias.name` is a
+  string, so unpacking it yields single characters. Intended:
+  `[*base_parts, alias.name]`.
+
+### Impact
+
+Helpers imported at module load are still found by the dynamic `sys.modules`
+comparison in `_resolve_import_contract`. A helper imported only lazily, as
+`from pkg import module` inside a function, would be missed and reported as a
+declared but unattached tool implementation (a false conformance failure).
+The Harvey seed imports helpers as `from tools._common import ...`, which
+the scan handles correctly.
+
+### Recommendation; no local repair
+
+Replace `*alias.name` with `alias.name` and add a conformance test with a
+lazily imported `from tools import helper` dependency.
