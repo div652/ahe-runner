@@ -515,6 +515,95 @@ The debugger cited trace lines 11 and 14, which are 93 KB and 135 KB long.
 Neither was fully covered by a read, which is the same AHE-010 follow-up
 behaviour seen in round 1. The debugger was accepted on its third submission.
 
+### Final test: `ahe run-final-test` (2026-10-13 10:33-11:45 UTC, exit 0 on the fourth launch)
+
+`run-final-test` closes evolution, evaluates C0-C3 on the 3 validation tasks,
+selects a checkpoint, and then evaluates C0 and the selected checkpoint on the
+3 test tasks.
+
+**Endpoint outages.** The run was interrupted three times. Each time the
+operator's VS Code Remote connection dropped and VS Code started a new
+extension host on reconnect. The old host kept port 3141 open with no window
+attached, so `/v1/models` still answered from its cache but chat requests hung
+until the extension's 300-second timeout (`Model request timed out after
+300000 ms`). All failures were infrastructure failures, and AHE kept every
+completed unit.
+
+| Launch | Log | Outcome |
+|---|---|---|
+| 1 | `c3-run-final-test-attempt1.log` | C0 and C1 validation completed. All 3 C2 validation trials timed out (10:42-10:47). Orphaned host 16603. |
+| 2 | `c3-run-final-test-attempt2.log` | C2 validation completed (unit attempt 2). C3 validation lost 1 trial to an agent timeout and 2 to grading timeouts. Orphaned host 157456. |
+| 3 | `c3-run-final-test-attempt3.log` | C3 validation failed again (2 grading, 1 agent). Orphaned hosts 196033 and 206420 after reconnects at 11:27 and 11:33. |
+| 4 | `c3-run-final-test.log` | C3 validation (unit attempt 3), selection, and the test completed with no errors. |
+
+Recovery each time:
+1. With approval, kill the orphaned extension host(s).
+2. The operator ran `GH Copilot Server: Start Server` in the current window.
+3. Confirm the port owner with `ss` and send one `gpt-5.4-mini` "Reply with
+   OK only." request.
+4. Rerun `run-final-test`.
+
+The extension files were unchanged (`out/server.js` SHA-256 still begins
+`9090e9eb`). No valid score was retried. Planned follow-up: run the endpoint
+from a VS Code instance on this host, so it no longer depends on the laptop
+connection.
+
+Successful stage times:
+- validation: C0 237 s, C1 235 s, C2 258 s, C3 242 s;
+- C0 test: 170 s.
+
+**Validation** (3 held-out tasks, 1 trial each; criteria passed, judge 1 /
+judge 2):
+
+| Validation task | C0 | C1 | C2 | C3 |
+|---|---|---|---|---|
+| bankruptcy-restructuring/identify-issues-in-plan-of-reorganization | 6/7 of 39 | 6/9 of 39 | 8/12 of 39 | 8/14 of 39 |
+| data-privacy-cybersecurity/identify-issues-in-transfer-impact-assessment | 19/19 of 33 | 12/12 of 33 | 13/15 of 33 | 14/14 of 33 |
+| emerging-companies-venture-capital/identify-governance-issues-in-stockholder-agreement | 6/8 of 39 | 10/10 of 39 | 7/8 of 39 | 6/6 of 39 |
+
+| Validation metric | C0 | C1 | C2 | C3 |
+|---|---|---|---|---|
+| Primary: mean dual all-pass | 0.0 | 0.0 | 0.0 | 0.0 |
+| Mean criterion pass rate | 0.307 | 0.271 | 0.291 | 0.287 |
+| Pooled criterion pass rate | 0.293 | 0.266 | 0.284 | 0.279 |
+| Terminations | 2 `finish_tool`, 1 `no_tool_calls` | 2 `finish_tool`, 1 `no_tool_calls` | 3 `finish_tool` | 3 `finish_tool` |
+| Assistant turns, 3 trials | 15 | 26 | 33 | 29 |
+
+There were no grading, judge-input-limit, or agent errors in the completed
+units, and the judges never disagreed on all-pass.
+
+**Selection: C0.** The rule is the adapter's selection key (primary, then
+mean criterion pass rate), then the earliest checkpoint. Every checkpoint
+scored 0.0 on the primary metric, so the mean criterion pass rate decided it,
+and C0 was highest at 0.307.
+
+**Test.** The selected checkpoint is the baseline, so AHE evaluated only C0
+on the test split (`final/final_test.json`, selected harness SHA-256
+`c1d33323…c082`).
+
+| Test task | C0 j1 | C0 j2 | Termination |
+|---|---|---|---|
+| employment-labor/identify-issues-in-counterparty-motion-brief | 4/23 | 4/23 | `no_tool_calls` |
+| healthcare-life-sciences/identify-compliance-issues-in-medicare-enrollment-application-package | 16/39 | 16/39 | `finish_tool` |
+| international-trade-sanctions/review-draft-voluntary-self | 9/30 | 10/30 | `finish_tool` |
+
+Test summary for C0:
+- primary (mean dual all-pass): 0.0;
+- mean criterion pass rate: 0.300; pooled: 0.321;
+- 14 assistant turns and 35 tool calls in total.
+
+**Result.** Campaign 3 found no held-out improvement. Training scores dipped
+and recovered (C0 0.533, C1 0.498, C2 0.477, C3 0.511). On validation,
+C1-C3 were 1.6-3.6 points below C0, which is within noise for 3 tasks with 1
+trial each. The evolved checkpoints did make the agent finish cleanly more
+often: no `no_tool_calls` terminations in C2 and C3 validation. But they used
+about twice as many turns, and that did not raise criterion pass rates.
+
+The primary metric was 0.0 for every trial in every split, so it gave
+evolution and selection no signal. Selection fell back to the diagnostic
+tiebreaker. Under the current settings (gpt-5.4-mini, 1 trial per task,
+all-pass scoring), this result cannot show whether evolution helps.
+
 
 ## 6. Known deviations and limits to report with results
 
