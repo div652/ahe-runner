@@ -82,6 +82,7 @@ from ahe_runner.runtime import (
 
 from .candidate_checks import harvey_candidate_errors
 from .grading import JUDGE_MAX_TOKENS, dual_summary, grade_with_retries
+from .readable import write_readable_views
 from .tasks import (
     HarveyTask,
     copy_documents,
@@ -341,6 +342,7 @@ class HarveyAdapter(BenchmarkAdapterV2):
                         trial,
                         facts[str(trial.unit["unit_id"])],
                         evaluation_dir,
+                        request.output_dir,
                     )
                     for trial in sorted(rows, key=lambda row: row.trial)
                 ],
@@ -1011,6 +1013,7 @@ def _evidence_trial(
     trial: _Trial,
     fact: EvaluationTrialFact,
     evaluation_dir: Path,
+    evidence_dir: Path,
 ) -> dict[str, Any]:
     def artifact(kind: str, path: Path) -> dict[str, str]:
         return {
@@ -1020,6 +1023,19 @@ def _evidence_trial(
         }
 
     output_root = trial.attempt_dir / "run" / "output"
+    readable_artifacts = write_readable_views(
+        evidence_dir=evidence_dir,
+        task_key=trial.task_key,
+        trial=trial.trial,
+        trace_path=trial.trace_path,
+        trace_label="raw_evaluation:"
+        + trial.trace_path.resolve().relative_to(evaluation_dir).as_posix(),
+        deliverables=[
+            (str(row["path"]), output_root / str(row["path"]))
+            for row in trial.result["output_files"]
+        ],
+        read_as_text=lab_scoring.read_file_as_text,
+    )
     artifacts = [
         artifact("result", trial.result_path),
         artifact("trace", trial.trace_path),
@@ -1038,6 +1054,7 @@ def _evidence_trial(
         "termination_reason": fact.termination_reason,
         "diagnostic_class": fact.diagnostic_class,
         "artifacts": artifacts,
+        "readable_artifacts": readable_artifacts,
         "native_result": trial.result,
         "judges": [
             {

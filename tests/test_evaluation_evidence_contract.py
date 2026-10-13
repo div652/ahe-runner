@@ -236,3 +236,69 @@ def test_evidence_contract_rejects_contradictory_trial_semantics(
             source_evaluation=result,
             source_request=request,
         )
+
+
+@pytest.mark.parametrize(
+    ("case", "message"),
+    [
+        ("valid", None),
+        ("duplicate", "duplicate readable evidence artifact"),
+        ("wrong_hash", "readable evidence hash mismatch"),
+        ("missing", "readable evidence hash mismatch"),
+        ("escape", "path escapes its root"),
+    ],
+)
+def test_evidence_contract_checks_readable_artifacts(
+    tmp_path: Path,
+    case: str,
+    message: str | None,
+) -> None:
+    controller = CampaignController(
+        load_config(make_example_project(tmp_path, rounds=0))
+    )
+    controller.prepare()
+    result = controller._ensure_training_evaluation(0)
+    evidence_dir = controller._ensure_evidence(0)
+    request = controller._evaluation_request(0, SplitName.TRAIN)
+    copied = tmp_path / f"readable-{case}"
+    shutil.copytree(evidence_dir, copied)
+    view = copied / "readable" / "trace.md"
+    view.parent.mkdir()
+    view.write_text("line one\n", encoding="utf-8")
+    artifact = {
+        "kind": "readable_trace",
+        "path": "readable/trace.md",
+        "sha256": sha256_file(view),
+    }
+    views = {
+        "valid": [artifact],
+        "duplicate": [artifact, artifact],
+        "wrong_hash": [{**artifact, "sha256": "0" * 64}],
+        "missing": [{**artifact, "path": "readable/absent.md"}],
+        "escape": [{**artifact, "path": "../outside.md"}],
+    }[case]
+    manifest_path = copied / "evidence_manifest.json"
+    manifest = read_json(manifest_path)
+    task = manifest["tasks"][0]
+    detail_path = copied / task["detail_path"]
+    detail = read_json(detail_path)
+    detail["trials"][0]["readable_artifacts"] = views
+    atomic_write_json(detail_path, detail)
+    task["detail_sha256"] = sha256_file(detail_path)
+    atomic_write_json(manifest_path, manifest)
+
+    def verify() -> None:
+        verify_evidence_bundle(
+            _bundle(copied),
+            evidence_dir=copied,
+            expected_checkpoint="C0",
+            evaluation_dir=request.output_dir,
+            source_evaluation=result,
+            source_request=request,
+        )
+
+    if message is None:
+        verify()
+        return
+    with pytest.raises(IntegrityError, match=message):
+        verify()

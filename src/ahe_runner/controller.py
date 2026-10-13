@@ -481,6 +481,7 @@ class CampaignController:
             semantic_inputs={
                 "baseline_harness_sha256": baseline["harness_sha256"],
                 "meta_model": self.config.document.models.meta.model_dump(mode="json"),
+                **self._meta_stage_inputs("explorers"),
                 "source_enabled": self.config.document.meta.explore.source_enabled,
                 "web_enabled": self.config.document.meta.explore.web_enabled,
                 "prompt_context": self.prompt_context.model_dump(mode="json"),
@@ -489,6 +490,18 @@ class CampaignController:
         )
         self._write_state()
         return output_dir
+
+    def _meta_stage_inputs(self, role: str) -> dict[str, Any]:
+        """Meta settings that change a stage's result (AHE-016), when set."""
+
+        meta = self.config.document.meta
+        inputs: dict[str, Any] = {}
+        overrides = getattr(meta.roles, role).model_dump(exclude_none=True)
+        if overrides:
+            inputs["meta_role_overrides"] = overrides
+        if meta.shell.backend != "disabled":
+            inputs["meta_shell"] = meta.shell.model_dump(mode="json")
+        return inputs
 
     def _ensure_debugger(self, index: int, evidence_dir: Path) -> Path:
         checkpoint = f"C{index - 1}"
@@ -510,6 +523,7 @@ class CampaignController:
                 "parent_checkpoint": checkpoint,
                 "evidence_manifest_sha256": evidence_sha,
                 "meta_model": self.config.document.models.meta.model_dump(mode="json"),
+                **self._meta_stage_inputs("debugger"),
                 "prompt_context": self.prompt_context.model_dump(mode="json"),
             },
             action=action,
@@ -575,6 +589,7 @@ class CampaignController:
                 "evidence_sha256": sha256_file(evidence_dir / "evidence_manifest.json"),
                 "debugger_sha256": sha256_file(debugger_dir / "overview.json"),
                 "meta_model": self.config.document.models.meta.model_dump(mode="json"),
+                **self._meta_stage_inputs("evolve"),
                 "explore_skills_sha256": sha256_file(
                     self.config.campaign_dir / "explore_skills" / "skills_manifest.json"
                 ),

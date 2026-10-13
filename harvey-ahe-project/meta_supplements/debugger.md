@@ -29,9 +29,16 @@ The task-detail document lists each trial with:
 - `artifacts`: the trial `result`, the `trace` (JSON lines: the user
   instruction, then every message with tool calls and tool results, then a
   termination event), the judges' `evaluator` score files, and copies of each
-  graded `deliverable`.
+  graded `deliverable`;
+- `readable_artifacts` (listed in the query): `readable_trace` is the same
+  trace as `trace.md`, with one `## jsonl line N` header per event and real
+  line breaks; `readable_deliverable` is each output file as the exact text
+  the judges read (`.docx` through pandoc, `.xlsx` through pandas).
 
-Read the trace and the deliverable copies, not only the summary fields.
+Read the readable trace and the deliverable text, not only the summary
+fields. Do not open `.docx` or `.xlsx` files with `read_file`; they are
+binary. Search the readable trace for the failed criterion's key terms to find
+where the agent handled (or skipped) that point.
 
 ## Diagnosis order for this benchmark
 

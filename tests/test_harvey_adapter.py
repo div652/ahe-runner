@@ -601,6 +601,42 @@ def test_evaluate_resume_verify_and_evidence(
     assert len(trial["judges"]) == 2
     assert trial["judges"][0]["criteria_results"]
 
+    ok_detail = next(
+        json.loads(path.read_text())
+        for path in (evidence_dir / "tasks").glob("*.json")
+        if any(
+            view["kind"] == "readable_deliverable"
+            for item in json.loads(path.read_text())["trials"]
+            for view in item["readable_artifacts"]
+        )
+    )
+    views = {
+        view["kind"]: view
+        for item in ok_detail["trials"]
+        for view in item["readable_artifacts"]
+    }
+    trace_view = evidence_dir / views["readable_trace"]["path"]
+    assert views["readable_trace"]["path"].startswith("readable/")
+    assert views["readable_trace"]["source"].startswith("raw_evaluation:units/")
+    assert trace_view.read_text().startswith("# Agent trace (readable view)")
+    deliverable_view = evidence_dir / views["readable_deliverable"]["path"]
+    assert views["readable_deliverable"]["source"] == "response.md"
+    assert deliverable_view.name == "response.md.md"
+    assert "# Deliverable response.md (text view)" in deliverable_view.read_text()
+
+    original = trace_view.read_text()
+    trace_view.write_text(original + "tampered\n", encoding="utf-8")
+    with pytest.raises(IntegrityError, match="readable evidence hash mismatch"):
+        verify_evidence_bundle(
+            bundle,
+            evidence_dir=evidence_dir,
+            expected_checkpoint="C0",
+            evaluation_dir=request.output_dir,
+            source_evaluation=result,
+            source_request=request,
+        )
+    trace_view.write_text(original, encoding="utf-8")
+
     score_path = next(
         request.output_dir.glob("units/*/attempt-1/grading/*/scores_judge-1.json")
     )
