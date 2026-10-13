@@ -42,7 +42,7 @@ The assistant announces new permanent files before creating them.
 | AHE-013 | Meta agents have no general tool-output safety net (the original AHE evolve agent uses NexAU's `LongToolOutputMiddleware`) and no shell or structured way to read one field of a very long JSON trace line | Raised by the operator on 2026-10-13 after comparing with the original AHE `evolve_agent.yaml`; recording approved | No AHE patch at first; the safety-net part is addressed locally by AHE-014 |
 | AHE-014 | `list_files` has no output-size budget: in campaign 3 round 1, one recursive Evolve listing of `raw_evaluation` returned 274,020 characters into the context | Explained in plain language; on 2026-10-13 the operator approved option 2b (a long-output safety net for Evolve and both Explore agents, not the Debugger), a 64,000-character limit with a 24,000 + 8,000 preview, and campaign name `harvey-lab-campaign-4-gp50-output-backstop` (later renamed `harvey-lab-campaign-4-judge-cap-output-backstop`; runbook section 5d) | Branch-local `MetaToolOutputBackstopMiddleware` in `meta/middleware.py`, wired for Evolve and Explore in `meta/nexau_backend.py`; 191 offline tests passed, and a replay of the 274,020-character listing showed the agent 32,734 characters |
 | AHE-015 | AHE has no endpoint-wide limit on model calls in flight: the evaluated agent, the benchmark judges, and the meta agents each send calls independently, and a burst above the Copilot limit is refused instead of waiting | Explained in plain language; on 2026-10-13 the operator asked that calls above the limit be queued, and approved `transport.max_concurrent_requests: 24` with the Harvey judge cap lowered to 18 | Branch-local `transport.max_concurrent_requests` and a shared queue in `meta/model_client.py`; 199 offline tests passed |
-| AHE-016 | The meta agents' harnesses differ from the original AHE agents: different file tools without binary or line-length protection, no long-output middleware for the Debugger, a context compaction that stops the agent instead of falling back, no shell, an 80-iteration debugger, and a debugger failure blocks the round. In campaign 4 round 2 a debugger read four `.docx` files as text and was stopped | Explained; on 2026-10-13 the operator asked for full parity with the original AHE meta agents and chose: path guard, Docker-sandboxed shell, original debugger budget, non-blocking debugger failures, original temperatures, readable evidence, `nexau-evolution-guide` skill (runbook section 5f) | Proposal committed; implementation pending |
+| AHE-016 | The meta agents' harnesses differ from the original AHE agents: different file tools without binary or line-length protection, no long-output middleware for the Debugger, a context compaction that stops the agent instead of falling back, no shell, an 80-iteration debugger, and a debugger failure blocks the round. In campaign 4 round 2 a debugger read four `.docx` files as text and was stopped | Explained; on 2026-10-13 the operator asked for full parity with the original AHE meta agents and chose: path guard, Docker-sandboxed shell, original debugger budget, non-blocking debugger failures, original temperatures, readable evidence, `nexau-evolution-guide` skill (runbook section 5f) | Implemented and tested offline (`6f9d941`); campaign 5 is the live check |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -1475,4 +1475,95 @@ original role temperatures, readable evidence, and the
 
 ### Local result
 
-Pending implementation.
+Implemented in `6f9d941` and tested offline. Campaign 5 is the first live
+use.
+
+What each meta agent now gets:
+
+| | Debugger | Evolve | Source / Web Explore |
+|---|---|---|---|
+| File tools | original `read_file`, `search_file_content`, `glob`, `list_directory`; `write_file`, `replace`, `delete_path` only in its private `scratch` root | same tools; writes to the workspace | same tools; writes to `knowledge` |
+| Shell | `run_shell_command` in Docker when `meta.shell.backend: docker` | same | same |
+| Middleware | `LongToolOutputMiddleware` 10,000 / 50+30 lines / 5,000+5,000 characters; compaction 220,000 × 0.75, keep 10 | same | 20,000 / 100+80 lines; compaction 200,000 × 0.75, keep 15 |
+| Model | `meta.roles.debugger` (campaign 5: 0.4, 20,000) | `meta.roles.evolve` (0.7) | `meta.roles.explorers` (0.2) |
+| Skills | none | Explore skills + `nexau-evolution-guide` | none |
+
+Main files:
+
+- `src/ahe_runner/meta/guarded_tools.py` (new): wraps each original NexAU
+  tool. A path must resolve, after symlinks, inside an allowed root; writes
+  need a writable root; `.git` folders and the reserved roots stay
+  read-only. Paths can be `root:relative`, absolute, or relative to the
+  role's default root. It also builds the Docker command for the shell.
+- `src/ahe_runner/meta/middleware.py` (rewritten): wires the original
+  middlewares with the table's settings. The debugger access recorder now
+  parses the original tools' output (line-numbered `read_file`, `L<n>:`
+  search results) to know which lines were read.
+- `src/ahe_runner/meta/tool_descriptions/`: the original YAMLs plus one
+  paragraph on roots; `list_files`, `search_text` and `replace_text` are
+  removed.
+- `src/ahe_runner/meta/skills/nexau-evolution-guide/`: the original skill
+  with its MIT licence.
+- `harvey-ahe-project/docker/meta-shell.Dockerfile`: image
+  `ahe-meta-shell:py313-v2` (Python 3.13, git, ripgrep, jq, file, unzip,
+  PyYAML).
+- `harvey-ahe-project/harvey_ahe/readable.py` (new): writes
+  `readable/<task>/trial-<n>/trace.md` (each JSON event decoded, real line
+  breaks, lines wrapped at 1,000 characters with `↪ `) and
+  `deliverables/<name>.md` (LAB's `read_file_as_text`). They are listed as
+  hashed `readable_artifacts` and checked by `verify_evidence_bundle`.
+- `nexau_backend.py`: per-role settings and tools, a one-time check that the
+  shell image exists, and the non-blocking debugger (any failure other than
+  an infrastructure error writes an "unavailable" result; the overview tells
+  Evolve to read that task's evidence directly).
+- `preflight.py`: the model probe uses each role's temperature.
+
+Tests: `tests/test_meta_guarded_tools.py`, `tests/test_meta_middleware.py`,
+`tests/test_harvey_readable.py` (new), plus new cases in
+`tests/test_meta_resources.py`, `tests/test_harvey_adapter.py` and
+`tests/test_evaluation_evidence_contract.py`. One test runs the real Docker
+shell. Offline checks on 2026-10-13: the full suite passed 227/227. ruff is
+clean. pyright reports no new kinds of errors (test files still read the
+backend's private methods, as before).
+
+Differences from the original, kept on purpose:
+
+1. Paths are limited to allowed roots by a guard around each tool.
+2. The shell runs in a Docker container (no network, read-only root
+   filesystem, read-only `.git` folders, memory/CPU/process limits) instead
+   of on the host.
+3. The debugger has a private, empty `scratch` root for its own files; the
+   evidence stays read-only.
+4. Debugger citations must be line ranges, and every cited line must have
+   been returned whole by `read_file` or a search. Lines that `read_file`
+   cut at 2,000 characters do not count.
+5. A debugger that fails or never submits gives "diagnosis unavailable"
+   instead of a fallback diagnosis. Endpoint failures still stop the stage
+   so it can be retried.
+6. `LoadSkill` and the stop tools are not shortened by the long-output
+   middleware, so a skill or a final answer is never cut.
+7. The compaction middleware's emergency summary keeps the role's
+   temperature and max_tokens (NexAU forces temperature 0, which the
+   runner's model client would reject). The long-output middleware measures
+   and saves a tool's text field rather than its JSON, so the saved file has
+   real line breaks and can be read with `read_file`.
+8. `ag-ui-protocol` is pinned below 1.0, which NexAU 0.3.9 needs.
+9. Unknown `name:` prefixes are left as written rather than read as file
+   names, so a citation such as `http://...` is never mistaken for a path.
+
+Remaining risks:
+
+- A symlink swapped between the guard check and the tool call could escape
+  a root (time-of-check/time-of-use). Agents cannot create symlinks with the
+  file tools; the shell could, inside a writable root.
+- Shell exit code 125 can mean either a Docker failure or the command's own
+  code.
+- Writing `SKILL.md` through the shell does not count for the Explore
+  deliverable gate; the agents are told to use `write_file`.
+- Both Explorers share the `knowledge` root.
+- Lines seen only through the shell cannot be cited by the debugger.
+- In raw files containing `\x0b` or `\u2028`, `read_file` and search may
+  number lines differently. The readable views remove those characters.
+- The preflight checks that the model accepts temperatures 0.7 and 0.4
+  before each stage.
+

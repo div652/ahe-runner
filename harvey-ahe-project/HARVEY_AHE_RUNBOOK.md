@@ -1009,6 +1009,26 @@ Evolve clean-commit, manifest and validation gate), the Git, checkpoint and
 4. Campaign 5 config, `ahe conformance`, `ahe validate`, then rounds one at
    a time with the operator's approval.
 
+### Status
+
+Step 2 is done (`6f9d941`, 227 offline tests pass, including one with the
+real Docker shell). Details, deliberate differences and remaining risks are
+in AHE-016's "Local result". Settings campaign 5 needs in `ahe.yaml`:
+
+```yaml
+meta:
+  shell: {backend: docker, image: ahe-meta-shell:py313-v2}
+  roles:
+    debugger: {temperature: 0.4, max_tokens: 20000}
+    evolve: {temperature: 0.7}
+    explorers: {temperature: 0.2}
+debugger:
+  max_iterations: 25
+```
+
+Build the image once with
+`docker build -t ahe-meta-shell:py313-v2 -f harvey-ahe-project/docker/meta-shell.Dockerfile harvey-ahe-project/docker`.
+
 
 ## 6. Known deviations and limits to report with results
 
@@ -1022,9 +1042,14 @@ Evolve clean-commit, manifest and validation gate), the Git, checkpoint and
   diagnostic. See `docs/HARVEY_LAB_BENCHMARK_ISSUES.md`.
 - Harness Python runs on the host; the adapter's import and call bans are
   static checks, not an OS boundary (AHE-005).
-- From campaign 4 on, Evolve and Explore tool results over 64,000 characters
-  are shortened, with the full result saved under the run's own folder
-  (AHE-014). The original AHE shortens at 10,000 characters.
+- In campaign 4, Evolve and Explore tool results over 64,000 characters
+  were shortened, with the full result saved under the run's own folder
+  (AHE-014). From campaign 5 on, all meta agents use the original
+  long-output limits (10,000 characters; 20,000 for the Explorers) and the
+  original file tools behind a path guard (AHE-016).
+- From campaign 5 on, meta agents have a shell in a network-less Docker
+  container, and a failed per-task debugger is reported as "diagnosis
+  unavailable" instead of blocking the round (AHE-016).
 - From campaign 4 on, the primary metric is the mean criterion pass rate, not
   LAB's dual all-pass rate, which is still reported and breaks ties
   (section 5d).
