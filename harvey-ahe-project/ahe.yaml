@@ -10,12 +10,13 @@
 # (harvey-lab-campaign-2-search-cap) was stopped early in round 1 to switch to
 # LAB's default grading parallelism. The third campaign
 # (harvey-lab-campaign-3-grading-parallel) carried both changes. This fourth
-# campaign raises grading_parallel from 6 to 50 (runbook sections 5a-5d).
+# campaign raises grading_parallel from 6 to 50 and adds the AHE-014 long
+# tool-output safety net for Evolve and Explore (runbook sections 5a-5d).
 schema_version: 1
 
 campaign:
-  name: harvey-lab-campaign-4-grading-parallel-50
-  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-4-grading-parallel-50
+  name: harvey-lab-campaign-4-gp50-output-backstop
+  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-4-gp50-output-backstop
   rounds: 3
   root_seed: 42
 

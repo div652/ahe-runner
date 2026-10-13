@@ -1,13 +1,18 @@
-"""Context compaction for long-running meta-agents."""
+"""Context compaction and tool-output limits for long-running meta-agents."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import logging
+import re
+import threading
+from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 from nexau.archs.main_sub.execution.hooks import (
+    AfterToolHookInput,
     BeforeModelHookInput,
     HookResult,
     Middleware,
@@ -246,3 +251,182 @@ def _payload_size(value: Any) -> int:
             default=repr,
         )
     )
+
+
+# Keys NexAU's tool executor adds or strips around the tool's own result.
+_TOOL_CONTROL_KEYS = frozenset({"_is_stop_tool", "returnDisplay"})
+
+
+class MetaToolOutputBackstopMiddleware(Middleware):
+    """Shorten oversized tool results and keep the full text readable (AHE-014).
+
+    Results longer than ``max_output_chars`` are replaced by a head/tail
+    preview and a note. The full result is saved under ``output_dir``, which
+    the runner exposes to the agent as the read-only root ``root_name``.
+    """
+
+    def __init__(
+        self,
+        *,
+        output_dir: str,
+        root_name: str = "tool_outputs",
+        max_output_chars: int = 64_000,
+        head_chars: int = 24_000,
+        tail_chars: int = 8_000,
+        bypass_tool_names: Sequence[str] = (),
+    ) -> None:
+        if max_output_chars < 1:
+            raise ValueError("max_output_chars must be positive")
+        if head_chars < 0 or tail_chars < 0:
+            raise ValueError("head_chars and tail_chars must not be negative")
+        if head_chars + tail_chars > max_output_chars:
+            raise ValueError("head_chars + tail_chars must not exceed max_output_chars")
+        if not root_name:
+            raise ValueError("root_name must not be empty")
+        self.output_dir = Path(output_dir)
+        self.root_name = root_name
+        self.max_output_chars = max_output_chars
+        self.head_chars = head_chars
+        self.tail_chars = tail_chars
+        self._bypass_tool_names = frozenset(bypass_tool_names)
+        self._lock = threading.Lock()
+        self._sequence = 0
+
+    def after_tool(self, hook_input: AfterToolHookInput) -> HookResult:
+        if hook_input.tool_name in self._bypass_tool_names:
+            return HookResult.no_changes()
+        output = hook_input.tool_output
+        if isinstance(output, dict):
+            result_key = next(
+                (
+                    key
+                    for key in ("result", "content")
+                    if isinstance(output.get(key), str)
+                ),
+                None,
+            )
+            if result_key is not None:
+                text = str(output[result_key])
+            else:
+                text = json.dumps(
+                    {
+                        key: value
+                        for key, value in output.items()
+                        if key not in _TOOL_CONTROL_KEYS
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    default=str,
+                )
+        elif isinstance(output, str):
+            result_key = None
+            text = output
+        else:
+            return HookResult.no_changes()
+        if len(text) <= self.max_output_chars:
+            return HookResult.no_changes()
+
+        readable = _readable_tool_text(text)
+        if len(readable) <= self.max_output_chars:
+            # Escaped JSON can shrink when decoded; the whole result then fits.
+            return self._replace(output, result_key, readable)
+        try:
+            relative_path = self._save(
+                tool_name=hook_input.tool_name,
+                tool_call_id=hook_input.tool_call_id,
+                text=readable,
+            )
+        except OSError as exc:
+            logger.warning(
+                "could not save the full %s result: %s", hook_input.tool_name, exc
+            )
+            relative_path = None
+        shortened = self._preview(readable) + self._note(
+            original_chars=len(text),
+            saved_lines=readable.count("\n") + 1,
+            relative_path=relative_path,
+        )
+        logger.info(
+            "shortened %s result from %d to %d characters; full copy: %s",
+            hook_input.tool_name,
+            len(text),
+            len(shortened),
+            relative_path,
+        )
+        return self._replace(output, result_key, shortened)
+
+    @staticmethod
+    def _replace(output: Any, result_key: str | None, text: str) -> HookResult:
+        if not isinstance(output, dict):
+            return HookResult.with_modifications(tool_output=text)
+        if result_key is not None:
+            replaced = dict(output)
+            replaced[result_key] = text
+        else:
+            replaced = {
+                key: value for key, value in output.items() if key in _TOOL_CONTROL_KEYS
+            }
+            replaced["result"] = text
+        return HookResult.with_modifications(tool_output=replaced)
+
+    def _preview(self, text: str) -> str:
+        head = text[: self.head_chars]
+        tail = text[len(text) - self.tail_chars :] if self.tail_chars else ""
+        omitted = len(text) - len(head) - len(tail)
+        return (
+            head
+            + f"\n\n... [{omitted:,} characters omitted by the tool-output "
+            + "limit] ...\n\n"
+            + tail
+        )
+
+    def _note(
+        self,
+        *,
+        original_chars: int,
+        saved_lines: int,
+        relative_path: str | None,
+    ) -> str:
+        shown = (
+            f"[tool-output limit] This result had {original_chars:,} characters, "
+            f"more than the {self.max_output_chars:,}-character limit. Only the "
+            f"first {self.head_chars:,} and last {self.tail_chars:,} characters "
+            "are shown above."
+        )
+        if relative_path is None:
+            return f"\n\n{shown} The full result could not be saved."
+        return (
+            f"\n\n{shown} The full result is saved ({saved_lines:,} lines; JSON is "
+            f"reformatted one item per line) in read-only root "
+            f'"{self.root_name}" at relative_path "{relative_path}". Read it with '
+            f'read_file(root="{self.root_name}", relative_path="{relative_path}", '
+            "start_line=..., end_line=...) or search it with search_text. Keep "
+            "each read well under the limit (for example max_bytes=40000), or it "
+            "will be shortened again. A narrower original call (a deeper "
+            "relative_path, recursive=false, or a smaller range) is often better."
+        )
+
+    def _save(self, *, tool_name: str, tool_call_id: str, text: str) -> str:
+        safe_tool = re.sub(r"[^A-Za-z0-9_.-]", "_", tool_name)[:40] or "tool"
+        safe_call = re.sub(r"[^A-Za-z0-9_-]", "_", tool_call_id)[:24] or "call"
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        with self._lock:
+            while True:
+                self._sequence += 1
+                name = f"{self._sequence:04d}-{safe_tool}-{safe_call}.txt"
+                try:
+                    with (self.output_dir / name).open("x", encoding="utf-8") as handle:
+                        handle.write(text)
+                except FileExistsError:
+                    continue
+                return name
+
+
+def _readable_tool_text(text: str) -> str:
+    try:
+        parsed = json.loads(text)
+    except ValueError:
+        return text
+    if not isinstance(parsed, dict | list):
+        return text
+    return json.dumps(parsed, ensure_ascii=False, indent=2, sort_keys=True) + "\n"

@@ -40,7 +40,7 @@ The assistant announces new permanent files before creating them.
 | AHE-011 | A non-infrastructure meta-agent failure permanently blocks its stage with attempts left, no command unblocks it, and protected-code fingerprints forbid continuing the campaign after any AHE repair | Explained in plain language; on 2026-10-13 the operator chose a new campaign with the AHE-010 repair | No AHE patch; first campaign kept as evidence, new campaign `harvey-lab-campaign-2-search-cap` started from round 1 |
 | AHE-012 | Independent evaluations run one after another (validation of C0..Cn, the final test pair), and exploration waits for the C0 evaluation it does not use, leaving most allowed concurrency idle | Timing review explained on 2026-10-13; recording approved (performance recommendation, not a correctness defect) | No AHE patch. The Harvey side switched to LAB's default `grading_parallel: 6` (campaign 3) |
 | AHE-013 | Meta agents have no general tool-output safety net (the original AHE evolve agent uses NexAU's `LongToolOutputMiddleware`) and no shell or structured way to read one field of a very long JSON trace line | Raised by the operator on 2026-10-13 after comparing with the original AHE `evolve_agent.yaml`; recording approved | No AHE patch at first; the safety-net part is addressed locally by AHE-014 |
-| AHE-014 | `list_files` has no output-size budget: in campaign 3 round 1, one recursive Evolve listing of `raw_evaluation` returned 274,020 characters into the context | Explained in plain language; on 2026-10-13 the operator approved option 2b (a long-output safety net for Evolve and both Explore agents, not the Debugger), a 64,000-character limit with a 24,000 + 8,000 preview, and campaign name `harvey-lab-campaign-4-gp50-output-backstop` | Proposed; not yet implemented |
+| AHE-014 | `list_files` has no output-size budget: in campaign 3 round 1, one recursive Evolve listing of `raw_evaluation` returned 274,020 characters into the context | Explained in plain language; on 2026-10-13 the operator approved option 2b (a long-output safety net for Evolve and both Explore agents, not the Debugger), a 64,000-character limit with a 24,000 + 8,000 preview, and campaign name `harvey-lab-campaign-4-gp50-output-backstop` | Branch-local `MetaToolOutputBackstopMiddleware` in `meta/middleware.py`, wired for Evolve and Explore in `meta/nexau_backend.py`; 191 offline tests passed, and a replay of the 274,020-character listing showed the agent 32,734 characters |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -1331,3 +1331,31 @@ Runner code is part of the campaign fingerprint, so campaign 4 is renamed
 2. Adopt a protected safety net like this one for all meta agents, and make
    the Debugger's access records reflect only the text actually returned
    after shortening (see AHE-013).
+
+### Local result
+
+- `src/ahe_runner/meta/middleware.py`: new `MetaToolOutputBackstopMiddleware`
+  (`after_tool` hook). Saved copies are named
+  `<sequence>-<tool>-<call id>.txt` and never overwrite an earlier copy. If a
+  copy cannot be saved, the result is still shortened and the note says so.
+  If an escaped JSON result fits within the limit once decoded, the decoded
+  form is returned whole and nothing is saved.
+- `src/ahe_runner/meta/nexau_backend.py`: `_run_agent(...,
+  tool_output_backstop=True)` creates `<runtime_dir>/tool_outputs/`, adds it
+  to a copy of `meta_read_roots` (not to `meta_write_roots`), rejects a
+  caller root with the same name, and places the middleware before context
+  compaction. `run_evolve` and `_ensure_explorer` turn it on; the Debugger
+  does not.
+- Tests: 7 middleware cases in `tests/test_meta_middleware.py` and 2 wiring
+  cases in `tests/test_meta_resources.py`. They cover passthrough at the
+  limit, the head, tail, and note, the readable saved copy, the bypassed
+  tools, unique names after a restart, a failed save, decoded JSON that fits,
+  the settings check, the read-only root and path escape, Debugger-style runs
+  without the safety net, and the reserved root name.
+- Offline checks on 2026-10-13: the full suite passed 191/191 (182 before).
+  ruff check and format are clean. pyright reports no new errors; the 6
+  errors it lists in `nexau_backend.py` were already there before this change.
+  Replaying campaign 3's 227,056-character listing (274,020 characters as
+  stored in the trace) gave the agent a 32,734-character result and a
+  7,826-line saved copy. An ad-hoc run through NexAU's own `MiddlewareManager`
+  returned the shortened result as a dict, as the tool executor expects.

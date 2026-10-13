@@ -622,7 +622,9 @@ Changes from campaign 3:
   `runtime/tool_outputs/` folder, which the agent can read through the
   read-only root `tool_outputs`. `LoadSkill` and `complete_task` are never
   shortened, and the Debugger is not covered. Details in
-  `docs/HARVEY_INTEGRATION_UPSTREAM_RECOMMENDATIONS.md`, AHE-014.
+  `docs/HARVEY_INTEGRATION_UPSTREAM_RECOMMENDATIONS.md`, AHE-014. Offline
+  check: the full suite passes 191/191, and campaign 3's 274,020-character
+  listing would have shown the agent 32,734 characters.
 
 - The adapter's `grading_parallel` limit is raised from 16 to 100
   (`harvey_ahe/adapter.py`). There was no documented reason for 16; it was a

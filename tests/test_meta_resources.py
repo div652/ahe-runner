@@ -5,11 +5,13 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 import yaml
 
 import ahe_runner.meta.nexau_backend as backend_module
 from ahe_runner.config import load_config
 from ahe_runner.controller import CampaignController
+from ahe_runner.errors import IntegrityError
 from ahe_runner.evidence import EvidenceTask
 from ahe_runner.io import atomic_write_json, sha256_file
 from ahe_runner.meta import tools
@@ -219,6 +221,149 @@ def test_meta_agent_skill_copies_stay_in_private_runtime_sandbox(
         assert (runtime_dir / "sandbox" / ".skills" / "skill" / "SKILL.md").is_file()
         assert not (launch_dir / ".skills").exists()
     skill.chmod(0o755)
+
+
+def test_long_output_backstop_adds_a_private_read_only_root(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config_path = make_example_project(tmp_path)
+    value = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    value["meta"]["backend"] = "nexau"
+    value["meta"]["explore"]["web_search_backend"] = "ddgs"
+    value["transport"]["api_key_env"] = "AHE_TEST_META_KEY"
+    config_path.write_text(yaml.safe_dump(value, sort_keys=False), encoding="utf-8")
+    monkeypatch.setenv("AHE_TEST_META_KEY", "synthetic-meta-key")
+    controller = CampaignController(load_config(config_path))
+    seen: dict[str, object] = {}
+
+    class RecordingAgent:
+        def __init__(self, *, config):  # type: ignore[no-untyped-def]
+            seen["middlewares"] = [type(item).__name__ for item in config.middlewares]
+            self.full_trace = []
+            self.global_storage = SimpleNamespace(get=lambda _key: None)
+
+        def run(self, **kwargs):  # type: ignore[no-untyped-def]
+            seen["context"] = kwargs["context"]
+            return "done"
+
+        def sync_cleanup(self) -> None:
+            return None
+
+    monkeypatch.setattr(backend_module, "Agent", RecordingAgent)
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    caller_context = {
+        "meta_role": "evolve",
+        "meta_read_roots": {"evidence": str(tmp_path)},
+        "meta_write_roots": {"workspace": str(workspace)},
+    }
+    runtime_dir = tmp_path / "runtime"
+    controller.meta._run_agent(
+        name="AHE-Backstop-Smoke",
+        description="Load the long-output safety net without a model call.",
+        prompt_name="evolve.md",
+        settings=controller.config.document.models.meta,
+        max_iterations=2,
+        tools=("list_files", "read_file", "write_file", "complete_task"),
+        skills=(),
+        context=caller_context,
+        query="smoke query",
+        runtime_dir=runtime_dir,
+        tool_output_backstop=True,
+    )
+    tool_outputs = runtime_dir / "tool_outputs"
+    assert tool_outputs.is_dir()
+    assert seen["middlewares"] == [
+        "MetaToolOutputBackstopMiddleware",
+        "MetaContextCompactionMiddleware",
+    ]
+    agent_yaml = yaml.safe_load((runtime_dir / "agent.yaml").read_text("utf-8"))
+    params = agent_yaml["middlewares"][0]["params"]
+    assert params == {
+        "output_dir": str(tool_outputs),
+        "root_name": "tool_outputs",
+        "max_output_chars": 64_000,
+        "head_chars": 24_000,
+        "tail_chars": 8_000,
+        "bypass_tool_names": ["LoadSkill", "complete_task"],
+    }
+    context = seen["context"]
+    assert isinstance(context, dict)
+    assert context["meta_read_roots"] == {
+        "evidence": str(tmp_path),
+        "tool_outputs": str(tool_outputs),
+    }
+    assert context["meta_write_roots"] == {"workspace": str(workspace)}
+    assert "tool_outputs" not in caller_context["meta_read_roots"]  # type: ignore[operator]
+
+    (tool_outputs / "0001-list_files-call.txt").write_text(
+        "line one\nline two\n", encoding="utf-8"
+    )
+    state = _AgentState(context)
+    read = json.loads(
+        tools.read_file(
+            "tool_outputs",
+            "0001-list_files-call.txt",
+            start_line=2,
+            end_line=2,
+            agent_state=state,  # type: ignore[arg-type]
+        )
+    )
+    assert read["content"] == "line two\n"
+    with pytest.raises(ValueError, match="unknown or prohibited root"):
+        tools.write_file(
+            "tool_outputs",
+            "0001-list_files-call.txt",
+            "changed",
+            agent_state=state,  # type: ignore[arg-type]
+        )
+    with pytest.raises(ValueError, match="stay within the selected root"):
+        tools.read_file(
+            "tool_outputs",
+            "../agent.yaml",
+            agent_state=state,  # type: ignore[arg-type]
+        )
+
+    default_runtime = tmp_path / "runtime-default"
+    controller.meta._run_agent(
+        name="AHE-No-Backstop",
+        description="Debugger-style run without the safety net.",
+        prompt_name="debugger.md",
+        settings=controller.config.document.models.meta,
+        max_iterations=2,
+        tools=("read_file",),
+        skills=(),
+        context={"meta_read_roots": {"evidence": str(tmp_path)}},
+        query="smoke query",
+        runtime_dir=default_runtime,
+    )
+    assert seen["middlewares"] == ["MetaContextCompactionMiddleware"]
+    assert not (default_runtime / "tool_outputs").exists()
+
+    with pytest.raises(IntegrityError, match="reserved"):
+        controller.meta._run_agent(
+            name="AHE-Root-Clash",
+            description="A caller root may not reuse the reserved name.",
+            prompt_name="evolve.md",
+            settings=controller.config.document.models.meta,
+            max_iterations=2,
+            tools=("read_file",),
+            skills=(),
+            context={"meta_read_roots": {"tool_outputs": str(tmp_path)}},
+            query="smoke query",
+            runtime_dir=tmp_path / "runtime-clash",
+            tool_output_backstop=True,
+        )
+
+
+def test_long_output_backstop_covers_evolve_and_explore_not_debugger() -> None:
+    def calls(method: object) -> int:
+        return inspect.getsource(method).count("tool_output_backstop=True")  # type: ignore[arg-type]
+
+    assert calls(NexAUMetaBackend.run_evolve) == 1
+    assert calls(NexAUMetaBackend._ensure_explorer) == 1
+    assert calls(NexAUMetaBackend._run_debugger_task) == 0
 
 
 def test_meta_agents_mount_only_declared_public_adapter_roots(

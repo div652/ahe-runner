@@ -46,6 +46,12 @@ from .preflight import run_model_preflight
 _COMMON_READ_TOOLS = ("list_files", "read_file", "search_text")
 _WRITE_TOOLS = ("write_file", "replace_text", "delete_path")
 _GIT_TOOLS = ("git_status", "git_diff", "git_commit")
+# AHE-014: long tool results are shortened and saved under this read-only root.
+_TOOL_OUTPUT_ROOT = "tool_outputs"
+_TOOL_OUTPUT_MAX_CHARS = 64_000
+_TOOL_OUTPUT_HEAD_CHARS = 24_000
+_TOOL_OUTPUT_TAIL_CHARS = 8_000
+_TOOL_OUTPUT_BYPASS = ("LoadSkill",)
 _PROMPT_ROLES = {
     "source_explorer.md": "source",
     "web_explorer.md": "web",
@@ -362,6 +368,7 @@ class NexAUMetaBackend(MetaBackend):
             context=context,
             query=query,
             runtime_dir=runtime_dir,
+            tool_output_backstop=True,
         )
         final_head = git_output(workspace, "rev-parse", "HEAD").strip()
         status = git_output(workspace, "status", "--short")
@@ -465,6 +472,7 @@ class NexAUMetaBackend(MetaBackend):
             context=context,
             query=query,
             runtime_dir=runtime_dir,
+            tool_output_backstop=True,
         )
         problems = _skill_problems(deliverable, role)
         if problems:
@@ -619,8 +627,48 @@ class NexAUMetaBackend(MetaBackend):
         context: dict[str, Any],
         query: str,
         runtime_dir: Path,
+        tool_output_backstop: bool = False,
     ) -> str:
         runtime_dir.mkdir(parents=True, exist_ok=True)
+        middlewares: list[dict[str, Any]] = []
+        if tool_output_backstop:
+            tool_output_dir = runtime_dir / _TOOL_OUTPUT_ROOT
+            read_roots = dict(context.get("meta_read_roots") or {})
+            write_roots = dict(context.get("meta_write_roots") or {})
+            if _TOOL_OUTPUT_ROOT in read_roots or _TOOL_OUTPUT_ROOT in write_roots:
+                raise IntegrityError(f"meta root {_TOOL_OUTPUT_ROOT!r} is reserved")
+            tool_output_dir.mkdir(exist_ok=True)
+            read_roots[_TOOL_OUTPUT_ROOT] = str(tool_output_dir)
+            context = {**context, "meta_read_roots": read_roots}
+            middlewares.append(
+                {
+                    "import": (
+                        "ahe_runner.meta.middleware:MetaToolOutputBackstopMiddleware"
+                    ),
+                    "params": {
+                        "output_dir": str(tool_output_dir),
+                        "root_name": _TOOL_OUTPUT_ROOT,
+                        "max_output_chars": _TOOL_OUTPUT_MAX_CHARS,
+                        "head_chars": _TOOL_OUTPUT_HEAD_CHARS,
+                        "tail_chars": _TOOL_OUTPUT_TAIL_CHARS,
+                        "bypass_tool_names": [*_TOOL_OUTPUT_BYPASS, *stop_tools],
+                    },
+                }
+            )
+        middlewares.append(
+            {
+                "import": (
+                    "ahe_runner.meta.middleware:MetaContextCompactionMiddleware"
+                ),
+                "params": {
+                    "max_context_tokens": (
+                        self.context.config.document.meta.max_context_tokens
+                    ),
+                    "threshold": 0.72,
+                    "keep_iterations": 12,
+                },
+            }
+        )
         prompt_path = runtime_dir / "system_prompt.md"
         prompt_path.write_text(
             self._resolved_prompt_text(prompt_name),
@@ -669,20 +717,7 @@ class NexAUMetaBackend(MetaBackend):
             "stop_tools": list(stop_tools),
             "skills": [str(skill) for skill in skills],
             "sub_agents": [],
-            "middlewares": [
-                {
-                    "import": (
-                        "ahe_runner.meta.middleware:MetaContextCompactionMiddleware"
-                    ),
-                    "params": {
-                        "max_context_tokens": (
-                            self.context.config.document.meta.max_context_tokens
-                        ),
-                        "threshold": 0.72,
-                        "keep_iterations": 12,
-                    },
-                }
-            ],
+            "middlewares": middlewares,
             "tracers": [
                 {"import": ("nexau.archs.tracer.adapters.in_memory:InMemoryTracer")}
             ],
