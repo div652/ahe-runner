@@ -29,7 +29,10 @@ from ahe_runner.adapter import (
     CandidateValidationRequest,
     EvaluationRequest,
     EvidenceRequest,
+    MetricSummary,
+    MetricValue,
     SplitName,
+    TaskState,
     VerificationRequest,
 )
 from ahe_runner.config import ModelSettings, TransportSettings
@@ -107,6 +110,39 @@ def test_judge_call_cap_builds_one_shared_semaphore(scratch_root: Path) -> None:
         project_root=PROJECT_ROOT, settings=_settings(scratch_root)
     )
     assert uncapped._judge_call_slots is None
+
+
+def _summary(scores: dict[str, float]) -> MetricSummary:
+    return MetricSummary(
+        primary=MetricValue(name=PRIMARY_METRIC, value=sum(scores.values()) / 4),
+        metrics={},
+        task_count=len(scores),
+        rollout_count=len(scores),
+        task_states=[
+            TaskState(task_key=key, state="scored", score=score)
+            for key, score in scores.items()
+        ],
+    )
+
+
+def test_compare_applies_one_global_attribution_threshold(
+    scratch_root: Path,
+) -> None:
+    before = _summary({"a": 0.30, "b": 0.30, "c": 0.90, "d": 0.50})
+    after = _summary({"a": 0.40, "b": 0.35, "c": 0.80, "d": 0.45})
+    thresholded = HarveyAdapter(
+        project_root=PROJECT_ROOT,
+        settings=_settings(scratch_root, attribution_min_task_delta=0.08),
+    )
+    transition = thresholded.compare(before, after)
+    assert transition.improved_task_keys == ["a"]
+    assert transition.regressed_task_keys == ["c"]
+    assert transition.unchanged_task_keys == ["b", "d"]
+    assert transition.metadata["attribution_min_task_delta"] == 0.08
+    with pytest.raises(ValueError):
+        adapter_module.HarveyAdapterSettings.model_validate(
+            _settings(scratch_root, attribution_min_task_delta=-0.1)
+        )
 
 
 @pytest.mark.parametrize(
@@ -568,7 +604,10 @@ def test_evaluate_resume_verify_and_evidence(
     transition = adapter.compare(summary, better)
     assert transition.improved_task_keys == [summary.task_states[1].task_key]
     assert transition.regressed_task_keys == []
-    assert transition.metadata == {"mean_dual_all_pass_rate_delta": 0.0}
+    assert transition.metadata == {
+        "mean_dual_all_pass_rate_delta": 0.0,
+        "attribution_min_task_delta": 0.0,
+    }
 
     verified = adapter.verify_evaluation(VerificationRequest(evaluation=request))
     assert verified == result

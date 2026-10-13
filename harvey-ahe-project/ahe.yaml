@@ -19,13 +19,17 @@
 # debugger budget, a Docker-sandboxed shell, readable evidence views, and
 # non-blocking debugger failures (AHE-016, runbook 5f). Its round 1 showed
 # that change attribution never matched Evolve's predicted tasks (AHE-017).
-# This sixth campaign is campaign 5 plus the AHE-017 fix; the config is
-# otherwise unchanged.
+# The sixth campaign was campaign 5 plus the AHE-017 fix (runbook 5g). This
+# seventh campaign keeps campaign 6's harness and meta agents and scales up:
+# 60 train / 15 validation / 15 test tasks (splits-v2.json, built by
+# scripts/make_splits_v2.py), 2 validation and 3 test trials, 20 meta-agent
+# model calls at once, and a global 0.08 noise floor for change attribution
+# (runbook 5h).
 schema_version: 1
 
 campaign:
-  name: harvey-lab-campaign-6-attribution-fix
-  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-6-attribution-fix
+  name: harvey-lab-campaign-7-60-15-15
+  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-7-60-15-15
   rounds: 3
   root_seed: 42
 
@@ -36,7 +40,7 @@ project:
   adapter_settings:
     # Relative paths resolve against this file's directory.
     lab_root: ../../harvey-labs
-    split_file: ./splits.json
+    split_file: ./splits-v2.json
     # LAB's standard judge pair is claude-sonnet-4-6 and gpt-5.5. The results
     # carry the `lab-standard-dual-v1` profile label only when the configured IDs
     # equal those strings; any other IDs are labelled `custom-dual`.
@@ -70,10 +74,15 @@ project:
     # transport.max_concurrent_requests so agents always have free slots.
     judge_max_concurrent_calls: 18
     grading_attempts: 2
+    # Attribution counts a training task as improved or regressed only when
+    # its score moves by more than this, the same value for every task. 0.08
+    # is about the 80th percentile of task-level changes between three runs of
+    # the unchanged seed harness (campaigns 4-6); 0.0 counts any change.
+    attribution_min_task_delta: 0.08
   adapter_dependency_paths:
     - ./benchmark_adapter.py
     - ./harvey_ahe
-    - ./splits.json
+    - ./splits-v2.json
     - ./pyproject.toml
     - ./requirements.txt
   meta_agent_source_roots:
@@ -107,8 +116,8 @@ transport:
 
 evaluation:
   train_trials: 2
-  validation_trials: 1
-  test_trials: 1
+  validation_trials: 2
+  test_trials: 3
   max_concurrency: 20
 
 debugger:
@@ -136,7 +145,7 @@ meta:
     web: ./meta_supplements/web.md
     debugger: ./meta_supplements/debugger.md
     evolve: ./meta_supplements/evolve.md
-  max_concurrent_model_calls: 6
+  max_concurrent_model_calls: 20
   max_context_tokens: 200000
   max_running_subagents: 5
   evolve_max_iterations: 500

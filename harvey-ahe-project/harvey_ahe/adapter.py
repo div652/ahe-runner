@@ -126,6 +126,7 @@ class HarveyAdapterSettings(BaseModel):
     grading_parallel: int = Field(default=1, ge=1, le=100)
     judge_max_concurrent_calls: int | None = Field(default=None, ge=1, le=100)
     grading_attempts: int = Field(default=2, ge=1, le=5)
+    attribution_min_task_delta: float = Field(default=0.0, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
     def validate_judges(self) -> HarveyAdapterSettings:
@@ -405,8 +406,14 @@ class HarveyAdapter(BenchmarkAdapterV2):
         old = {row.task_key: row for row in before.task_states}
         new = {row.task_key: row for row in after.task_states}
         shared = old.keys() & new.keys()
-        improved = sorted(key for key in shared if new[key].score > old[key].score)
-        regressed = sorted(key for key in shared if new[key].score < old[key].score)
+        # One global noise floor for every task: smaller moves count as unchanged.
+        threshold = self.config.attribution_min_task_delta
+        improved = sorted(
+            key for key in shared if new[key].score - old[key].score > threshold
+        )
+        regressed = sorted(
+            key for key in shared if old[key].score - new[key].score > threshold
+        )
         return TransitionSummary(
             primary_delta=after.primary.value - before.primary.value,
             improved_task_keys=improved,
@@ -417,6 +424,7 @@ class HarveyAdapter(BenchmarkAdapterV2):
                     after.metrics.get(ALL_PASS_METRIC, 0.0)
                 )
                 - float(before.metrics.get(ALL_PASS_METRIC, 0.0)),
+                "attribution_min_task_delta": threshold,
             },
         )
 

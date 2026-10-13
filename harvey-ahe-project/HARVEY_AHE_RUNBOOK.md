@@ -13,8 +13,8 @@ All commands run from the AHE repository root (`~/AHE_Harvey`, branch
 | Input | Expected |
 |---|---|
 | LAB repository | `~/harvey-labs`, branch `divyanshu_harvey_evolution` |
-| LAB commit | `86678eba6fcbc6c03958742c6e9e75737514f513` (equals `lab_commit` in `splits.json`) |
-| Splits | `harvey-ahe-project/splits.json`: 6 train, 3 validation, 3 test tasks; each task pinned by the sha256 of its `task.json` and documents tree |
+| LAB commit | `86678eba6fcbc6c03958742c6e9e75737514f513` (equals `lab_commit` in `splits.json` and `splits-v2.json`) |
+| Splits | `harvey-ahe-project/splits.json` (campaigns 1-6): 6 train, 3 validation, 3 test tasks. `harvey-ahe-project/splits-v2.json` (campaign 7 onward): 60 train, 15 validation, 15 test tasks, built by `scripts/make_splits_v2.py` (section 5h). Each task is pinned by the sha256 of its `task.json` and documents tree |
 | NexAU | 0.3.9 (from the AHE environment) |
 | Endpoint | loopback GH Copilot Server, `http://127.0.0.1:3141/v1`, chat completions |
 
@@ -1117,6 +1117,55 @@ checkpoint was below C0, while on validation and test they were above it.
 Validation and test used one trial on three tasks, and the measured
 per-trial noise is about 0.05, so this campaign does not show a reliable
 gain. Campaign 7 uses more tasks and trials for that reason.
+
+## 5h. Campaign 7 setup: `harvey-lab-campaign-7-60-15-15`
+
+Planned with the operator on 2026-10-13. The harness, meta agents, models
+and runner code are the same as campaign 6. The changes:
+
+| Setting | Campaign 6 | Campaign 7 |
+|---|---|---|
+| `split_file` | `splits.json` (6/3/3) | `splits-v2.json` (60/15/15) |
+| `validation_trials` / `test_trials` | 1 / 1 | 2 / 3 |
+| `meta.max_concurrent_model_calls` | 6 | 20 |
+| `attribution_min_task_delta` (new adapter setting) | 0.0 | 0.08 |
+
+Split. Rebuild and check with
+`.venv/bin/python harvey-ahe-project/scripts/make_splits_v2.py --lab-root ../harvey-labs`.
+The output is the same on every run.
+- 166 LAB tasks pass the pilot filter at the pinned commit, across 24
+  practice areas.
+- Train holds all 12 pilot tasks plus 48 more. The pilot validation and
+  test tasks become training tasks here.
+- The other 154 eligible tasks are dealt one per practice area per pass,
+  with areas and tasks ordered by sha256. The first 15 dealt tasks are
+  test, the next 15 validation, and the next 48 train.
+- Validation and test each cover 15 distinct practice areas, and train
+  covers 23.
+- The full rule is in the file's `selection_policy`.
+
+Attribution threshold. `compare()` counts a task as improved or regressed
+only when its score moves by more than `attribution_min_task_delta`, one
+value for every task. The value is recorded in each `transition.json`. The
+operator chose 0.08 from three runs of the unchanged seed harness (C0 in
+campaigns 4-6). Across those runs, 18 task-level changes had a median of
+0.031, an 80th percentile of 0.083 and a 90th percentile of 0.091.
+Attribution is the only consumer of `compare()`, so scores and checkpoint
+selection do not change.
+
+No answers carry over from earlier campaigns. Each campaign starts from the
+same seed harness, and the meta agents read only their own campaign's
+training evidence. The web explorer's leakage filter blocks LAB names and
+training-task slugs. Validation and test slugs are deliberately left out of
+the filter, because the filter terms appear in the meta prompts.
+
+Expected load, from campaign 6 rates:
+- About 120 rollouts per training evaluation, 30 per validation checkpoint
+  and 45 per test checkpoint.
+- About 690 rollouts and 58,000 model calls in total.
+- About 25-35 minutes per training evaluation, about 50 minutes per round,
+  and 4-4.5 hours for the whole campaign.
+- About 5 GB of artifacts.
 
 
 ## 6. Known deviations and limits to report with results
