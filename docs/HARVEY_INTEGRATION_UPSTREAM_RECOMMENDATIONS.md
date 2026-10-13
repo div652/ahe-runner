@@ -722,6 +722,21 @@ Residual risk: candidate tool code still runs in the host Python process
 repair removes accidental cross-trial routing; it is not a security boundary
 against hostile harness code.
 
+### Offline verification (2026-10-13)
+
+- `tests/test_runtime.py` (no model calls): 16 passed. This includes
+  `test_session_resources_are_bound_to_their_own_session` and the
+  reserved/invalid-key cases of
+  `test_session_resources_reject_reserved_or_invalid_keys`.
+- First run from the repository root: 15 passed, 1 failed
+  (`test_runtime_intercepts_protected_actions_and_preserves_sessions`). The
+  cause was a stray `.skills/` left in the root by the quickstart, not this
+  change. The same file passed 16/16 from a clean directory; the cause was
+  then recorded as AHE-008.
+- Ruff is clean on the changed files. Pyright has one error on
+  `runtime.py` (`on_close=self._sessions.pop`), which is identical on the
+  unmodified file.
+
 ### Upstream recommendations
 
 1. Add a supported per-session resource or capability seam to
@@ -836,6 +851,17 @@ runtime leaves no `.skills` in the current directory.
   directory.
 - The leftover `AHE_Harvey/.skills/` from the quickstart (git-ignored) was
   deleted with the operator's approval.
+
+### Offline verification (2026-10-13)
+
+- `tests/test_runtime.py` and `tests/test_meta_resources.py`, run from the
+  repository root after the leftover folder was deleted: 28 passed. No
+  `.skills/` reappeared in the root.
+- Negative check: with the pre-fix `nexau_backend.py` temporarily restored,
+  the new regression test fails at its first check, because the skill copy was
+  not placed in `<runtime_dir>/sandbox`. The fixed file was then restored.
+- Ruff is clean. Pyright reports 6 errors in `nexau_backend.py`, the same 6
+  as on the unmodified file.
 
 ### Upstream recommendations
 
