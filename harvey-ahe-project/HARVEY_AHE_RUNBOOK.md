@@ -386,6 +386,62 @@ recoverable rejections; this time no Harvey `finish` gate was involved.
   needed byte range, cited that, and was accepted on the next try. See the
   AHE-010 follow-up note in the recommendations document.
 
+### Round 2: `ahe run-round --round 2` (2026-10-13 09:50-10:12 UTC, exit 0)
+
+Log in `campaign-artifacts/c3-run-round-2.log`. The C1 evaluation and
+evidence were reused. Every new stage completed on its first attempt:
+debugger 396 s, evolve 344 s, validate and freeze 12 s, C2 train
+evaluation 505 s. Total time was about 22 minutes. Grading took 1.1-2.2
+minutes per trial. There were no grading, judge-input-limit, or agent
+errors, and the judges never disagreed on all-pass. The evolve agent loaded
+both Explore skills and could read `attribution/C1`.
+
+| Training task | C1 j1 | C1 j2 | C2 j1 | C2 j2 |
+|---|---|---|---|---|
+| banking-finance/identify-issues-in-officer-certificate | 17/35 | 17/35 | 15/35 | 16/35 |
+| corporate-ma/compare-credit-agreement-to-commitment-letter | 30/40 | 31/40 | 25/40 | 27/40 |
+| energy-natural-resources/identify-issues-in-tax-equity-flip-partnership-agreement | 14/36 | 15/36 | 14/36 | 18/36 |
+| environmental-esg/identify-issues-in-expert-remediation-report | 4/33 | 4/33 | 4/33 | 5/33 |
+| real-estate/draft-warranty-deed | 37/38 | 37/38 | 36/38 | 36/38 |
+| tax/identify-tax-issues-in-irs-closing-agreement | 8/33 | 8/33 | 8/33 | 8/33 |
+
+| Metric | C0 | C1 | C2 |
+|---|---|---|---|
+| Primary: mean dual all-pass | 0.0 | 0.0 | 0.0 |
+| Mean criterion pass rate | 0.533 | 0.498 | 0.477 |
+| Pooled criterion pass rate | 0.551 | 0.516 | 0.493 |
+| Terminations | 4 `finish_tool`, 2 `no_tool_calls` | 6 `finish_tool` | 6 `finish_tool` |
+| Total assistant turns, 6 trials | 38 | 47 | 60 |
+| Total agent wall-clock, 6 trials | 920 s | 942 s | 903 s |
+
+What C2 changed (`checkpoints/C2/harness/change_manifest.json`): two changes.
+- `chg-c2-skill-legal-review-protocol`: a new registered skill,
+  `skills/legal-review-protocol/SKILL.md` (added to `agent.yaml`). It
+  defines ledger modes for issue-spotting, comparison, and drafting tasks;
+  each ledger item must be marked include, rule out, or unresolved; and it
+  adds an audit before `finish`. Predicted fixes: 6, risks: 0.
+- `chg-c2-systemprompt-skill-routing`: `systemprompt.md` now sends
+  non-trivial tasks through that skill, forbids drafting from a short
+  "high-salience" list, and requires a complete ledger before drafting.
+  Predicted fixes: 4, risks: 2.
+
+Effects observed in C2: all six trials loaded the new skill, wrote a ledger
+file, and called `finish`. Attribution marked both changes `INEFFECTIVE`
+(0 of 6 and 0 of 4 predicted fixes, no declared risks observed, primary
+delta 0.0).
+
+The mean criterion pass rate has fallen by 2-3.5 points per round, and the
+assistant turns have risen (38, 47, 60). Each step is still smaller than
+the 5.7-point C0 difference between campaigns 1 and 3, so with one trial
+per task this is not yet evidence of harm. Validation (3 held-out tasks)
+will decide the selected checkpoint.
+
+The one `Finish Tool ... execution failed, will continue` line was evolve's
+`complete_task` rejecting `change_manifest.json` once: "predicted_fixes and
+risk_tasks overlap", in both changes. This is the same recoverable
+rejection seen in round 1 of both campaigns. Evolve fixed the manifest and
+completed.
+
 
 ## 6. Known deviations and limits to report with results
 
