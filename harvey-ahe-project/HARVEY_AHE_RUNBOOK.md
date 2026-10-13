@@ -707,6 +707,16 @@ two trials graded at once with `grading_parallel` 10 and a cap of 3 never
 have more than 3 calls in flight; without a cap they exceed 3. The full suite
 passes 196/196, and ruff and pyright are clean for the changed files.
 
+Probe at the cap, 2026-10-13 14:23 UTC: **passed the gate.** Record:
+`operator-preflight/2026-10-13/judge-load-probe-24.json`. All 24 calls
+succeeded (12 per judge model) in 6.1 seconds, with the requested model
+labels, parseable verdicts, and the same verdicts as campaign 3. Per-call
+time was p50 2.3 s for `claude-sonnet-5` and 2.6 s for `gpt-5.5`. The Copilot
+Chat log has no new rate-limit lines; all 180 are from the 14:10 probe. This
+probe is one burst. During the campaign, bursts repeat and the evaluated
+agent's calls share the same limit, so agent or judge errors in campaign 4
+should be checked against the Copilot Chat log for HTTP 429.
+
 Offline verification on branch `harveybench-gp50`, at commit `f96094b` plus
 a probe fix: the eight Harvey test files pass 103/103, and the full suite
 passes 182/182. Both runs used the branch's code (`PYTHONPATH` set to the
