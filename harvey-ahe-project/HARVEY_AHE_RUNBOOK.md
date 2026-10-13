@@ -304,6 +304,10 @@ order, so the scores do not depend on this setting. Offline test:
 Expected effect: about 6 fewer minutes per evaluation. The cost is up to 36
 concurrent judge requests during a 6-trial evaluation.
 
+Verification before launch, at commit `a565e2b`: the new test passes; the
+six Harvey test files pass 101/101; the full suite passes 180/180; ruff
+check and format are clean for the changed test.
+
 ## 6. Known deviations and limits to report with results
 
 - Seed harness: LAB's tools and prompt on NexAU, without LAB's skill files;
