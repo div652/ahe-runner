@@ -20,6 +20,7 @@ import random
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 from collections import Counter
 from collections.abc import Iterable, Iterator, Sequence
@@ -121,6 +122,7 @@ class HarveyAdapterSettings(BaseModel):
     shell_timeout: int = Field(default=60, ge=1, le=MAX_EXEC_TIMEOUT_SECONDS)
     scratch_root: Path | None = None
     grading_parallel: int = Field(default=1, ge=1, le=100)
+    judge_max_concurrent_calls: int | None = Field(default=None, ge=1, le=100)
     grading_attempts: int = Field(default=2, ge=1, le=5)
 
     @model_validator(mode="after")
@@ -195,6 +197,12 @@ class HarveyAdapter(BenchmarkAdapterV2):
         except ValueError as exc:
             raise ConfigurationError(f"invalid Harvey adapter settings: {exc}") from exc
         self.lab_root = _resolve(project_root, self.config.lab_root)
+        # Shared by every trial this adapter grades, so the cap is process-wide.
+        self._judge_call_slots = (
+            None
+            if self.config.judge_max_concurrent_calls is None
+            else threading.BoundedSemaphore(self.config.judge_max_concurrent_calls)
+        )
         self.scratch_root = (
             None
             if self.config.scratch_root is None
@@ -644,6 +652,7 @@ class HarveyAdapter(BenchmarkAdapterV2):
                 api_key=request.api_key,
                 max_prompt_chars=self.config.judge_max_prompt_chars,
                 parallel=self.config.grading_parallel,
+                call_slots=self._judge_call_slots,
             )
             messages = _trace_messages(run.output)
             tool_counts, assistant_turns = _tool_counts(messages)

@@ -92,6 +92,23 @@ def test_shipped_ahe_yaml_settings_are_accepted() -> None:
     assert (PROJECT_ROOT / config.lab_root).resolve() == LAB_ROOT
 
 
+def test_judge_call_cap_builds_one_shared_semaphore(scratch_root: Path) -> None:
+    capped = HarveyAdapter(
+        project_root=PROJECT_ROOT,
+        settings=_settings(scratch_root, judge_max_concurrent_calls=3),
+    )
+    slots = capped._judge_call_slots
+    assert isinstance(slots, threading.BoundedSemaphore)
+    assert all(slots.acquire(blocking=False) for _ in range(3))
+    assert not slots.acquire(blocking=False)
+    for _ in range(3):
+        slots.release()
+    uncapped = HarveyAdapter(
+        project_root=PROJECT_ROOT, settings=_settings(scratch_root)
+    )
+    assert uncapped._judge_call_slots is None
+
+
 @pytest.mark.parametrize(
     ("override", "message"),
     [
@@ -116,6 +133,8 @@ def test_shipped_ahe_yaml_settings_are_accepted() -> None:
         ({"shell_timeout": 601}, "shell_timeout"),
         ({"grading_parallel": 0}, "grading_parallel"),
         ({"grading_parallel": 101}, "grading_parallel"),
+        ({"judge_max_concurrent_calls": 0}, "judge_max_concurrent_calls"),
+        ({"judge_max_concurrent_calls": 101}, "judge_max_concurrent_calls"),
         ({"unexpected": True}, "unexpected"),
     ],
 )
@@ -350,6 +369,7 @@ class _Grader:
         self.index = {task_id: index for index, task_id in enumerate(train)}
         self.outputs: dict[str, list[str]] = {}
         self.lock = threading.Lock()
+        self.call_slots = adapter._judge_call_slots
 
     def __call__(
         self,
@@ -365,6 +385,7 @@ class _Grader:
     ) -> tuple[Path, dict[str, Any]]:
         assert attempts == 2
         assert api_key == "offline-key"
+        assert _kwargs["call_slots"] is self.call_slots
         with self.lock:
             self.outputs[task_id] = sorted(
                 path.relative_to(run_dir / "output").as_posix()

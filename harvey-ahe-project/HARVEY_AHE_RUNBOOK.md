@@ -695,6 +695,18 @@ Revised plan, approved by the operator on 2026-10-13:
 - Gate before launch: repeat the probe at exactly the cap (12 calls per judge
   model, 24 at once). Pass means all 24 succeed.
 
+Implemented on 2026-10-13: `judge_max_concurrent_calls` in
+`HarveyAdapterSettings` (1 to 100, unset by default). The adapter creates one
+`threading.BoundedSemaphore` and passes it to every `grade_with_retries`
+call; `RecordedCopilotJudge.evaluate_from_file` holds a slot only around the
+judge call itself. A rubric item rejected by the LAB-002 input limit makes no
+call and takes no slot. `ahe.yaml` now sets `grading_parallel: 10` and
+`judge_max_concurrent_calls: 24`. New offline tests: settings 0 and 101 are
+rejected; the adapter builds one shared semaphore and passes it to grading;
+two trials graded at once with `grading_parallel` 10 and a cap of 3 never
+have more than 3 calls in flight; without a cap they exceed 3. The full suite
+passes 196/196, and ruff and pyright are clean for the changed files.
+
 Offline verification on branch `harveybench-gp50`, at commit `f96094b` plus
 a probe fix: the eight Harvey test files pass 103/103, and the full suite
 passes 182/182. Both runs used the branch's code (`PYTHONPATH` set to the

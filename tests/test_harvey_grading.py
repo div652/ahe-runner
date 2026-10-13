@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -224,6 +225,82 @@ def test_parallel_criteria_grading_matches_serial_in_rubric_order(
         assert [row["verdict"] for row in concurrent] == [
             "fail" if position % 3 == 0 else "pass" for position in range(8)
         ]
+
+
+def _peak_concurrent_calls(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    call_slots: threading.BoundedSemaphore | None,
+) -> int:
+    criteria = [
+        {
+            "id": f"c{index}",
+            "title": f"Criterion number {index}",
+            "match_criteria": f"The memo satisfies check {index}.",
+            "deliverables": ["memo.md"],
+        }
+        for index in range(8)
+    ]
+    lock = threading.Lock()
+    state = {"active": 0, "peak": 0}
+
+    def create(self: FakeClient, **kwargs: Any) -> Any:
+        with lock:
+            state["active"] += 1
+            state["peak"] = max(state["peak"], state["active"])
+        time.sleep(0.02)
+        with lock:
+            state["active"] -= 1
+            FakeClient.calls.append(self.model)
+        message = SimpleNamespace(content=_verdict("pass"))
+        return SimpleNamespace(
+            model=kwargs["model"], choices=[SimpleNamespace(message=message)]
+        )
+
+    monkeypatch.setattr(FakeClient, "_create", create)
+    run_dir = _run_dir(tmp_path)
+    results: list[dict[str, Any]] = []
+
+    def grade(trial: int) -> None:
+        results.append(
+            grading.grade_task(
+                task_id="area/task",
+                task_config={"title": TASK_TITLE, "criteria": criteria},
+                run_dir=run_dir,
+                grading_dir=tmp_path / f"grading-trial-{trial}",
+                judges=(_judge(JUDGE_A), _judge(JUDGE_B)),
+                helper=ModelSettings(model=HELPER, max_tokens=1024, temperature=0.0),
+                transport=_transport(),
+                api_key="test-key",
+                max_prompt_chars=240000,
+                parallel=10,
+                call_slots=call_slots,
+            )
+        )
+
+    # Two trials graded at once, as the adapter's evaluation pool does.
+    threads = [threading.Thread(target=grade, args=(trial,)) for trial in (1, 2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    assert len(results) == 2
+    assert all(result["all_pass"] is True for result in results)
+    assert len(FakeClient.calls) == 32
+    return state["peak"]
+
+
+def test_shared_call_slots_cap_judge_calls_across_trials(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    peak = _peak_concurrent_calls(tmp_path, monkeypatch, threading.BoundedSemaphore(3))
+    assert peak == 3
+
+
+def test_no_call_slots_keeps_per_judge_parallelism(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert _peak_concurrent_calls(tmp_path, monkeypatch, None) > 3
 
 
 def test_disagreement_scores_half_and_is_not_all_pass(tmp_path: Path) -> None:

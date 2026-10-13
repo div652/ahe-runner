@@ -9,11 +9,14 @@ retries. Local, operator-approved additions:
 * Error classification: transient judge failures and unparseable replies are
   retried within the attempt; integrity, configuration, and other
   non-transient API errors halt the stage.
+* Shared call slots: an optional semaphore caps judge criterion calls across
+  every trial graded in the process (``judge_max_concurrent_calls``).
 """
 
 from __future__ import annotations
 
 import re
+import threading
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -57,6 +60,7 @@ class RecordedCopilotJudge(Judge):
         api_key: str,
         artifact_dir: Path,
         max_prompt_chars: int,
+        call_slots: threading.BoundedSemaphore | None = None,
     ) -> None:
         if settings.max_tokens != JUDGE_MAX_TOKENS or settings.temperature != 0.0:
             raise ConfigurationError(
@@ -79,6 +83,7 @@ class RecordedCopilotJudge(Judge):
         self.model_observations: list[dict[str, Any]] = []
         self.max_prompt_chars = max_prompt_chars
         self.input_limit_failures: list[dict[str, Any]] = []
+        self.call_slots = call_slots
         run_model_preflight(
             settings=settings,
             transport=transport,
@@ -112,7 +117,11 @@ class RecordedCopilotJudge(Judge):
                     "-character limit; scored fail without a model call (LAB-002)."
                 ),
             }
-        result = self.evaluate(prompt_template=template, variables=variables)
+        if self.call_slots is None:
+            result = self.evaluate(prompt_template=template, variables=variables)
+        else:
+            with self.call_slots:
+                result = self.evaluate(prompt_template=template, variables=variables)
         if (
             not isinstance(result, dict)
             or result.get("verdict") not in {"pass", "fail"}
@@ -179,6 +188,7 @@ def grade_task(
     api_key: str,
     max_prompt_chars: int,
     parallel: int = 1,
+    call_slots: threading.BoundedSemaphore | None = None,
 ) -> dict[str, Any]:
     """Grade ``run_dir/output`` once; write all artifacts into ``grading_dir``.
 
@@ -204,6 +214,7 @@ def grade_task(
                 api_key=api_key,
                 artifact_dir=grading_dir / f"judge-{index}",
                 max_prompt_chars=max_prompt_chars,
+                call_slots=call_slots,
             )
             try:
                 rubric = score_rubric(

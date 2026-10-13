@@ -40,7 +40,7 @@ The assistant announces new permanent files before creating them.
 | AHE-011 | A non-infrastructure meta-agent failure permanently blocks its stage with attempts left, no command unblocks it, and protected-code fingerprints forbid continuing the campaign after any AHE repair | Explained in plain language; on 2026-10-13 the operator chose a new campaign with the AHE-010 repair | No AHE patch; first campaign kept as evidence, new campaign `harvey-lab-campaign-2-search-cap` started from round 1 |
 | AHE-012 | Independent evaluations run one after another (validation of C0..Cn, the final test pair), and exploration waits for the C0 evaluation it does not use, leaving most allowed concurrency idle | Timing review explained on 2026-10-13; recording approved (performance recommendation, not a correctness defect) | No AHE patch. The Harvey side switched to LAB's default `grading_parallel: 6` (campaign 3) |
 | AHE-013 | Meta agents have no general tool-output safety net (the original AHE evolve agent uses NexAU's `LongToolOutputMiddleware`) and no shell or structured way to read one field of a very long JSON trace line | Raised by the operator on 2026-10-13 after comparing with the original AHE `evolve_agent.yaml`; recording approved | No AHE patch at first; the safety-net part is addressed locally by AHE-014 |
-| AHE-014 | `list_files` has no output-size budget: in campaign 3 round 1, one recursive Evolve listing of `raw_evaluation` returned 274,020 characters into the context | Explained in plain language; on 2026-10-13 the operator approved option 2b (a long-output safety net for Evolve and both Explore agents, not the Debugger), a 64,000-character limit with a 24,000 + 8,000 preview, and campaign name `harvey-lab-campaign-4-gp50-output-backstop` | Branch-local `MetaToolOutputBackstopMiddleware` in `meta/middleware.py`, wired for Evolve and Explore in `meta/nexau_backend.py`; 191 offline tests passed, and a replay of the 274,020-character listing showed the agent 32,734 characters |
+| AHE-014 | `list_files` has no output-size budget: in campaign 3 round 1, one recursive Evolve listing of `raw_evaluation` returned 274,020 characters into the context | Explained in plain language; on 2026-10-13 the operator approved option 2b (a long-output safety net for Evolve and both Explore agents, not the Debugger), a 64,000-character limit with a 24,000 + 8,000 preview, and campaign name `harvey-lab-campaign-4-gp50-output-backstop` (later renamed `harvey-lab-campaign-4-judge-cap-output-backstop`; runbook section 5d) | Branch-local `MetaToolOutputBackstopMiddleware` in `meta/middleware.py`, wired for Evolve and Explore in `meta/nexau_backend.py`; 191 offline tests passed, and a replay of the 274,020-character listing showed the agent 32,734 characters |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -1322,7 +1322,10 @@ cite text it never saw. Its tools keep their own limits (`read_file` up to
 entries).
 
 Runner code is part of the campaign fingerprint, so campaign 4 is renamed
-`harvey-lab-campaign-4-gp50-output-backstop` before it starts.
+`harvey-lab-campaign-4-gp50-output-backstop` before it starts. It was later
+renamed again, to `harvey-lab-campaign-4-judge-cap-output-backstop`, when a
+failed judge load probe replaced the `grading_parallel` 50 plan with a shared
+judge-call cap (runbook section 5d).
 
 ### Upstream recommendations
 

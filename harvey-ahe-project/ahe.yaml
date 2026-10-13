@@ -10,13 +10,14 @@
 # (harvey-lab-campaign-2-search-cap) was stopped early in round 1 to switch to
 # LAB's default grading parallelism. The third campaign
 # (harvey-lab-campaign-3-grading-parallel) carried both changes. This fourth
-# campaign raises grading_parallel from 6 to 50 and adds the AHE-014 long
-# tool-output safety net for Evolve and Explore (runbook sections 5a-5d).
+# campaign adds a shared cap on judge calls (24 at once, grading_parallel 10)
+# and the AHE-014 long tool-output safety net for Evolve and Explore (runbook
+# sections 5a-5d).
 schema_version: 1
 
 campaign:
-  name: harvey-lab-campaign-4-gp50-output-backstop
-  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-4-gp50-output-backstop
+  name: harvey-lab-campaign-4-judge-cap-output-backstop
+  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-4-judge-cap-output-backstop
   rounds: 3
   root_seed: 42
 
@@ -52,11 +53,14 @@ project:
     shell_timeout: 60
     # null uses the system temporary directory for per-trial scratch copies.
     scratch_root: null
-    # Rubric criteria graded concurrently per judge (adapter limit 100). LAB's
-    # own default is 6 (lab_core/evaluation/run_eval.py --parallel). Tasks have
-    # 33-40 criteria, so 50 grades each judge's whole rubric at once. Verdicts
-    # stay in rubric order.
-    grading_parallel: 50
+    # Rubric criteria graded concurrently per judge per trial (adapter limit
+    # 100). LAB's own default is 6 (lab_core/evaluation/run_eval.py --parallel).
+    # Verdicts stay in rubric order.
+    grading_parallel: 10
+    # Judge criterion calls at once across all trials graded in this process
+    # (adapter limit 100; unset means no shared cap). The 2026-10-13 load probe
+    # saw Copilot accept only about 30 new requests per burst (runbook 5d).
+    judge_max_concurrent_calls: 24
     grading_attempts: 2
   adapter_dependency_paths:
     - ./benchmark_adapter.py
