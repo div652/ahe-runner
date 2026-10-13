@@ -39,6 +39,7 @@ The assistant announces new permanent files before creating them.
 | AHE-010 | `search_text` has no total output budget, so a few parallel searches over the debugger's raw model-call logs overflowed the Evolve context (617,681 tokens against 200,000) and stopped round 2 of the first live campaign | Explained in plain language; on 2026-10-13 the operator approved a per-call output cap with match snippets | Branch-local cap (about 32,000 characters per call), 400-character match snippets, `truncation_reason`, and a regression test in `meta/tools.py`; 179 offline tests passed, and a replay of the failing searches dropped from about 617,681 to about 48,000 tokens |
 | AHE-011 | A non-infrastructure meta-agent failure permanently blocks its stage with attempts left, no command unblocks it, and protected-code fingerprints forbid continuing the campaign after any AHE repair | Explained in plain language; on 2026-10-13 the operator chose a new campaign with the AHE-010 repair | No AHE patch; first campaign kept as evidence, new campaign `harvey-lab-campaign-2-search-cap` started from round 1 |
 | AHE-012 | Independent evaluations run one after another (validation of C0..Cn, the final test pair), and exploration waits for the C0 evaluation it does not use, leaving most allowed concurrency idle | Timing review explained on 2026-10-13; recording approved (performance recommendation, not a correctness defect) | No AHE patch. The Harvey side switched to LAB's default `grading_parallel: 6` (campaign 3) |
+| AHE-013 | Meta agents have no general tool-output safety net (the original AHE evolve agent uses NexAU's `LongToolOutputMiddleware`) and no shell or structured way to read one field of a very long JSON trace line | Raised by the operator on 2026-10-13 after comparing with the original AHE `evolve_agent.yaml`; recording approved | No AHE patch. Locally, the AHE-010 cap plus byte-range `read_file` was enough: debuggers recovered on their own |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -1174,3 +1175,94 @@ This adapter-side change does not address AHE-012 itself.
    only on the frozen baseline.
 4. Optionally, report per-stage wall-clock times in `ahe status`, so
    operators can see where time goes without reading artifact timestamps.
+
+## AHE-013: no tool-output safety net or structured reads of long trace lines
+
+### Plain-language summary
+
+The original AHE evolve agent puts every tool result except shell output
+through NexAU's `LongToolOutputMiddleware`. Any result over 10,000
+characters is cut down to its beginning and end, the full text is saved to a
+file, and the agent is told where to find it. The original agent also has
+`run_shell_command`, so it can use `jq`, `sed`, or Python to pull out one
+field of a huge JSON trace line.
+
+ahe-runner has neither. Each tool must limit its own output, and the meta
+agents have no shell. When one tool did not limit itself (`search_text`,
+AHE-010), nothing else caught it and the stage was blocked. Long trace lines
+can be read only as raw byte ranges. That works, but it costs extra turns
+and context, because the agent cannot ask for just "the tool call in record
+10".
+
+This is not a bug in the current code; the campaign runs correctly. It is a
+gap compared with the original method, and it showed up in practice twice:
+the AHE-010 blockage, and the citation retries in the AHE-010 follow-up.
+
+### Evidence
+
+- Original AHE, `agents/evolve_agent/evolve_agent.yaml` (main branch),
+  checked 2026-10-13. It configures
+  `middleware.long_tool_output:LongToolOutputMiddleware` with
+  `max_output_chars: 10000`, `head_chars`/`tail_chars: 5000`,
+  `head_lines: 50`, `tail_lines: 30`, and
+  `bypass_tool_names: [run_shell_command]`, followed by context compaction.
+  Its tools include `run_shell_command`. Its `middleware/long_tool_output.py`
+  saves the full output under `/tmp/nexau_tool_outputs` through the sandbox
+  API and adds a "use the read file tool" hint.
+- The NexAU version installed with ahe-runner ships the same middleware as
+  `nexau.archs.main_sub.execution.middleware.long_tool_output`.
+- ahe-runner, `src/ahe_runner/meta/nexau_backend.py`: the generated meta
+  agent config lists only
+  `ahe_runner.meta.middleware:MetaContextCompactionMiddleware`. This block
+  is identical on `origin/main` and `harveybench`, and no commit in the
+  history mentions `LongToolOutput`.
+- ahe-runner, `docs/AHE_COMPLIANCE_AUDIT.md`: the design intent is
+  "bounded line/byte reads, indexed search, and honest truncation metadata;
+  limit returned content". That is a per-tool rule with no shared backstop.
+- Evolve tool list (campaign 3, round 1, first request): `list_files`,
+  `read_file`, `search_text`, the write tools, the git and checkpoint tools,
+  `validate_candidate`, `complete_task`, and `LoadSkill`. There is no shell
+  and no structured or JSON reader.
+
+### Why the original middleware cannot simply be added
+
+This is our reading of the code; the maintainers have not confirmed it.
+1. **Read roots.** ahe-runner's `read_file` accepts only named read roots.
+   A full output saved to `/tmp/nexau_tool_outputs` is outside all of them,
+   so the hint would point to a file the agent cannot open.
+2. **Citation honesty.** ahe-runner's tools record debugger "accesses" when
+   they return content, and `submit_debugger_diagnosis` accepts only
+   citations that those accesses cover. A middleware that shortens the
+   output afterwards would leave accesses recorded for text the model never
+   saw.
+3. **Artifact location.** Writes to a shared `/tmp` folder would sit outside
+   the campaign artifacts, which raises the same issue as AHE-008.
+
+### Upstream recommendations
+
+1. Add a protected backstop middleware for all meta agents. It should cap
+   any single tool result, and the total of one turn's parallel results,
+   below the compaction target, and fail clearly or shorten clearly rather
+   than letting one turn exceed the context limit. Save full outputs inside
+   the attempt's runtime folder, expose that folder as a read root, and have
+   tools record accesses only for the content actually returned after
+   shortening.
+2. Add a read-only structured reader for JSON and JSONL artifacts, for
+   example `read_json(root, path, line, pointer, max_chars)`, using a JSON
+   pointer such as `/messages/3/tool_calls/0`. It would record access to
+   exactly what it returns, and debugger citations could reference
+   `#line=10&pointer=/...`. This gives the useful part of the original
+   shell-plus-`jq` workflow without giving meta agents a shell.
+3. Alternatively, store each trace message on its own line, or add an
+   index of byte offsets per message, so that line and byte reads line up
+   with meaningful units.
+4. Document the deliberate differences from the original AHE meta-agent
+   configuration: no shell, no web tools for evolve, and no
+   `LongToolOutputMiddleware`. Users comparing the two then do not have to
+   rediscover them.
+
+### Local handling
+
+No AHE patch; this branch keeps ahe-runner's meta-agent configuration.
+AHE-010's per-tool cap prevents the observed overflow, and byte-range
+`read_file` was enough for the debuggers to recover (campaign 3, round 1).
