@@ -84,8 +84,9 @@ the sandbox. It reaches the trial's sandbox only through one protected module:
 ```python
 from harvey_ahe.workspace import handle_for, OUTPUT_PATH
 
+
 def my_tool(path: str, agent_state) -> str:
-    handle = handle_for(agent_state)   # this session's sandbox
+    handle = handle_for(agent_state)  # this session's sandbox
     result = handle.exec(f"wc -c {path}", timeout=60)
     return result.stdout
 ```

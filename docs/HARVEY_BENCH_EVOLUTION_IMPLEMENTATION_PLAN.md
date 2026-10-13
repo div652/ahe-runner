@@ -258,7 +258,7 @@ are H19.
 | H16 | Approved by the operator on 2026-10-13. Source, web, and evolve supplements follow the official AHE explore/evolve prompt style; debugger supplement, `meta_prompt_context()`, and seed URLs approved as written. AHE-009 found and recorded: supplements must avoid Jinja markup; an offline render check passes for all four roles. | `meta_prompt_context()` in `adapter.py`, `meta_supplements/`, `benchmark_public/ADAPTER.md` |
 | H17 | Implemented with placeholder model IDs for the operator | `ahe.yaml` |
 | H18 | Runbook written; reports are the adapter's per-trial artifacts | `HARVEY_AHE_RUNBOOK.md` |
-| H19 | Proposed: offline test suite (see "H19 offline tests" below); results pending | `tests/test_harvey_*.py`, `tests/harvey_fakes.py` |
+| H19 | Offline tests done and passing (see "Offline verification" below); final AHE CLI conformance/validation is the operator's | `tests/test_harvey_*.py`, `tests/harvey_fakes.py` |
 | H20-H23 | Operator | - |
 
 ### H19 offline tests (proposed 2026-10-13)
@@ -286,6 +286,65 @@ test fakes only the part it cannot run offline:
 
 Run from the AHE root: `.venv/bin/python -m pytest -q tests/test_harvey_*.py`,
 then Ruff and Pyright on the new files.
+
+### Offline verification (2026-10-13)
+
+Environment: AHE `harveybench` branch at the proposal commit `afef129`; LAB
+`divyanshu_harvey_evolution` at `86678eba`; Python from `.venv`; pytest
+9.1.1, Ruff 0.17.0, Pyright 1.1.414, openai 3.29.0, httpx 0.28.1.
+
+| Command (from the AHE root) | Result |
+|---|---|
+| `.venv/bin/python -m pytest -q tests/test_harvey_*.py` | 100 passed (2.9 s) |
+| `.venv/bin/python -m pytest -q` (full AHE suite) | 178 passed (125 s) |
+| `.venv/bin/ruff check` and `ruff format --check` on the new tests and `harvey-ahe-project` | Clean after formatting (style only) |
+| `pyright --pythonpath .venv/bin/python harvey-ahe-project tests/harvey_fakes.py tests/test_harvey_{seed_tools,adapter,seed_runtime}.py` | 8 errors, none in Harvey logic (see below) |
+| The same Pyright run on `harvey-ahe-project/harness` with the harness directory as an extra import path | 0 errors |
+
+All tests passed on the first run. The results commit has only formatting
+changes and one escaped `pytest.raises(match=...)` regex. Every behavior
+the H19 plan was unsure about turned out as designed:
+
+- `tree_sha256` over `lab_core` works.
+- The adapter's `_tool_counts` and `_termination_reason` read the real
+  NexAU v0.3.9 trace shape.
+- A finish result of `{"status": "error"}` does not stop the run.
+  "Finished." does.
+- The supplements render unchanged under NexAU Jinja.
+- The shipped `ahe.yaml` `lab_root` (`../../harvey-labs`) resolves to the
+  sibling LAB checkout.
+
+The 8 Pyright errors:
+
+- 7 are `tools._common` "could not be resolved" in the seed tools. The
+  harness directory is added to the import path only at runtime (NexAU
+  loads the harness from its own directory). With that directory added as
+  an extra path, Pyright reports 0.
+- 1 is `httpx.Client` vs `httpx2.Client` on the `http_client` argument of
+  the mocked OpenAI client. AHE's own `tests/test_runtime.py` gets the same
+  error from the same pattern, and the test passes at runtime. It comes
+  from how this environment's openai package declares its types, not from
+  Harvey code.
+
+H19 acceptance coverage:
+
+- **Task families:** building the adapter loads and hash-checks all 12
+  pinned tasks (12 practice areas). `evaluate` runs on the six real
+  training tasks.
+- **Fractional scores:** a judge disagreement counts 0.5, so the primary
+  score is 2.5/6.
+- **Grading failures:** `test_harvey_grading.py` and
+  `test_harvey_filename_matcher.py`.
+- **Tool and finish semantics:** `test_harvey_seed_tools.py` and
+  `test_harvey_seed_runtime.py`.
+- **Evidence tampering:** a score-hash mismatch.
+- **Held-out boundaries:** evidence for a non-training split is refused,
+  and leakage terms are training-only.
+- **Resume:** only the unit that hit an infrastructure failure is retried.
+
+No new AHE or LAB deficiency was found. The operator still owns the
+`ahe conformance`, `ahe validate`, live probes, and campaign commands
+(H20-H23).
 
 ### Project layout
 

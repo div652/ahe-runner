@@ -123,7 +123,9 @@ def test_invalid_settings_are_configuration_errors(
     message: str,
 ) -> None:
     with pytest.raises(ConfigurationError, match=message):
-        HarveyAdapter(project_root=PROJECT_ROOT, settings=_settings(tmp_path, **override))
+        HarveyAdapter(
+            project_root=PROJECT_ROOT, settings=_settings(tmp_path, **override)
+        )
 
 
 def test_splits_are_disjoint_pinned_and_sized(adapter: HarveyAdapter) -> None:
@@ -140,7 +142,7 @@ def test_splits_are_disjoint_pinned_and_sized(adapter: HarveyAdapter) -> None:
 def test_changed_task_content_is_rejected_against_pins(adapter: HarveyAdapter) -> None:
     pinned = adapter.split_file.splits[SplitName.TRAIN][0]
     load_pinned_task(LAB_ROOT, pinned)
-    with pytest.raises(ConfigurationError, match="differs from splits.json pins"):
+    with pytest.raises(ConfigurationError, match=r"differs from splits\.json pins"):
         load_pinned_task(
             LAB_ROOT,
             PinnedTask(pinned.task_id, "0" * 64, pinned.documents_sha256),
@@ -164,7 +166,12 @@ def test_meta_prompt_context_lists_only_training_slugs(adapter: HarveyAdapter) -
     [
         ("ValueError: x", True, "", "agent_error"),
         (None, True, "[Error: Maximum iteration limit reached]", "finish_tool"),
-        (None, False, "[Note: Maximum iteration limit reached (200)]", "max_turns_exceeded"),
+        (
+            None,
+            False,
+            "[Note: Maximum iteration limit reached (200)]",
+            "max_turns_exceeded",
+        ),
         (None, False, "[Error: Prompt too long for the model]", "context_overflow"),
         (None, False, "[Error: Insufficient tokens for response]", "context_overflow"),
         (None, False, "Here is my memo.", "no_tool_calls"),
@@ -190,7 +197,9 @@ def test_termination_reason(
 # Candidate validation
 
 
-def _candidate_request(adapter: HarveyAdapter, harness: Path) -> CandidateValidationRequest:
+def _candidate_request(
+    adapter: HarveyAdapter, harness: Path
+) -> CandidateValidationRequest:
     return CandidateValidationRequest(
         checkpoint="C1",
         parent_checkpoint="C0",
@@ -411,7 +420,9 @@ def test_evaluate_resume_verify_and_evidence(
 
     grader = _Grader(adapter)
     monkeypatch.setattr(adapter_module, "pandoc_version", lambda: "3.6")
-    monkeypatch.setattr(adapter_module, "_podman_image_id", lambda _image: FAKE_IMAGE_ID)
+    monkeypatch.setattr(
+        adapter_module, "_podman_image_id", lambda _image: FAKE_IMAGE_ID
+    )
     monkeypatch.setattr(adapter_module, "Sandbox", make_sandbox)
     monkeypatch.setattr(adapter_module, "grade_with_retries", grader)
     request = EvaluationRequest(
@@ -430,7 +441,9 @@ def test_evaluate_resume_verify_and_evidence(
 
     with pytest.raises(InfrastructureError, match="1 Harvey unit"):
         adapter.evaluate(request, runtime)  # type: ignore[arg-type]
-    failures = list(request.output_dir.glob("units/*/attempt-1/infrastructure_error.json"))
+    failures = list(
+        request.output_dir.glob("units/*/attempt-1/infrastructure_error.json")
+    )
     assert len(failures) == 1
     assert len(runtime.sessions) == 6
 
@@ -443,7 +456,9 @@ def test_evaluate_resume_verify_and_evidence(
     assert all(sandbox.events == ["start", "stop"] for sandbox in sandboxes)
     # The infrastructure failure skips the post-run health check; nothing else does.
     assert sum(not sandbox.calls for sandbox in sandboxes) == 1
-    assert all(sandbox.calls[-1].command == "true" for sandbox in sandboxes if sandbox.calls)
+    assert all(
+        sandbox.calls[-1].command == "true" for sandbox in sandboxes if sandbox.calls
+    )
     assert list(scratch_root.iterdir()) == []
 
     summary = result.summary
@@ -528,7 +543,9 @@ def test_evaluate_resume_verify_and_evidence(
     assert len(trial["judges"]) == 2
     assert trial["judges"][0]["criteria_results"]
 
-    score_path = next(request.output_dir.glob("units/*/attempt-1/grading/*/scores_judge-1.json"))
+    score_path = next(
+        request.output_dir.glob("units/*/attempt-1/grading/*/scores_judge-1.json")
+    )
     score_path.write_text(score_path.read_text() + " ", encoding="utf-8")
     with pytest.raises(IntegrityError, match="score hash mismatch"):
         adapter.verify_evaluation(VerificationRequest(evaluation=request))

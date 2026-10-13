@@ -261,9 +261,7 @@ def test_glob_lists_newest_first_and_ignores_symlink_escapes(
 def test_glob_caps_matches(tmp_path: Path, tools: SimpleNamespace) -> None:
     documents = {f"f{index:03}.txt": "x" for index in range(105)}
     _sandbox, _handle, state = _bound(tmp_path, documents=documents)
-    assert len(tools.glob.glob("*.txt", state).splitlines()) == (
-        tools.glob.MAX_MATCHES
-    )
+    assert len(tools.glob.glob("*.txt", state).splitlines()) == (tools.glob.MAX_MATCHES)
 
 
 def test_grep_modes_and_symlink_escape(
@@ -278,9 +276,9 @@ def test_grep_modes_and_symlink_escape(
     secret.write_text("Indemnity", encoding="utf-8")
     (tmp_path / "documents/link.txt").symlink_to(secret)
     assert set(tools.grep.grep("Indemnity", state).splitlines()) == {"a.txt", "b.md"}
-    assert tools.grep.grep("(?i)indemnity", state, glob="*.txt", output_mode="count") == (
-        "a.txt: 2"
-    )
+    assert tools.grep.grep(
+        "(?i)indemnity", state, glob="*.txt", output_mode="count"
+    ) == ("a.txt: 2")
     assert tools.grep.grep("cap", state, output_mode="content") == (
         "a.txt:3: indemnity cap"
     )

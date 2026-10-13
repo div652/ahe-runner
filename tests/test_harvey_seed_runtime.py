@@ -75,7 +75,11 @@ def test_seed_harness_runs_through_the_session_bound_workspace(
             _call("read", {"file_path": "lease.txt"}, "call-read"),
             _call("write", {"file_path": "memo.md", "content": "Rent: $10."}, "call-w"),
             _call("finish", {"summary": "early", "deliverables": ["memo.docx"]}, "f1"),
-            _call("finish", {"summary": "Memo written.", "deliverables": ["memo.md"]}, "f2"),
+            _call(
+                "finish",
+                {"summary": "Memo written.", "deliverables": ["memo.md"]},
+                "f2",
+            ),
         ]
     ]
     monkeypatch.setattr(runtime_module, "RecordedExactModelClient", FakeRecordedClient)
