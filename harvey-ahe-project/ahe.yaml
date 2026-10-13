@@ -21,7 +21,7 @@
 # that change attribution never matched Evolve's predicted tasks (AHE-017).
 # The sixth campaign was campaign 5 plus the AHE-017 fix (runbook 5g). This
 # seventh campaign keeps campaign 6's harness and meta agents and scales up:
-# 60 train / 15 validation / 15 test tasks (splits-v2.json, built by
+# 4 rounds, 60 train / 15 validation / 15 test tasks (splits-v2.json, built by
 # scripts/make_splits_v2.py), 2 validation and 3 test trials, 20 meta-agent
 # model calls at once, and a global 0.08 noise floor for change attribution
 # (runbook 5h).
@@ -30,7 +30,7 @@ schema_version: 1
 campaign:
   name: harvey-lab-campaign-7-60-15-15
   artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-7-60-15-15
-  rounds: 3
+  rounds: 4
   root_seed: 42
 
 project:

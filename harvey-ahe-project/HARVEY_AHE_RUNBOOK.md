@@ -1125,6 +1125,7 @@ and runner code are the same as campaign 6. The changes:
 
 | Setting | Campaign 6 | Campaign 7 |
 |---|---|---|
+| `campaign.rounds` | 3 | 4 |
 | `split_file` | `splits.json` (6/3/3) | `splits-v2.json` (60/15/15) |
 | `validation_trials` / `test_trials` | 1 / 1 | 2 / 3 |
 | `meta.max_concurrent_model_calls` | 6 | 20 |
@@ -1162,10 +1163,20 @@ the filter, because the filter terms appear in the meta prompts.
 Expected load, from campaign 6 rates:
 - About 120 rollouts per training evaluation, 30 per validation checkpoint
   and 45 per test checkpoint.
-- About 690 rollouts and 58,000 model calls in total.
+- About 840 rollouts and 70,000 model calls in total.
 - About 25-35 minutes per training evaluation, about 50 minutes per round,
-  and 4-4.5 hours for the whole campaign.
-- About 5 GB of artifacts.
+  and about 5 hours for the whole campaign.
+- About 6-7 GB of artifacts.
+
+Launch. One command runs the whole campaign: C0, exploration, four rounds,
+validation of C0-C4, selection, and the final test. It runs in tmux session
+`ahe-c7`. If a stage stops on an infrastructure error, the wrapper waits
+2 minutes and runs `ahe resume`, at most 3 times. A resume reruns only the
+interrupted stage. A blocked stage, or any other error, stops the loop.
+
+```bash
+tmux new-session -d -s ahe-c7 -c ~/AHE_Harvey 'L=harvey-ahe-project/campaign-artifacts/c7-run.log; C=harvey-ahe-project/ahe.yaml; .venv/bin/ahe run --config $C 2>&1 | tee -a $L; rc=${PIPESTATUS[0]}; n=0; while [ $rc -ne 0 ] && [ $n -lt 3 ] && ! grep -q "\"status\": \"blocked\"" harvey-ahe-project/campaign-artifacts/harvey-lab-campaign-7-60-15-15/stages/*/stage.json; do n=$((n+1)); echo "== resume $n after exit $rc" | tee -a $L; sleep 120; .venv/bin/ahe resume --config $C 2>&1 | tee -a $L; rc=${PIPESTATUS[0]}; done; echo "== final exit $rc" | tee -a $L; exec bash'
+```
 
 
 ## 6. Known deviations and limits to report with results
