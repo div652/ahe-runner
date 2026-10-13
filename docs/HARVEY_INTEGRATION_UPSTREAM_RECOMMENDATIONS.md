@@ -41,6 +41,7 @@ The assistant announces new permanent files before creating them.
 | AHE-012 | Independent evaluations run one after another (validation of C0..Cn, the final test pair), and exploration waits for the C0 evaluation it does not use, leaving most allowed concurrency idle | Timing review explained on 2026-10-13; recording approved (performance recommendation, not a correctness defect) | No AHE patch. The Harvey side switched to LAB's default `grading_parallel: 6` (campaign 3) |
 | AHE-013 | Meta agents have no general tool-output safety net (the original AHE evolve agent uses NexAU's `LongToolOutputMiddleware`) and no shell or structured way to read one field of a very long JSON trace line | Raised by the operator on 2026-10-13 after comparing with the original AHE `evolve_agent.yaml`; recording approved | No AHE patch at first; the safety-net part is addressed locally by AHE-014 |
 | AHE-014 | `list_files` has no output-size budget: in campaign 3 round 1, one recursive Evolve listing of `raw_evaluation` returned 274,020 characters into the context | Explained in plain language; on 2026-10-13 the operator approved option 2b (a long-output safety net for Evolve and both Explore agents, not the Debugger), a 64,000-character limit with a 24,000 + 8,000 preview, and campaign name `harvey-lab-campaign-4-gp50-output-backstop` (later renamed `harvey-lab-campaign-4-judge-cap-output-backstop`; runbook section 5d) | Branch-local `MetaToolOutputBackstopMiddleware` in `meta/middleware.py`, wired for Evolve and Explore in `meta/nexau_backend.py`; 191 offline tests passed, and a replay of the 274,020-character listing showed the agent 32,734 characters |
+| AHE-015 | AHE has no endpoint-wide limit on model calls in flight: the evaluated agent, the benchmark judges, and the meta agents each send calls independently, and a burst above the Copilot limit is refused instead of waiting | Explained in plain language; on 2026-10-13 the operator asked that calls above the limit be queued, and approved `transport.max_concurrent_requests: 24` with the Harvey judge cap lowered to 18 | Proposed; not yet implemented |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -1362,3 +1363,47 @@ judge-call cap (runbook section 5d).
   stored in the trace) gave the agent a 32,734-character result and a
   7,826-line saved copy. An ad-hoc run through NexAU's own `MiddlewareManager`
   returned the shortened result as a dict, as the tool executor expects.
+
+## AHE-015: no endpoint-wide queue for model calls
+
+### Plain-language summary
+
+The evaluated agent, the benchmark's judges, and the meta agents all call the
+same model endpoint, but nothing in AHE limits how many of those calls are in
+flight at once. `meta.max_concurrent_model_calls` covers only meta agents.
+When too many calls start together, the GitHub Copilot service refuses the
+extra ones instead of letting them wait. The GH Copilot Server extension
+retries twice and then returns HTTP 500 with an empty message, so the caller
+fails. For the evaluated agent that throws away the whole trial, which is
+then re-run.
+
+### Evidence
+
+- Judge load probe, 2026-10-13 14:10 UTC (runbook section 5d): 120 judge
+  calls sent at once, 90 succeeded. The Copilot Chat log shows upstream HTTP
+  429 `ChatRateLimited`; each wave accepted about 30 new requests across both
+  models together.
+- The same probe at 24 calls at once passed 24/24.
+- The Copilot Chat logs from campaigns 1-3 contain no rate-limit lines.
+
+### Approved local repair
+
+Approved by the operator on 2026-10-13: "the requests must just be queued,
+rather than rejecting them."
+
+1. New optional setting `transport.max_concurrent_requests` (unset by
+   default, which keeps today's behaviour).
+2. `RecordedExactModelClient` takes a slot from one queue shared by every
+   client in the process for the same endpoint, only around the HTTP call,
+   and records how long the call waited. Model preflights do not use this
+   client and are not counted.
+3. Campaign 4 sets 24, the level the probe passed at. The Harvey adapter's
+   own judge cap is lowered to 18 inside it, so agents always keep at least 6
+   slots.
+
+### Upstream recommendations
+
+1. Provide one endpoint-wide concurrency limit covering the evaluated agent,
+   benchmark-owned model calls, and meta agents.
+2. Report time spent waiting for a slot separately from model latency.
+

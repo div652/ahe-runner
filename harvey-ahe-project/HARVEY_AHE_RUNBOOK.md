@@ -731,6 +731,55 @@ latency at `grading_parallel` 6 was p50 6.3 s and p90 9.4 s for
 `claude-sonnet-5`, and p50 5.1 s and p90 7.0 s for `gpt-5.5`. Prompts were up
 to 11,250 characters.
 
+### Campaign 4 metric, training trials, and model-call queue
+
+Approved by the operator on 2026-10-13, after the probe at the cap passed.
+
+Why: in campaign 3 the primary metric, the LAB dual all-pass rate, was 0 on
+every evaluation, because no task passed all of its 33-40 criteria. Each task's
+score was that same value, so every round showed no improved or regressed
+task, every round was classified "ineffective", and selection fell back to
+the tie-break, criterion pass rate, which picked the seed C0. Mean criterion
+pass rate on train was C0 0.533, C1 0.498, C2 0.477, C3 0.511.
+
+Noise: the seed harness was byte-identical in campaigns 1-3 and used the same
+evaluated model. Its repeated train runs scored 0.476 (campaign 1) and 0.533
+(campaign 3), and single tasks moved by up to 0.175. Every round's change in
+campaign 3 was smaller than that. The judges are stable (89 of 90 verdicts
+repeated in the load probe), so the noise comes from the agent.
+
+Changes:
+
+1. The primary metric becomes `mean_criterion_pass_rate`. For one trial it is
+   the mean of the two judges' criterion pass fractions; the primary is its
+   mean over trials. The trial score, the task score, the evidence, and the
+   Evolve objective switch to it. The LAB dual all-pass rate is still
+   reported as `mean_dual_all_pass_rate` and is the selection tie-break. The
+   task state text and the passing/failing trial labels stay all-pass based,
+   because rate-based states would make every task look unstable from noise
+   alone. The Harvey adapter version goes from 1 to 2.
+2. Improved and regressed tasks count any change, with no threshold, so some
+   flags will be noise.
+3. `evaluation.train_trials` goes from 1 to 2. Validation and test stay at 1.
+4. AHE-015: a new `transport.max_concurrent_requests: 24` makes every model
+   call in the process wait in one shared queue for a free slot, instead of
+   being sent and refused by Copilot. It covers the evaluated agent, the
+   judges, the filename helper, and the meta agents; model preflights are
+   not counted. The judge cap goes from 24 to 18, so judges cannot hold every
+   slot and agents always have at least 6. The Copilot Chat logs of campaigns
+   1-3 contain no rate-limit lines; only the 120-call burst probe hit the
+   limit. A call that Copilot still refuses fails as an infrastructure error,
+   so its trial is re-run and never scored low.
+
+Deferred idea (not implemented): a noise threshold for improved and
+regressed. Measure how much a task's score moves when nothing changed, then
+count a change only if it is about twice that. From the seed's repeat runs
+(7 degrees of freedom, so rough), one run of one task varies by about 0.06.
+With 2 trials per task, a task's change between two checkpoints varies by
+about 0.06, giving a threshold of 0.12 at the 95% level (1.96 x) or 0.10 at
+the 90% level (1.645 x). The threshold is part of the campaign fingerprint,
+so it cannot change during a campaign.
+
 ### Model endpoint for campaign 4: server-hosted VS Code
 
 Campaign 3's final test lost the endpoint three times. Each time, the
@@ -772,5 +821,10 @@ type `GH Copilot Server: Start Server`, then press Return.
 - From campaign 4 on, Evolve and Explore tool results over 64,000 characters
   are shortened, with the full result saved under the run's own folder
   (AHE-014). The original AHE shortens at 10,000 characters.
+- From campaign 4 on, the primary metric is the mean criterion pass rate, not
+  LAB's dual all-pass rate, which is still reported and breaks ties
+  (section 5d).
+- From campaign 4 on, all model calls in a process queue for one of 24 slots
+  (AHE-015), and judge calls may use at most 18 of them.
 - Branch-local AHE fixes AHE-001 to AHE-008 are listed in
   `docs/HARVEY_INTEGRATION_UPSTREAM_RECOMMENDATIONS.md`.
