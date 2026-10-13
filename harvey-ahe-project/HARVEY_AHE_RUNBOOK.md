@@ -174,6 +174,64 @@ Per-trial results are under `evaluations/.../units/<unit>/attempt-<n>/`:
 `result.json`, `trace.jsonl`, `run/output/` (graded copies), and `grading/`
 (both judges' per-criterion scores).
 
+## 5a. Campaign log: `harvey-lab-first-campaign`
+
+Run phase by phase. The operator approved each command.
+
+### Round 1: `ahe run-round --round 1` (2026-10-13 07:02-07:48 UTC, exit 0)
+
+Detached; log in `campaign-artifacts/run-round-1.log`. Every stage completed
+on its first attempt: baseline freeze, C0 train evaluation and evidence,
+exploration, debugger, evolve, candidate validation, freeze, C1 train
+evaluation and evidence, and attribution.
+
+Criteria passed, out of the task's total (judge 1 = claude-sonnet-5,
+judge 2 = gpt-5.5; 1 trial per task):
+
+| Training task | C0 j1 | C0 j2 | C1 j1 | C1 j2 |
+|---|---|---|---|---|
+| banking-finance/identify-issues-in-officer-certificate | 12/35 | 12/35 | 16/35 | 16/35 |
+| corporate-ma/compare-credit-agreement-to-commitment-letter | 23/40 | 26/40 | 28/40 | 30/40 |
+| energy-natural-resources/identify-issues-in-tax-equity-flip-partnership-agreement | 17/36 | 18/36 | 15/36 | 17/36 |
+| environmental-esg/identify-issues-in-expert-remediation-report | 5/33 | 9/33 | 8/33 | 10/33 |
+| real-estate/draft-warranty-deed | 37/38 | 36/38 | 37/38 | 36/38 |
+| tax/identify-tax-issues-in-irs-closing-agreement | 8/33 | 8/33 | 7/33 | 8/33 |
+
+| Metric | C0 | C1 |
+|---|---|---|
+| Primary: mean dual all-pass | 0.0 | 0.0 |
+| Mean criterion pass rate | 0.476 | 0.515 |
+| Pooled criterion pass rate | 0.491 | 0.530 |
+| Terminations | 6 `finish_tool` | 6 `finish_tool` |
+| Total assistant turns, 6 trials | 25 | 87 |
+| Total agent wall-clock, 6 trials | 464 s | 1108 s |
+
+What C1 changed (`checkpoints/C1/harness/change_manifest.json`):
+- A system-prompt protocol: inventory the documents, read them, build a
+  checklist in `/workspace/review_checklist.md`, draft from it, then audit
+  before finishing.
+- A new `coverage-audit` skill.
+- A `finish` gate that rejects source-driven deliverables until that
+  checklist exists.
+
+All six C1 trials wrote the checklist and loaded the skill. The three
+rejected `finish` calls in C1 are this gate working as designed.
+
+Attribution marked all three changes `INEFFECTIVE` (0 of 4 to 6 predicted
+fixes). It counts a fix only when a task becomes fully passed, and no task
+did; it also records `mean_criterion_pass_rate_delta` = +0.038.
+
+Limits:
+- With one trial per task, the +3.9-point criterion change is within
+  plausible run-to-run noise.
+- The primary metric is all-or-nothing per trial, so it gives
+  evolution no signal until a task fully passes.
+
+The `Finish Tool ... execution failed, will continue` lines in the log are
+recoverable rejections: three are the Harvey `finish` gate, and one each
+comes from the debugger's `submit_debugger_diagnosis` and evolve's
+`complete_task`. In every case the agent retried and the stage completed.
+
 ## 6. Known deviations and limits to report with results
 
 - Seed harness: LAB's tools and prompt on NexAU, without LAB's skill files;
