@@ -2,7 +2,8 @@
 
 These are the commands the operator runs. The implementation work did not run
 any of them: no `ahe conformance`, `ahe validate`, `ahe run`, live model call,
-or campaign was executed while building this project.
+or campaign was executed while building this project. Commands later run with
+the operator's per-command approval are recorded in section 3a.
 
 All commands run from the AHE repository root (`~/AHE_Harvey`, branch
 `harveybench`) unless stated otherwise.
@@ -84,6 +85,46 @@ per rubric criterion (20 to 40 criteria per task).
 
 Optionally set `adapter_settings.scratch_root` to a disk with room for one
 copy of each running trial's documents and outputs (default: system temp).
+
+## 3a. Operator record: first live configuration (2026-10-13)
+
+The operator approved every command and value below one at a time.
+
+Pre-run checks, all from the AHE root:
+
+| Check | Result |
+|---|---|
+| `git -C ../harvey-labs rev-parse HEAD` | `86678eba6fcbc6c03958742c6e9e75737514f513` (matches the pin) |
+| `git -C ../harvey-labs status --short` | empty (clean) |
+| `ahe conformance` (placeholder model IDs) | `valid: true`, ABI v2, 0 errors, 0 warnings; NexAU smoke loaded `harvey_lab_agent` with 7 tools (`openai` tool-call mode) |
+| `ahe validate` (placeholder model IDs) | `valid: true`; splits train 6, validation 3, test 3 |
+| `podman image inspect lab-sandbox:latest` | ID `b4c49628fec0a36f23fd694ab5ebf0441fef8e41d53dce8008506dcfa86e4383`, created 2026-09-30 23:58:29 UTC; also tagged `ghcr.io/harveyai/lab-sandbox:latest` (pulled, Option B) |
+| Last change to `lab_core/sandbox` at the pin | `2a95bad4`, 2026-09-30 23:55:57 UTC, about 2.5 minutes before the image was built. The operator kept the pulled image. |
+| `pandoc --version` | 3.11 |
+| `ss -ltnp '( sport = :3141 )'` | `127.0.0.1:3141`, owned by the operator's own VS Code server process |
+| `GET /v1/models` | 27 IDs, including `gpt-5.4-mini`, `gpt-5.4`, `gpt-5.5`, and `claude-sonnet-5`. `claude-sonnet-4-6` is **not** advertised. |
+
+Values chosen:
+
+| Field | Value |
+|---|---|
+| `models.evaluated` | `gpt-5.4-mini`, provider-default reasoning, `max_tokens` 64000 |
+| `models.meta` | `gpt-5.4`, reasoning `high`, `max_tokens` 32000 |
+| `judges[0]` | `claude-sonnet-5` (LAB standard `claude-sonnet-4-6` is not advertised), provider-default reasoning |
+| `judges[1]` | `gpt-5.5` (LAB standard), provider-default reasoning |
+| `helper` | `claude-sonnet-5`, provider-default reasoning |
+| Judge profile label | `custom-dual`, because judge 1 is not `claude-sonnet-4-6` |
+| `campaign.rounds` | 3 |
+| `evaluation.{train,validation,test}_trials` | 1 / 1 / 1 |
+| `evaluation.max_concurrency` | 20 (in practice capped at 6 train and 3 validation/test units per evaluation) |
+| `debugger.max_concurrency` | 20 |
+| `meta.max_concurrent_model_calls` | 6 (raised from 2). AHE runs `min(debugger.max_concurrency, this)` debuggers at once, so 6 is the useful maximum for 6 training tasks. Explore still uses at most 2 workers. |
+
+Endpoint caveats that apply to every role: the extension ignores
+`temperature`, reports zero token usage, and synthesizes the response
+`model` label from the model object it selected. So the configured
+`temperature: 0.0` is not actually applied, cost and usage are unavailable,
+and a silent upstream model substitution cannot be ruled out independently.
 
 ## 4. Offline checks
 

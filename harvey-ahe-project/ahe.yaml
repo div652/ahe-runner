@@ -4,13 +4,14 @@
 #   * every `replace-with-exact-...` model ID: use the exact IDs advertised by
 #     the endpoint's /v1/models catalog, without `copilot/` or `openai/` prefixes;
 #   * the live budget: campaign.rounds, evaluation.*_trials, and concurrency.
-# The budget below is a deliberately small first campaign, not a recommendation.
+# Model IDs and budget below were chosen by the operator on 2026-10-13; the
+# record is in HARVEY_AHE_RUNBOOK.md section 3a.
 schema_version: 1
 
 campaign:
   name: harvey-lab-first-campaign
   artifacts_dir: ./campaign-artifacts/harvey-lab-first-campaign
-  rounds: 1
+  rounds: 3
   root_seed: 42
 
 project:
@@ -24,16 +25,19 @@ project:
     # LAB's standard judge pair is claude-sonnet-4-6 and gpt-5.5. The results
     # carry the `lab-standard-dual-v1` profile label only when the configured IDs
     # equal those strings; any other IDs are labelled `custom-dual`.
+    # claude-sonnet-4-6 is not advertised by the loopback endpoint (catalog of
+    # 2026-10-13), so judge 1 and the helper use claude-sonnet-5 and results are
+    # labelled `custom-dual`. Reasoning is provider default for judges/helper.
     judges:
-      - model: replace-with-exact-claude-sonnet-4-6-model
+      - model: claude-sonnet-5
         max_tokens: 64000
         temperature: 0.0
-      - model: replace-with-exact-gpt-5.5-model
+      - model: gpt-5.5
         max_tokens: 64000
         temperature: 0.0
     # LAB's deliverable filename helper (claude-sonnet-4-6, 1024 tokens, T=0).
     helper:
-      model: replace-with-exact-claude-sonnet-4-6-model
+      model: claude-sonnet-5
       max_tokens: 1024
       temperature: 0.0
     judge_max_prompt_chars: 240000
@@ -55,14 +59,14 @@ project:
 
 models:
   evaluated:
-    model: replace-with-exact-evaluated-model
+    model: gpt-5.4-mini
     max_tokens: 64000
     reasoning_effort: provider-default
     temperature: 0.0
   meta:
-    model: replace-with-exact-meta-model
+    model: gpt-5.4
     max_tokens: 32000
-    reasoning_effort: provider-default
+    reasoning_effort: high
     temperature: 0.2
 
 transport:
@@ -79,10 +83,10 @@ evaluation:
   train_trials: 1
   validation_trials: 1
   test_trials: 1
-  max_concurrency: 2
+  max_concurrency: 20
 
 debugger:
-  max_concurrency: 2
+  max_concurrency: 20
   max_iterations: 80
 
 recovery:
@@ -105,7 +109,7 @@ meta:
     web: ./meta_supplements/web.md
     debugger: ./meta_supplements/debugger.md
     evolve: ./meta_supplements/evolve.md
-  max_concurrent_model_calls: 2
+  max_concurrent_model_calls: 6
   max_context_tokens: 200000
   max_running_subagents: 5
   evolve_max_iterations: 500
