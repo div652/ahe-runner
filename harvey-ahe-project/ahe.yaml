@@ -13,12 +13,17 @@
 # campaign adds a shared queue for all model calls (24 at once, AHE-015), a
 # judge cap of 18 inside it with grading_parallel 10, the AHE-014 long
 # tool-output safety net for Evolve and Explore, the criterion pass rate as
-# primary metric, and 2 training trials (runbook sections 5a-5d).
+# primary metric, and 2 training trials (runbook sections 5a-5d). Its round
+# 2 debugger stopped on binary .docx reads (runbook 5e). This fifth campaign
+# gives every meta agent the original AHE tools, middleware, temperatures and
+# debugger budget, a Docker-sandboxed shell, readable evidence views, and
+# non-blocking debugger failures (AHE-016, runbook 5f). Everything else is
+# unchanged from campaign 4.
 schema_version: 1
 
 campaign:
-  name: harvey-lab-campaign-4-judge-cap-output-backstop
-  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-4-judge-cap-output-backstop
+  name: harvey-lab-campaign-5-original-meta-agents
+  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-5-original-meta-agents
   rounds: 3
   root_seed: 42
 
@@ -106,7 +111,8 @@ evaluation:
 
 debugger:
   max_concurrency: 20
-  max_iterations: 80
+  # The original AHE debugger: 25 iterations, prompt budget of 20 (AHE-016).
+  max_iterations: 25
 
 recovery:
   maximum_stage_attempts: 3
@@ -133,3 +139,19 @@ meta:
   max_running_subagents: 5
   evolve_max_iterations: 500
   explore_max_iterations: 200
+  # Original AHE per-agent model settings (AHE-016); unset values use
+  # models.meta.
+  roles:
+    debugger:
+      temperature: 0.4
+      max_tokens: 20000
+    evolve:
+      temperature: 0.7
+    explorers:
+      temperature: 0.2
+  # run_shell_command for all meta agents, in a container without network.
+  # Build once: docker build -t ahe-meta-shell:py313-v2
+  #   -f docker/meta-shell.Dockerfile docker   (from this directory)
+  shell:
+    backend: docker
+    image: ahe-meta-shell:py313-v2
