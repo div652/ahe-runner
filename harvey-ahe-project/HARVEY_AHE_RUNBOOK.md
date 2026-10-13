@@ -308,6 +308,85 @@ Verification before launch, at commit `a565e2b`: the new test passes; the
 six Harvey test files pass 101/101; the full suite passes 180/180; ruff
 check and format are clean for the changed test.
 
+### Round 1: `ahe run-round --round 1` (2026-10-13 09:07-09:48 UTC, exit 0)
+
+Detached; log in `campaign-artifacts/c3-run-round-1.log`. Every stage
+completed on its first attempt. Total time was 41.6 minutes; campaign 1's
+round 1 took 46.5.
+
+| Stage | Campaign 1 | Campaign 3 |
+|---|---|---|
+| `evaluation.C0.train` | 669 s | 567 s |
+| `exploration` | 536 s | 668 s |
+| `round.1.debugger` | 292 s | 482 s |
+| `round.1.evolve` | 419 s | 222 s |
+| `round.1.validate` and `freeze` | 13 s | 13 s |
+| `evaluation.C1.train` | 835 s | 519 s |
+
+Parallel grading worked. Grading took 1.0-1.6 minutes per C0 trial and
+1.2-1.8 minutes per C1 trial, down from 6.3-9.0. There were no grading
+errors, judge-input-limit failures, or rate-limit errors. Each evaluation
+now waits mainly on the slowest agent: corporate-ma took 457 s in C0 and
+398 s in C1. The meta-agent stages were slower or faster than in campaign 1
+for reasons unrelated to this change (model latency, and the different
+amounts of work each agent chose to do).
+
+Criteria passed, out of the task's total (judge 1 = claude-sonnet-5,
+judge 2 = gpt-5.5; 1 trial per task). The judges never disagreed on all-pass.
+
+| Training task | C0 j1 | C0 j2 | C1 j1 | C1 j2 |
+|---|---|---|---|---|
+| banking-finance/identify-issues-in-officer-certificate | 15/35 | 15/35 | 17/35 | 17/35 |
+| corporate-ma/compare-credit-agreement-to-commitment-letter | 32/40 | 31/40 | 30/40 | 31/40 |
+| energy-natural-resources/identify-issues-in-tax-equity-flip-partnership-agreement | 21/36 | 21/36 | 14/36 | 15/36 |
+| environmental-esg/identify-issues-in-expert-remediation-report | 8/33 | 8/33 | 4/33 | 4/33 |
+| real-estate/draft-warranty-deed | 37/38 | 36/38 | 37/38 | 37/38 |
+| tax/identify-tax-issues-in-irs-closing-agreement | 7/33 | 6/33 | 8/33 | 8/33 |
+
+| Metric | C0 | C1 |
+|---|---|---|
+| Primary: mean dual all-pass | 0.0 | 0.0 |
+| Mean criterion pass rate | 0.533 | 0.498 |
+| Pooled criterion pass rate | 0.551 | 0.516 |
+| Terminations | 4 `finish_tool`, 2 `no_tool_calls` | 6 `finish_tool` |
+| Total assistant turns, 6 trials | 38 | 47 |
+| Total agent wall-clock, 6 trials | 920 s | 942 s |
+
+The C0 harness is identical to campaign 1's, yet C0 scored 0.533 here and
+0.476 there. That 5.7-point gap is run-to-run noise. It is larger than the
+C0-to-C1 changes in either campaign.
+
+What C1 changed (`checkpoints/C1/harness/change_manifest.json`): one
+change, `chg-c1-systemprompt-coverage-review`, to `systemprompt.md` only.
+- It adds core rules, including "call `finish` explicitly; do not end with
+  a plain message".
+- It adds a required workflow: inventory, read the sources, keep a scratch
+  coverage ledger with source anchors, draft, then re-check the draft
+  against the ledger.
+- It adds coverage-discipline guidance.
+- The `task.json` line now says only "hidden grading data. Do not read,
+  search, or reference it", without the auto-fail warning. No C0 or C1
+  trial tool call touched `task.json`.
+
+Effects observed in C1: all six trials called `finish`, and five of six
+wrote a coverage ledger in `/workspace` (real-estate did not). Attribution
+marked the change `INEFFECTIVE` (0 of 6 predicted fixes, no declared
+risks, primary delta 0.0).
+
+The `Finish Tool ... execution failed, will continue` lines were all
+recoverable rejections; this time no Harvey `finish` gate was involved.
+- Evolve `complete_task`, once: "predicted_fixes and risk_tasks overlap",
+  the same as in campaign 1.
+- Debugger `submit_debugger_diagnosis`, twice: "debugger citations were not
+  covered by nonempty bounded reads or search hits: ...trace.jsonl#lines=10-10"
+  (and `#lines=9-9`). These come from the AHE-010 search cap. Each cited
+  line was a single 87-172 KB JSON record. The debugger had seen it only
+  through 400-character search snippets or byte-capped `read_file` calls,
+  and neither counts as reading the whole line. Each debugger then read the
+  needed byte range, cited that, and was accepted on the next try. See the
+  AHE-010 follow-up note in the recommendations document.
+
+
 ## 6. Known deviations and limits to report with results
 
 - Seed harness: LAB's tools and prompt on NexAU, without LAB's skill files;

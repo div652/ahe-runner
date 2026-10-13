@@ -1091,6 +1091,28 @@ chosen:
    instead of forcing a full restart for a fix that does not change the
    evaluation contract.
 
+### Follow-up observed in campaign 3 (2026-10-13)
+
+With the cap in place, two of six round-1 debuggers had a diagnosis
+rejected once: "debugger citations were not covered by nonempty bounded
+reads or search hits: raw_evaluation:units/.../trace.jsonl#lines=10-10".
+The cited `trace.jsonl` lines are single JSON records of 87-172 KB. The
+debugger had seen them only through capped search snippets, which are
+deliberately not recorded as coverage, and through `read_file` calls cut
+off by `max_bytes`, which record only a byte range. Both debuggers
+recovered on their own: they read a byte range, cited it, and were
+accepted. The cost was one extra rejection and a few reads.
+
+This is the intended conservative behavior. Two further upstream
+improvements would avoid the extra turn:
+1. Record each capped search snippet as byte-range coverage of exactly the
+   bytes returned. The snippet already carries `snippet_start_column`, so
+   the byte offsets are known. Accept a citation of that byte range.
+2. When a line citation is rejected because the line is longer than any
+   read returned, say so in the error ("line 10 is 92,605 bytes; cite a
+   byte range you read"), rather than giving only the generic coverage
+   message.
+
 ## AHE-012: independent evaluations and exploration run sequentially
 
 ### Plain-language summary
