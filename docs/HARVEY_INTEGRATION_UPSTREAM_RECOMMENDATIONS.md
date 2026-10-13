@@ -41,7 +41,7 @@ The assistant announces new permanent files before creating them.
 | AHE-012 | Independent evaluations run one after another (validation of C0..Cn, the final test pair), and exploration waits for the C0 evaluation it does not use, leaving most allowed concurrency idle | Timing review explained on 2026-10-13; recording approved (performance recommendation, not a correctness defect) | No AHE patch. The Harvey side switched to LAB's default `grading_parallel: 6` (campaign 3) |
 | AHE-013 | Meta agents have no general tool-output safety net (the original AHE evolve agent uses NexAU's `LongToolOutputMiddleware`) and no shell or structured way to read one field of a very long JSON trace line | Raised by the operator on 2026-10-13 after comparing with the original AHE `evolve_agent.yaml`; recording approved | No AHE patch at first; the safety-net part is addressed locally by AHE-014 |
 | AHE-014 | `list_files` has no output-size budget: in campaign 3 round 1, one recursive Evolve listing of `raw_evaluation` returned 274,020 characters into the context | Explained in plain language; on 2026-10-13 the operator approved option 2b (a long-output safety net for Evolve and both Explore agents, not the Debugger), a 64,000-character limit with a 24,000 + 8,000 preview, and campaign name `harvey-lab-campaign-4-gp50-output-backstop` (later renamed `harvey-lab-campaign-4-judge-cap-output-backstop`; runbook section 5d) | Branch-local `MetaToolOutputBackstopMiddleware` in `meta/middleware.py`, wired for Evolve and Explore in `meta/nexau_backend.py`; 191 offline tests passed, and a replay of the 274,020-character listing showed the agent 32,734 characters |
-| AHE-015 | AHE has no endpoint-wide limit on model calls in flight: the evaluated agent, the benchmark judges, and the meta agents each send calls independently, and a burst above the Copilot limit is refused instead of waiting | Explained in plain language; on 2026-10-13 the operator asked that calls above the limit be queued, and approved `transport.max_concurrent_requests: 24` with the Harvey judge cap lowered to 18 | Proposed; not yet implemented |
+| AHE-015 | AHE has no endpoint-wide limit on model calls in flight: the evaluated agent, the benchmark judges, and the meta agents each send calls independently, and a burst above the Copilot limit is refused instead of waiting | Explained in plain language; on 2026-10-13 the operator asked that calls above the limit be queued, and approved `transport.max_concurrent_requests: 24` with the Harvey judge cap lowered to 18 | Branch-local `transport.max_concurrent_requests` and a shared queue in `meta/model_client.py`; 199 offline tests passed |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -1406,4 +1406,21 @@ rather than rejecting them."
 1. Provide one endpoint-wide concurrency limit covering the evaluated agent,
    benchmark-owned model calls, and meta agents.
 2. Report time spent waiting for a slot separately from model latency.
+
+### Local result
+
+- `src/ahe_runner/config.py`: `TransportSettings.max_concurrent_requests`
+  (at least 1; unset by default).
+- `src/ahe_runner/meta/model_client.py`: one `threading.BoundedSemaphore` per
+  endpoint URL for the whole process, created by the first recorded client
+  and reused by the others. A client asking for a different limit on the
+  same endpoint is rejected as a configuration error. The slot is held only
+  around the HTTP call. `response.json` and `error.json` gain
+  `slot_wait_seconds` when the queue is on.
+- Tests in `tests/test_model_access.py`: three clients sharing a limit of 2
+  never have more than 2 calls in flight and record a wait; without a limit,
+  calls are not queued and no wait is recorded; a failed call records its
+  wait; a conflicting limit and a limit of 0 are rejected.
+- Offline checks on 2026-10-13: the full suite passed 199/199. ruff is
+  clean. pyright reports no new errors.
 

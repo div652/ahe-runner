@@ -10,9 +10,10 @@
 # (harvey-lab-campaign-2-search-cap) was stopped early in round 1 to switch to
 # LAB's default grading parallelism. The third campaign
 # (harvey-lab-campaign-3-grading-parallel) carried both changes. This fourth
-# campaign adds a shared cap on judge calls (24 at once, grading_parallel 10)
-# and the AHE-014 long tool-output safety net for Evolve and Explore (runbook
-# sections 5a-5d).
+# campaign adds a shared queue for all model calls (24 at once, AHE-015), a
+# judge cap of 18 inside it with grading_parallel 10, the AHE-014 long
+# tool-output safety net for Evolve and Explore, the criterion pass rate as
+# primary metric, and 2 training trials (runbook sections 5a-5d).
 schema_version: 1
 
 campaign:
@@ -58,9 +59,9 @@ project:
     # Verdicts stay in rubric order.
     grading_parallel: 10
     # Judge criterion calls at once across all trials graded in this process
-    # (adapter limit 100; unset means no shared cap). The 2026-10-13 load probe
-    # saw Copilot accept only about 30 new requests per burst (runbook 5d).
-    judge_max_concurrent_calls: 24
+    # (adapter limit 100; unset means no shared cap). Kept below
+    # transport.max_concurrent_requests so agents always have free slots.
+    judge_max_concurrent_calls: 18
     grading_attempts: 2
   adapter_dependency_paths:
     - ./benchmark_adapter.py
@@ -92,9 +93,13 @@ transport:
   observable_model_policy: exact
   model_catalog: required
   negative_control: required
+  # All model calls in flight at once in one process; extra calls wait for a
+  # slot (AHE-015). The 2026-10-13 load probe saw Copilot refuse calls beyond
+  # about 30 new requests per burst and pass 24 at once (runbook 5d).
+  max_concurrent_requests: 24
 
 evaluation:
-  train_trials: 1
+  train_trials: 2
   validation_trials: 1
   test_trials: 1
   max_concurrency: 20

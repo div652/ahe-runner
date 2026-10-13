@@ -33,13 +33,16 @@ protected and are not readable by meta-agents.
 - Two judge models grade the output independently against the task's rubric,
   one verdict (pass or fail) per criterion. The rubric is never shown to the
   agent or to meta-agents.
-- A judge "all-passes" a trial only if **every** criterion passes.
-- Trial score = mean of the two judges' all-pass values, so 0, 0.5, or 1.
-- **Primary metric**: mean trial score (`primary_all_pass_rate`). Higher is
-  better. Ties are broken by `mean_criterion_pass_rate`, which is otherwise
-  diagnostic only.
+- Trial score = the share of criteria each judge passes, averaged over the
+  two judges, so any value from 0 to 1.
+- **Primary metric**: mean trial score (`mean_criterion_pass_rate`). Higher
+  is better.
+- A judge "all-passes" a trial only if **every** criterion passes. LAB's
+  dual all-pass rate (each judge contributes 0.5 when it all-passes) is
+  reported as `mean_dual_all_pass_rate` and breaks ties.
 - Diagnostic class: a trial is `passing` only when **both** judges all-pass.
-  A 0.5 trial (judges disagree) is `failing` and its outcome is `judges_split`.
+  A trial where the judges disagree on all-pass is `failing` and its outcome
+  is `judges_split`.
 - Judge input limit: if the formatted judge prompt for a criterion would
   exceed 240,000 characters, that criterion is scored `fail` without a model
   call and the reasoning contains `[harvey-ahe judge-input limit]`. Very large

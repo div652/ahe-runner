@@ -780,6 +780,29 @@ about 0.06, giving a threshold of 0.12 at the 95% level (1.96 x) or 0.10 at
 the 90% level (1.645 x). The threshold is part of the campaign fingerprint,
 so it cannot change during a campaign.
 
+Implemented on 2026-10-13:
+
+- `harvey_ahe/adapter.py`: `PRIMARY_METRIC` is `mean_criterion_pass_rate`.
+  Trial score, stored unit `score`, task score, and trial facts use the dual
+  criterion pass rate; `mean_dual_all_pass_rate` is reported for the
+  evaluation and each task. `selection_key` is (criterion rate, all-pass
+  rate), and `compare` reports `mean_dual_all_pass_rate_delta`. The metric
+  description, the Evolve objective, the evidence overview, and
+  `benchmark_public/ADAPTER.md` section 2 describe the new metric (that file
+  had also named the old primary wrongly, as `primary_all_pass_rate`).
+  `ADAPTER_VERSION` is 2.
+- AHE-015 in `src/ahe_runner/config.py` and
+  `src/ahe_runner/meta/model_client.py` (details in the recommendations doc).
+- `ahe.yaml`: `train_trials: 2`, `judge_max_concurrent_calls: 18`,
+  `transport.max_concurrent_requests: 24`, and the header comment.
+- Tests: the adapter test now checks the criterion-rate primary, task
+  scores, trial facts, stored score, all-pass rate, selection key, and that
+  `compare` flags any task whose score rises. Three new model-client tests
+  cover the shared queue. The full suite passes 199/199. ruff is clean, and
+  pyright reports only 2 errors that were already in
+  `tests/test_model_access.py`. The shipped `ahe.yaml` loads with the new
+  values.
+
 ### Model endpoint for campaign 4: server-hosted VS Code
 
 Campaign 3's final test lost the endpoint three times. Each time, the

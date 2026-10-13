@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import threading
-from collections.abc import Mapping
+import time
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -19,7 +21,7 @@ from openai import (
 )
 
 from ahe_runner.config import ModelSettings, TransportSettings
-from ahe_runner.errors import InfrastructureError, IntegrityError
+from ahe_runner.errors import ConfigurationError, InfrastructureError, IntegrityError
 from ahe_runner.io import atomic_write_json, sha256_json
 
 _PROTECTED_EXTRA_BODY_FIELDS = frozenset(
@@ -34,6 +36,43 @@ _PROTECTED_EXTRA_BODY_FIELDS = frozenset(
         "reasoning_effort",
     }
 )
+
+_REQUEST_SLOTS: dict[str, tuple[int, threading.BoundedSemaphore]] = {}
+_REQUEST_SLOTS_LOCK = threading.Lock()
+
+
+def _shared_request_slots(
+    transport: TransportSettings,
+) -> threading.BoundedSemaphore | None:
+    """Return the process-wide call queue for this endpoint, if one is set."""
+    limit = transport.max_concurrent_requests
+    if limit is None:
+        return None
+    with _REQUEST_SLOTS_LOCK:
+        existing = _REQUEST_SLOTS.get(transport.base_url)
+        if existing is None:
+            slots = threading.BoundedSemaphore(limit)
+            _REQUEST_SLOTS[transport.base_url] = (limit, slots)
+            return slots
+        if existing[0] != limit:
+            raise ConfigurationError(
+                f"max_concurrent_requests for {transport.base_url} is already "
+                f"{existing[0]} in this process; got {limit}"
+            )
+        return existing[1]
+
+
+@contextmanager
+def _request_slot(
+    slots: threading.BoundedSemaphore | None, waited: dict[str, float]
+) -> Iterator[None]:
+    if slots is None:
+        yield
+        return
+    started = time.monotonic()
+    with slots:
+        waited["slot_wait_seconds"] = round(time.monotonic() - started, 3)
+        yield
 
 
 class RecordedExactModelClient:
@@ -57,6 +96,7 @@ class RecordedExactModelClient:
         self._settings = settings
         self._log_dir = log_dir
         self._lock = threading.Lock()
+        self._request_slots = _shared_request_slots(transport)
         self._log_dir.mkdir(parents=True, exist_ok=True)
         self._sequence = max(
             (
@@ -142,10 +182,12 @@ class RecordedExactModelClient:
                 "request_sha256": sha256_json(request_payload),
             },
         )
+        waited: dict[str, float] = {}
         try:
-            response = self._base.chat.completions.create(*args, **kwargs)
+            with _request_slot(self._request_slots, waited):
+                response = self._base.chat.completions.create(*args, **kwargs)
         except Exception as exc:
-            error = _error_payload(exc)
+            error = {**_error_payload(exc), **waited}
             atomic_write_json(call_dir / "error.json", error)
             if is_infrastructure_exception(exc):
                 raise InfrastructureError(error["message"]) from exc
@@ -169,6 +211,7 @@ class RecordedExactModelClient:
                 "requested_model": requested_model,
                 "returned_model": returned_model,
                 "response": response_payload,
+                **waited,
             },
         )
         return response

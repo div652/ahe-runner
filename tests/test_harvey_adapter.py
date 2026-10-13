@@ -368,6 +368,7 @@ class _Grader:
         train = adapter.split(SplitName.TRAIN).task_ids
         self.index = {task_id: index for index, task_id in enumerate(train)}
         self.outputs: dict[str, list[str]] = {}
+        self.criteria_counts: dict[str, int] = {}
         self.lock = threading.Lock()
         self.call_slots = adapter._judge_call_slots
 
@@ -387,6 +388,7 @@ class _Grader:
         assert api_key == "offline-key"
         assert _kwargs["call_slots"] is self.call_slots
         with self.lock:
+            self.criteria_counts[task_id] = len(task_config["criteria"])
             self.outputs[task_id] = sorted(
                 path.relative_to(run_dir / "output").as_posix()
                 for path in (run_dir / "output").rglob("*")
@@ -485,8 +487,21 @@ def test_evaluate_resume_verify_and_evidence(
     assert list(scratch_root.iterdir()) == []
 
     summary = result.summary
-    assert summary.primary.name == PRIMARY_METRIC
-    assert summary.primary.value == pytest.approx(2.5 / 6)
+    train_ids = adapter.split(SplitName.TRAIN).task_ids
+    trial_rates = [
+        sum(
+            (grader.criteria_counts[task_id] - fails) / grader.criteria_counts[task_id]
+            for fails in SCRIPT[index][1]
+        )
+        / 2
+        for index, task_id in enumerate(train_ids)
+    ]
+    assert summary.primary.name == PRIMARY_METRIC == "mean_criterion_pass_rate"
+    assert summary.primary.value == pytest.approx(sum(trial_rates) / 6)
+    assert summary.metrics[PRIMARY_METRIC] == summary.primary.value
+    assert [state.score for state in summary.task_states] == pytest.approx(trial_rates)
+    assert [fact.score for fact in result.trial_facts] == pytest.approx(trial_rates)
+    assert summary.metrics["mean_dual_all_pass_rate"] == pytest.approx(2.5 / 6)
     assert summary.metrics["both_judges_all_pass_rate"] == pytest.approx(2 / 6)
     assert summary.metrics["judge_1_all_pass_rate"] == pytest.approx(3 / 6)
     assert summary.metrics["judge_2_all_pass_rate"] == pytest.approx(2 / 6)
@@ -534,6 +549,26 @@ def test_evaluate_resume_verify_and_evidence(
         "ValueError: model produced malformed output"
     )
     assert results[train[5]]["attempt"] == 2
+
+    assert ok["score"] == pytest.approx(trial_rates[0])
+    assert adapter.selection_key(summary) == (
+        summary.primary.value,
+        pytest.approx(2.5 / 6),
+    )
+    better = summary.model_copy(
+        update={
+            "task_states": [
+                state.model_copy(update={"score": state.score + 0.01})
+                if position == 1
+                else state
+                for position, state in enumerate(summary.task_states)
+            ]
+        }
+    )
+    transition = adapter.compare(summary, better)
+    assert transition.improved_task_keys == [summary.task_states[1].task_key]
+    assert transition.regressed_task_keys == []
+    assert transition.metadata == {"mean_dual_all_pass_rate_delta": 0.0}
 
     verified = adapter.verify_evaluation(VerificationRequest(evaluation=request))
     assert verified == result

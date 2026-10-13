@@ -92,9 +92,10 @@ from .tasks import (
 )
 from .workspace import MAX_EXEC_TIMEOUT_SECONDS, RESOURCE_KEY, WorkspaceHandle
 
-ADAPTER_VERSION = "1"
+ADAPTER_VERSION = "2"
 RESULT_SCHEMA_VERSION = 1
-PRIMARY_METRIC = "mean_dual_all_pass_rate"
+PRIMARY_METRIC = "mean_criterion_pass_rate"
+ALL_PASS_METRIC = "mean_dual_all_pass_rate"
 SCORE_FILES = ("scores_judge-1.json", "scores_judge-2.json", "scores_dual.json")
 HEALTH_CHECK_TIMEOUT_SECONDS = 30
 MAX_WORKSPACE_LISTING = 500
@@ -180,7 +181,7 @@ class _Trial:
 
     @property
     def score(self) -> float:
-        return float(self.dual["dual_all_pass_rate"])
+        return float(self.dual["dual_criterion_pass"])
 
     @property
     def both_pass(self) -> bool:
@@ -237,8 +238,10 @@ class HarveyAdapter(BenchmarkAdapterV2):
                 "rubric judges."
             ),
             native_metric_description=(
-                "Mean per-trial LAB dual all-pass rate: each judge contributes 0.5 "
-                "when every rubric criterion passes."
+                "Mean per-trial rubric criterion pass rate, averaged over LAB's "
+                "two judges. LAB's dual all-pass rate (each judge contributes 0.5 "
+                "when every criterion passes) is reported as "
+                "mean_dual_all_pass_rate and breaks ties."
             ),
             supervision_policy="dense",
         )
@@ -322,7 +325,7 @@ class HarveyAdapter(BenchmarkAdapterV2):
             "",
             f"Primary {PRIMARY_METRIC}: {evaluation.summary.primary.value:.4f}",
             "",
-            "| task | state | mean dual all-pass |",
+            "| task | state | mean criterion pass rate |",
             "|---|---|---|",
         ]
         for state in evaluation.summary.task_states:
@@ -408,17 +411,17 @@ class HarveyAdapter(BenchmarkAdapterV2):
             regressed_task_keys=regressed,
             unchanged_task_keys=sorted(shared - set(improved) - set(regressed)),
             metadata={
-                "mean_criterion_pass_rate_delta": float(
-                    after.metrics.get("mean_criterion_pass_rate", 0.0)
+                f"{ALL_PASS_METRIC}_delta": float(
+                    after.metrics.get(ALL_PASS_METRIC, 0.0)
                 )
-                - float(before.metrics.get("mean_criterion_pass_rate", 0.0)),
+                - float(before.metrics.get(ALL_PASS_METRIC, 0.0)),
             },
         )
 
     def selection_key(self, summary: MetricSummary) -> tuple[Any, ...]:
         return (
             summary.primary.value,
-            float(summary.metrics.get("mean_criterion_pass_rate", 0.0)),
+            float(summary.metrics.get(ALL_PASS_METRIC, 0.0)),
         )
 
     def meta_prompt_context(self) -> MetaPromptContext:
@@ -430,9 +433,10 @@ class HarveyAdapter(BenchmarkAdapterV2):
                 "spreadsheets, slides) to /workspace/output"
             ),
             benchmark_objective=(
-                "Maximize the LAB dual all-pass rate: a trial earns 0.5 per judge "
-                "only when that judge passes every rubric criterion. Criterion "
-                "pass rates are diagnostic only."
+                "Maximize the rubric criterion pass rate: the share of rubric "
+                "criteria each of LAB's two judges marks as passed, averaged over "
+                "both judges and all trials. LAB's dual all-pass rate (a judge "
+                "passes every criterion) is also reported and breaks ties."
             ),
             evidence_description=(
                 "Each training trial records the task instructions, the full NexAU "
@@ -696,7 +700,7 @@ class HarveyAdapter(BenchmarkAdapterV2):
                         name: sha256_file(grading_dir / name) for name in SCORE_FILES
                     },
                 },
-                "score": dual["dual_all_pass_rate"],
+                "score": dual["dual_criterion_pass"],
                 "dual": dual,
             }
             trace_path = attempt_dir / "trace.jsonl"
@@ -843,7 +847,7 @@ class HarveyAdapter(BenchmarkAdapterV2):
                 if scores.get("task") != unit["task_id"]:
                     raise IntegrityError(f"Harvey judge task mismatch: {unit_dir}")
             dual = dual_summary(judge_scores)
-            if result.get("score") != dual["dual_all_pass_rate"]:
+            if result.get("score") != dual["dual_criterion_pass"]:
                 raise IntegrityError(
                     f"stored Harvey score disagrees with judge rows: {unit_dir}"
                 )
@@ -919,6 +923,9 @@ def _summarize(trials: Sequence[_Trial], task_ids: Sequence[str]) -> MetricSumma
                     "mean_criterion_pass_rate": _mean(
                         float(row.dual["dual_criterion_pass"]) for row in rows
                     ),
+                    ALL_PASS_METRIC: _mean(
+                        float(row.dual["dual_all_pass_rate"]) for row in rows
+                    ),
                     "judge_disagreements": sum(
                         not row.dual["judges_agree"] for row in rows
                     ),
@@ -945,14 +952,14 @@ def _summarize(trials: Sequence[_Trial], task_ids: Sequence[str]) -> MetricSumma
         primary=MetricValue(name=PRIMARY_METRIC, value=primary),
         metrics={
             PRIMARY_METRIC: primary,
+            ALL_PASS_METRIC: _mean(
+                float(trial.dual["dual_all_pass_rate"]) for trial in trials
+            ),
             "both_judges_all_pass_rate": both / len(trials),
             "judge_1_all_pass_rate": judge_pass[0],
             "judge_2_all_pass_rate": judge_pass[1],
             "judge_disagreement_count": sum(
                 not trial.dual["judges_agree"] for trial in trials
-            ),
-            "mean_criterion_pass_rate": _mean(
-                float(trial.dual["dual_criterion_pass"]) for trial in trials
             ),
             "pooled_criterion_pass_rate": passed / criteria if criteria else 0.0,
             "judge_input_limit_failures": sum(

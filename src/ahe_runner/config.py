@@ -51,6 +51,9 @@ class TransportSettings(StrictModel):
     observable_model_policy: Literal["exact"] = "exact"
     model_catalog: Literal["required", "optional", "disabled"] = "optional"
     negative_control: Literal["required", "best_effort", "disabled"] = "best_effort"
+    # Model calls in flight at once across every recorded client in the
+    # process for this endpoint; extra calls wait for a slot. None: no queue.
+    max_concurrent_requests: int | None = Field(default=None, ge=1)
 
     @field_validator("base_url")
     @classmethod
