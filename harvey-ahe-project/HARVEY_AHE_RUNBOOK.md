@@ -605,14 +605,15 @@ tiebreaker. Under the current settings (gpt-5.4-mini, 1 trial per task,
 all-pass scoring), this result cannot show whether evolution helps.
 
 
-## 5d. Campaign 4 proposal: `harvey-lab-campaign-4-gp50-output-backstop`
+## 5d. Campaign 4 proposal: `harvey-lab-campaign-4-judge-cap-output-backstop`
 
 Approved by the operator on 2026-10-13, to start after campaign 3 has
 finished. `ahe.yaml`, `harvey_ahe/`, and the runner code are part of the
 campaign fingerprint, so these changes cannot be applied to a campaign that
 is still running. The campaign was first proposed as
-`harvey-lab-campaign-4-grading-parallel-50`; it was renamed when AHE-014 was
-added.
+`harvey-lab-campaign-4-grading-parallel-50`, renamed
+`harvey-lab-campaign-4-gp50-output-backstop` when AHE-014 was added, and
+renamed again when the load probe below failed and the judge plan changed.
 
 Changes from campaign 3:
 
@@ -630,14 +631,16 @@ Changes from campaign 3:
   (`harvey_ahe/adapter.py`). There was no documented reason for 16; it was a
   safety guard against typos. LAB has no upper limit. The offline tests reject
   0 and 101.
-- `grading_parallel` goes from 6 to 50. Tasks have 33-40 criteria, so each
-  judge sends its whole rubric at once. The two judges still run one after
-  the other for each trial.
+- First plan (superseded by the probe result below): `grading_parallel` goes
+  from 6 to 50. Tasks have 33-40 criteria, so each judge sends its whole
+  rubric at once. The two judges still run one after the other for each
+  trial.
 
-Expected load: at most about 240 concurrent judge calls, if all 6 training
-trials grade at the same moment (6 trials x up to 40 criteria). The limit is
-about 120 for 3-trial validation and test evaluations. Trials usually finish
-at different times, so the real peak is lower.
+Expected load under the first plan: at most about 240 concurrent judge calls,
+if all 6 training trials grade at the same moment (6 trials x up to 40
+criteria). The limit is about 120 for 3-trial validation and test
+evaluations. Trials usually finish at different times, so the real peak is
+lower.
 
 Expected effect: grading drops from 1-2 minutes per trial to roughly the
 slowest single call per judge. Each evaluation still waits for its slowest
@@ -661,6 +664,36 @@ repository root after campaign 3 has finished:
   --per-model 60 \
   --output harvey-ahe-project/operator-preflight/$(date -u +%F)/judge-load-probe-120.json
 ```
+
+Probe result, 2026-10-13 14:10 UTC: **failed the gate.** Record:
+`operator-preflight/2026-10-13/judge-load-probe-120.json`. 90 of 120 calls
+succeeded (`claude-sonnet-5` 51/60, `gpt-5.5` 39/60). The 30 failures were
+HTTP 500 with an empty message. The Copilot Chat log shows the cause:
+upstream HTTP 429 (`ChatRateLimited`). In each wave, about 30 new requests
+were accepted across both models together and the rest were refused. The
+extension retried after 1 and 2 seconds; the third wave again accepted
+about 30, and 30 calls gave up. The 90 successful calls returned the
+requested model labels and parseable verdicts, and 89 of the 90 verdicts
+matched campaign 3's. The Copilot Chat log reports `gpt-5.5` as the dated
+snapshot `gpt-5.5-2026-04-23`.
+
+What this means: total judge calls at once equal the number of trials being
+graded at the same moment (up to `evaluation.max_concurrency`, 20) times
+`grading_parallel`. The evaluated agent's calls share the same Copilot
+limit, so a burst of judge calls could also make agent calls fail.
+
+Revised plan, approved by the operator on 2026-10-13:
+
+- New adapter setting `judge_max_concurrent_calls: 24`. It is one shared pool
+  of call slots in `harvey_ahe/grading.py` for the whole evaluation process.
+  Every judge criterion call takes a slot and waits while none is free,
+  whichever trial it belongs to. Model preflights and the filename helper
+  are not counted. The default (unset) keeps the old behaviour.
+- `grading_parallel: 10` per judge per trial, still limited by the shared
+  cap.
+- The adapter's upper bound for `grading_parallel` stays at 100.
+- Gate before launch: repeat the probe at exactly the cap (12 calls per judge
+  model, 24 at once). Pass means all 24 succeed.
 
 Offline verification on branch `harveybench-gp50`, at commit `f96094b` plus
 a probe fix: the eight Harvey test files pass 103/103, and the full suite
