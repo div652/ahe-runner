@@ -34,6 +34,7 @@ The assistant announces new permanent files before creating them.
 | AHE-005 | V2 offers no way to give editable harness tools a benchmark-owned isolated execution environment | Explained; option A (adapter-owned per-session container lookup) chosen on 2026-10-12 | Adapter-owned sandbox handle in `harvey_ahe.workspace`; its token-in-context routing was replaced under AHE-006 |
 | AHE-006 | Routing a session to its resource through session `context` is unsafe: NexAU's current context is one process-wide slot that concurrent sessions' sub-agents can read | Explained in plain language; on 2026-10-13 the operator chose orchestrator-owned binding (the runner hands each session its own resources) | Branch-local `AgentSessionRequest.session_resources` in `runtime.py`; Harvey adapter binds the sandbox handle through it |
 | AHE-007 | The static import scan misreads `from pkg import name` as `pkg.n.a.m.e` | Explained with AHE-006; recording only | No patch; the Harvey seed imports helpers as `from tools._common import ...`, which is unaffected |
+| AHE-008 | Meta-agents have no sandbox work folder, so NexAU copies the Explore skills, read-only, into the operator's current directory; a later Evolve run there fails with `Permission denied` | Explained in plain language; on 2026-10-13 the operator approved a private per-run folder and deleting the leftover `AHE_Harvey/.skills` | Branch-local `LocalSandboxConfig(work_dir=<runtime_dir>/sandbox)` in `meta/nexau_backend.py`, plus a regression test |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -767,3 +768,80 @@ the scan handles correctly.
 
 Replace `*alias.name` with `alias.name` and add a conformance test with a
 lazily imported `from tools import helper` dependency.
+
+## AHE-008: meta-agent skill copies land in the operator's current directory
+
+### Plain-language summary
+
+When NexAU starts an agent's sandbox, it copies the agent's skills into a
+`.skills/` folder inside the sandbox work folder (`work_dir`). AHE never gives
+its meta-agents a work folder, so NexAU uses its default: the directory AHE was
+launched from. Only the Evolve agent has skills (the two Explore skills).
+
+AHE marks those skill copies read-only, and the copy keeps that setting. On the
+next Evolve sandbox start from the same directory, NexAU first deletes the old
+copy, which fails with `Permission denied`. NexAU starts the sandbox lazily on
+every tool call, so each of that Evolve agent's tool calls then fails.
+
+Example: the quickstart was launched from the `AHE_Harvey` repository root.
+Its single Evolve round left `AHE_Harvey/.skills/source-exploration/` and
+`.../web-research/`, both read-only. A second Evolve round, or a second campaign
+launched from the same folder, would have failed. The leftover folder also made
+`tests/test_runtime.py::test_runtime_intercepts_protected_actions_and_preserves_sessions`
+fail when run from the repository root. That test asserts that the evaluated
+runtime leaves no `.skills` in the current directory.
+
+### Evidence (NexAU 0.3.9, AHE `harveybench`)
+
+- `nexau/archs/sandbox/base_sandbox.py:80`: the `LocalSandboxConfig.work_dir`
+  default is `SANDBOX_WORK_DIR` or `os.getcwd()`.
+- `nexau/archs/main_sub/agent.py:587-593`: each skill folder is mapped to
+  `<work_dir>/.skills/<name>` and queued for upload.
+- `nexau/archs/sandbox/local_sandbox.py:1209-1242`: `upload_directory` runs
+  `shutil.rmtree(dst)` when the destination exists, then `shutil.copytree`,
+  which preserves the source's read-only mode.
+- `src/ahe_runner/meta/nexau_backend.py`: `_copy_read_only_skill` makes the
+  per-round Explore skill copies read-only. Before this repair, `_run_agent`
+  built the meta `AgentConfig` without a `sandbox_config`. By contrast,
+  `src/ahe_runner/runtime.py:668-672` already pins the evaluated agent's
+  `work_dir` to its session workspace.
+- `nexau/archs/main_sub/execution/tool_executor.py:97`: every tool call calls
+  `agent_state.get_sandbox()`, which starts the sandbox (and uploads skills) if
+  it is not yet running.
+- Offline reproduction: copy a `0o555` folder with `shutil.copytree`, then
+  repeat NexAU's `rmtree` and `copytree`. The second step raises
+  `PermissionError: [Errno 13] Permission denied: 'SKILL.md'`.
+
+### Impact
+
+- Multi-round campaigns, and campaigns relaunched from the same directory, can
+  break in the Evolve phase. The Harvey campaign has several rounds.
+- Two campaigns launched from the same directory share and overwrite each
+  other's Explore skill copies.
+- Each campaign leaves read-only folders in the operator's directory.
+
+### Approved local repair (operator decision, 2026-10-13)
+
+- `src/ahe_runner/meta/nexau_backend.py` `_run_agent`: after loading the
+  generated meta config, it sets
+  `config.sandbox_config = LocalSandboxConfig(work_dir=<runtime_dir>/sandbox)`.
+  A leftover folder from an earlier attempt of the same role is made writable
+  and removed first, as `_copy_read_only_skill` already does. AHE meta tools do
+  not use the NexAU sandbox, so only the skill-copy location changes.
+- Regression test
+  `tests/test_meta_resources.py::test_meta_agent_skill_copies_stay_in_private_runtime_sandbox`.
+  It starts a real NexAU sandbox twice (no model calls) from a separate current
+  directory with a read-only skill. It checks that the copies land in
+  `<runtime_dir>/sandbox/.skills/` and that nothing is written to the current
+  directory.
+- The leftover `AHE_Harvey/.skills/` from the quickstart (git-ignored) was
+  deleted with the operator's approval.
+
+### Upstream recommendations
+
+1. Give every meta-agent an explicit sandbox `work_dir` inside its run
+   artifacts, as the evaluated runtime already does.
+2. Never depend on the process current directory in library code; consider
+   failing fast when a NexAU config has skills but no `sandbox_config`.
+3. Add a test that runs two Evolve sandbox starts in one campaign and checks
+   the launch directory stays clean.

@@ -16,6 +16,7 @@ import nexau
 import yaml
 from nexau import Agent
 from nexau.archs.main_sub.config import AgentConfig
+from nexau.archs.sandbox import LocalSandboxConfig
 
 from ahe_runner.debugger import validate_debugger_diagnosis
 from ahe_runner.errors import ConfigurationError, IntegrityError
@@ -691,6 +692,14 @@ class NexAUMetaBackend(MetaBackend):
             encoding="utf-8",
         )
         config = AgentConfig.from_yaml(config_path)
+        # NexAU copies skills into the sandbox work_dir, which defaults to the
+        # process cwd. Keep those copies inside this run (AHE-008).
+        sandbox_dir = runtime_dir / "sandbox"
+        if sandbox_dir.exists():
+            _make_writable(sandbox_dir)
+            shutil.rmtree(sandbox_dir)
+        sandbox_dir.mkdir(parents=True)
+        config.sandbox_config = LocalSandboxConfig(work_dir=str(sandbox_dir))
         llm_updates: dict[str, Any] = {
             "model": settings.model,
             "base_url": self.context.config.document.transport.base_url,

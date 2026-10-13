@@ -162,6 +162,65 @@ def test_generated_production_agent_config_loads_with_native_skill(
     )
 
 
+def test_meta_agent_skill_copies_stay_in_private_runtime_sandbox(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    config_path = make_example_project(tmp_path)
+    value = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    value["meta"]["backend"] = "nexau"
+    value["meta"]["explore"]["web_search_backend"] = "ddgs"
+    value["transport"]["api_key_env"] = "AHE_TEST_META_KEY"
+    config_path.write_text(yaml.safe_dump(value, sort_keys=False), encoding="utf-8")
+    monkeypatch.setenv("AHE_TEST_META_KEY", "synthetic-meta-key")
+    controller = CampaignController(load_config(config_path))
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text(
+        "---\nname: smoke\ndescription: smoke skill\n---\n\n# Smoke\n",
+        encoding="utf-8",
+    )
+    skill.chmod(0o555)
+    launch_dir = tmp_path / "operator-cwd"
+    launch_dir.mkdir()
+    monkeypatch.chdir(launch_dir)
+    runtime_dir = tmp_path / "runtime"
+    real_agent = backend_module.Agent
+
+    class SandboxStartingAgent:
+        def __init__(self, *, config):  # type: ignore[no-untyped-def]
+            self.agent = real_agent(config=config)
+            self.full_trace = []
+            self.global_storage = SimpleNamespace(get=lambda _key: None)
+
+        def run(self, **_kwargs):  # type: ignore[no-untyped-def]
+            sandbox = self.agent.sandbox_manager.start_sync()
+            assert sandbox is not None
+            return "started"
+
+        def sync_cleanup(self) -> None:
+            self.agent.sync_cleanup()
+
+    monkeypatch.setattr(backend_module, "Agent", SandboxStartingAgent)
+    for _attempt in range(2):
+        result = controller.meta._run_agent(
+            name="AHE-Sandbox-Smoke",
+            description="Start the meta sandbox without a model call.",
+            prompt_name="evolve.md",
+            settings=controller.config.document.models.meta,
+            max_iterations=2,
+            tools=("complete_task",),
+            skills=(skill,),
+            context={},
+            query="smoke query",
+            runtime_dir=runtime_dir,
+        )
+        assert result == "started"
+        assert (runtime_dir / "sandbox" / ".skills" / "skill" / "SKILL.md").is_file()
+        assert not (launch_dir / ".skills").exists()
+    skill.chmod(0o755)
+
+
 def test_meta_agents_mount_only_declared_public_adapter_roots(
     tmp_path: Path,
 ) -> None:
