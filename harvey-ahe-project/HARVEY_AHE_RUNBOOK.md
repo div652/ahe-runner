@@ -918,6 +918,35 @@ Other recoverable `Finish Tool ... execution failed` lines:
   trace records not covered by a full read (the AHE-010 follow-up).
 - Evolve `complete_task`, once: "predicted_fixes and risk_tasks overlap".
 
+### Round 2: `ahe run-round --round 2` (2026-10-13 16:10-16:15 UTC, stopped: stage blocked)
+
+Log in `campaign-artifacts/c4-run-round-2.log`. `round.2.debugger` attempt 1
+failed with `IntegrityError`. Because it was not an infrastructure error, the
+stage is `blocked`, and the runner will not retry it. Campaign 4 ends here;
+its artifacts are kept unchanged.
+
+- Four of the six debuggers submitted diagnoses. The real-estate and
+  corporate-ma debuggers stopped with "meta-agent context remains above the
+  configured compaction target after preserving the latest iteration:
+  176783 > 144000" and "196294 > 144000". The target is 0.72 × 200,000
+  tokens.
+- Cause: in its last turn, the real-estate debugger read the four `.docx`
+  deliverables of both trials at once (`read_file`, default 64,000 bytes).
+  `read_file` has no binary check. It decodes a `.docx` (a zip archive) with
+  `errors="replace"`, so each file came back as about 145,000 characters of
+  unreadable text, measured at about 36,000 tokens. The four results alone
+  were about 146,000 tokens. Compaction may only shorten older turns, so the
+  middleware stopped the agent. The corporate-ma debugger did the same with
+  two 120,000-byte trace reads and four `.xlsx`/`.docx` reads.
+- This was not new. Debuggers read binary deliverables in every earlier
+  campaign: 7-9 such reads per round in campaigns 1 and 3, then 16 in
+  campaign 4 round 1. In round 2 there were 30, because two trials per task
+  double the files.
+- The operator decided not to patch this one gap alone. Instead, the meta
+  agents will be compared with the original AHE agent harnesses, and their
+  tools, descriptions, skills and middleware brought in line (AHE-016).
+  Campaign 5 follows.
+
 
 ## 6. Known deviations and limits to report with results
 
