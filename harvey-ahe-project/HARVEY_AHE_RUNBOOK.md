@@ -828,6 +828,96 @@ Checks on 2026-10-13 (details and hashes in
 To restart the server without the viewer, run `DISPLAY=:99 xdotool key F1`,
 type `GH Copilot Server: Start Server`, then press Return.
 
+## 5e. Campaign log: `harvey-lab-campaign-4-judge-cap-output-backstop`
+
+Configuration as in section 5d, at commit `b7029c3`. Before launch,
+`ahe conformance` and `ahe validate` both returned `valid: true` with only the
+AHE-005 warning. Each round runs in tmux session `ahe-c4` on the model host,
+one window per round, so a laptop disconnect does not stop it.
+
+### Round 1: `ahe run-round --round 1` (2026-10-13 14:44-15:12 UTC, exit 0)
+
+Log in `campaign-artifacts/c4-run-round-1.log`. Every stage completed on its
+first attempt. Total time was 28.4 minutes; campaign 3's round 1 took 41.6.
+
+| Stage | Campaign 3 | Campaign 4 |
+|---|---|---|
+| `evaluation.C0.train` | 567 s (6 trials) | 286 s (12 trials) |
+| `exploration` | 668 s | 439 s |
+| `round.1.debugger` | 482 s | 373 s |
+| `round.1.evolve` | 222 s | 269 s |
+| `round.1.validate` and `freeze` | 13 s | 12 s |
+| `evaluation.C1.train` | 519 s (6 trials) | 301 s (12 trials) |
+
+The training evaluations were faster even with twice the trials. Judges
+grade 10 criteria at once instead of 6, and the 12 trials run together.
+Each evaluation now waits mainly on the slowest agent (corporate-ma, 241 s
+in C0 and 254 s in C1).
+
+Load and errors:
+- About 1,900 recorded model calls in the two training evaluations and 170
+  in the meta-agent stages. There was no `error.json` and no
+  `infrastructure_error.json`.
+- The AHE-015 queue was used: 133 evaluation calls waited for a slot, at
+  most 0.96 s.
+- The Copilot Chat log shows 6 `rateLimited` (HTTP 429) responses out of
+  2,130 requests. 5 came at 14:45:35-38 during C0 grading (3
+  claude-sonnet-5, 2 gpt-5.5) and 1 at 15:09:20 (`gpt-5.4-mini`). The
+  extension's same-model retries absorbed all of them; none reached the
+  runner.
+- The AHE-014 backstop did not trigger: Explore and Evolve saved no
+  shortened tool outputs.
+
+Criteria passed (judge 1 = claude-sonnet-5, judge 2 = gpt-5.5), trial 0 then
+trial 1. The judges never disagreed on all-pass.
+
+| Training task | C0 j1 | C0 j2 | C1 j1 | C1 j2 |
+|---|---|---|---|---|
+| banking-finance/identify-issues-in-officer-certificate | 15, 15/35 | 14, 14/35 | 12, 13/35 | 12, 14/35 |
+| corporate-ma/compare-credit-agreement-to-commitment-letter | 33, 35/40 | 31, 35/40 | 21, 29/40 | 22, 31/40 |
+| energy-natural-resources/identify-issues-in-tax-equity-flip-partnership-agreement | 17, 14/36 | 20, 17/36 | 16, 18/36 | 16, 19/36 |
+| environmental-esg/identify-issues-in-expert-remediation-report | 10, 8/33 | 14, 8/33 | 5, 7/33 | 7, 8/33 |
+| real-estate/draft-warranty-deed | 37, 36/38 | 36, 34/38 | 34, 37/38 | 35, 37/38 |
+| tax/identify-tax-issues-in-irs-closing-agreement | 5, 8/33 | 7, 7/33 | 8, 9/33 | 9, 9/33 |
+
+| Metric | C0 | C1 |
+|---|---|---|
+| Primary: mean criterion pass rate | 0.529 | 0.483 |
+| Mean dual all-pass (tie-break) | 0.0 | 0.0 |
+| Pooled criterion pass rate | 0.547 | 0.498 |
+| Terminations | 12 `finish_tool` | 12 `finish_tool` |
+| Total assistant turns, 12 trials | 57 | 124 |
+| Total agent wall-clock, 12 trials | 1,063 s | 1,595 s |
+
+C0 is the same seed harness as in campaigns 1 and 3 (0.476 and 0.533 there).
+Within one checkpoint, the two trials of a task differ by up to 0.21
+(C1 corporate-ma: 0.538 and 0.750).
+
+What C1 changed (`checkpoints/C1/harness/change_manifest.json`):
+- `chg-1`, `systemprompt.md`: a required scratch checklist and a final
+  verification note before `finish`.
+- `chg-2`, `finish.tool.yaml`: `finish` now requires `deliverables` and a
+  `checklist_path`.
+- `chg-3`, `tools/finish.py`: `finish` is rejected (up to the existing
+  rejection limit) unless the listed deliverables exist and the note exists,
+  has four required headings, and names every deliverable.
+
+Effects observed in C1: 7 of 12 trials had `finish` rejected at least once
+(9 rejections in all; none in C0), for example a missing
+`/workspace/final_check.md` or a note that did not name every deliverable.
+All 12 trials still ended through `finish`. The agent took about twice as
+many turns.
+
+Attribution: `mixed`, primary delta -0.046. 3 tasks improved and 3
+regressed, and none of them were the ones Evolve predicted. All three
+changes were marked `INEFFECTIVE`, with hit rates 0/4, 0/2 and 0/4 and no
+declared risks observed.
+
+Other recoverable `Finish Tool ... execution failed` lines:
+- Debugger `submit_debugger_diagnosis`, 3 times: citations of single-line
+  trace records not covered by a full read (the AHE-010 follow-up).
+- Evolve `complete_task`, once: "predicted_fixes and risk_tasks overlap".
+
 
 ## 6. Known deviations and limits to report with results
 
