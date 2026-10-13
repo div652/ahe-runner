@@ -17,13 +17,15 @@
 # 2 debugger stopped on binary .docx reads (runbook 5e). This fifth campaign
 # gives every meta agent the original AHE tools, middleware, temperatures and
 # debugger budget, a Docker-sandboxed shell, readable evidence views, and
-# non-blocking debugger failures (AHE-016, runbook 5f). Everything else is
-# unchanged from campaign 4.
+# non-blocking debugger failures (AHE-016, runbook 5f). Its round 1 showed
+# that change attribution never matched Evolve's predicted tasks (AHE-017).
+# This sixth campaign is campaign 5 plus the AHE-017 fix; the config is
+# otherwise unchanged.
 schema_version: 1
 
 campaign:
-  name: harvey-lab-campaign-5-original-meta-agents
-  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-5-original-meta-agents
+  name: harvey-lab-campaign-6-attribution-fix
+  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-6-attribution-fix
   rounds: 3
   root_seed: 42
 
