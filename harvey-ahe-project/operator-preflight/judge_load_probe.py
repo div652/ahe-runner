@@ -167,9 +167,6 @@ def main() -> int:
         api_key="local-placeholder",
         max_retries=0,
         timeout=args.timeout,
-        http_client=httpx.Client(
-            limits=httpx.Limits(max_connections=len(items)), timeout=args.timeout
-        ),
     )
     start = threading.Barrier(len(items))
     started_at = datetime.now(UTC).isoformat()

@@ -649,6 +649,20 @@ repository root after campaign 3 has finished:
   --output harvey-ahe-project/operator-preflight/$(date -u +%F)/judge-load-probe-120.json
 ```
 
+Offline verification on branch `harveybench-gp50`, at commit `f96094b` plus
+a probe fix: the eight Harvey test files pass 103/103, and the full suite
+passes 182/182. Both runs used the branch's code (`PYTHONPATH` set to the
+worktree). ruff check and format are clean for the changed files. pyright is
+clean for `adapter.py` and the probe after the fix: the probe no longer passes
+its own `httpx` client, because this `openai` build uses `httpx2`; openai's
+default limit of 1000 connections covers 120 calls. No test imports the probe,
+so the full-suite result also holds after the fix. The probe's request
+collection was checked offline against `C2-train`, with no model calls:
+60 calls per judge model, all with a parseable baseline verdict. Baseline
+latency at `grading_parallel` 6 was p50 6.3 s and p90 9.4 s for
+`claude-sonnet-5`, and p50 5.1 s and p90 7.0 s for `gpt-5.5`. Prompts were up
+to 11,250 characters.
+
 
 ## 6. Known deviations and limits to report with results
 
