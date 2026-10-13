@@ -36,6 +36,8 @@ The assistant announces new permanent files before creating them.
 | AHE-007 | The static import scan misreads `from pkg import name` as `pkg.n.a.m.e` | Explained with AHE-006; recording only | No patch; the Harvey seed imports helpers as `from tools._common import ...`, which is unaffected |
 | AHE-008 | Meta-agents have no sandbox work folder, so NexAU copies the Explore skills, read-only, into the operator's current directory; a later Evolve run there fails with `Permission denied` | Explained in plain language; on 2026-10-13 the operator approved a private per-run folder and deleting the leftover `AHE_Harvey/.skills` | Branch-local `LocalSandboxConfig(work_dir=<runtime_dir>/sandbox)` in `meta/nexau_backend.py`, plus a regression test |
 | AHE-009 | Project role supplements are rendered as Jinja together with the core meta prompt, so template markup in a supplement crashes that meta-agent at its first model call; config loading does not check this | Explained in plain language; recording approved on 2026-10-13 | No AHE patch; the Harvey supplements avoid Jinja markup, and an offline render check passes for all four roles |
+| AHE-010 | `search_text` has no total output budget, so a few parallel searches over the debugger's raw model-call logs overflowed the Evolve context (617,681 tokens against 200,000) and stopped round 2 of the first live campaign | Explained in plain language; on 2026-10-13 the operator approved a per-call output cap with match snippets | Branch-local cap (about 32,000 characters per call), 400-character match snippets, `truncation_reason`, and a regression test in `meta/tools.py` |
+| AHE-011 | A non-infrastructure meta-agent failure permanently blocks its stage with attempts left, no command unblocks it, and protected-code fingerprints forbid continuing the campaign after any AHE repair | Explained in plain language; on 2026-10-13 the operator chose a new campaign with the AHE-010 repair | No AHE patch; first campaign kept as evidence, new campaign `harvey-lab-campaign-2-search-cap` started from round 1 |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -924,3 +926,150 @@ the combined Evolve prompt failed with
    and `ahe conformance`, failing fast and also catching silent changes.
 3. Document in the role-supplement docs that supplement text is otherwise
    rendered as a template.
+
+## AHE-010: `search_text` has no total output budget
+
+### Plain-language summary
+
+Meta-agents search files with `search_text`. AHE limits each search to 300
+matching lines and cuts each line to its first 2,000 characters, but it does
+not limit the total size of one result. That allows about 600,000 characters
+per call. The Evolve Agent can call the tool several times in one turn.
+
+In round 2 of the first live Harvey campaign, Evolve's third turn ran six
+searches, one per training task key, over the `debugger` root. That root
+also holds every debugger's raw model-call logs
+(`tasks/*/runtime/model_calls/*/request.json` and `response.json`): 172
+files, about 34 MB, mostly single-line JSON. Each log repeats the task key,
+so five searches hit the 300-match limit. Every match was a 2,000-character
+slice of JSON.
+
+The combined results came to 617,681 tokens; the context limit is 200,000.
+The compaction middleware keeps the latest turn intact, so it could not
+shrink the context. It correctly refused to call the model (fail-closed),
+and the stage failed. Round 1's Evolve had not made these searches, so the
+failure depends on the model's choices and can occur on any benchmark whose
+debugger traces are long.
+
+### Evidence (AHE `harveybench` at `50cfb70`, NexAU 0.3.9)
+
+- Campaign `harvey-lab-first-campaign`, stage `round.2.evolve`, attempt 1,
+  2026-10-13 08:00:16-08:00:55 UTC. Error: `meta-agent context remains above
+  the configured compaction target after preserving the latest iteration:
+  617681 > 144000`, then `Prompt tokens (619450) exceed max_context_tokens
+  (200000)`.
+- `evolve/C2/attempt-0001/runtime/model_calls/call-0003/response.json`: six
+  `search_text` calls on root `debugger`, `relative_path: "tasks"`,
+  `file_glob: "**/*.json"`, querying the six task keys.
+- A `grep` count of the same queries over `debugger/C2/tasks` found
+  127, 589, 408, 317, 690, and 281 matching lines.
+- `src/ahe_runner/meta/tools.py`: `_MAX_SEARCH_MATCHES = 300` and
+  `line[:2_000]` are the only bounds. In contrast, `read_file` has
+  `max_bytes` (default 64,000, maximum 160,000).
+- `src/ahe_runner/meta/nexau_backend.py:288-298`: Evolve's `debugger` root is
+  the whole debugger output folder, including `runtime/model_calls`.
+- `src/ahe_runner/meta/middleware.py:58-95`: compaction keeps the latest
+  iteration and raises when it alone exceeds the target.
+
+### Branch-local repair (approved 2026-10-13)
+
+In `src/ahe_runner/meta/tools.py`, `search_text` now:
+
+1. Stops adding matches once the serialized matches would exceed 32,000
+   characters (`_MAX_SEARCH_OUTPUT_CHARS`). It returns `truncated: true`,
+   `truncation_reason: "output_char_limit"`, `output_chars`,
+   `output_char_limit`, and a hint to narrow the search or use `read_file`.
+   Six parallel calls are now bounded to about 200,000 characters, roughly
+   50,000 tokens.
+2. Returns a snippet of at most 400 characters, starting 150 characters
+   before the match, plus `column` and `snippet_start_column`. The old
+   first-2,000-characters slice often missed the match in long JSON lines.
+   Lines of up to 400 characters are still returned whole, unchanged.
+3. Records a debugger line as read, so that the line can be cited, only when
+   the whole line was returned. Before, a line cut at 2,000 characters still
+   counted as fully read. With shorter snippets, keeping that would have
+   weakened the debugger's rule that it may cite only content it has seen.
+   To cite a long line, the debugger now reads it with `read_file`.
+4. Keeps the 300-match limit, now reported as
+   `truncation_reason: "match_limit"`.
+
+`meta/tool_descriptions/search_text.tool.yaml` describes the bound, the
+snippets, and what to do when truncated. Regression test:
+`tests/test_meta_resources.py::test_search_text_bounds_total_output_and_returns_match_snippets`.
+
+Both files are fingerprinted into the campaign identity (see AHE-011), so
+this repair needs a new campaign.
+
+### Upstream recommendations
+
+1. Give every meta tool a total output budget, not only per-item limits.
+2. Add a per-turn budget across parallel tool calls, or have the compaction
+   middleware truncate an oversized latest tool result with an explicit
+   marker instead of failing the stage.
+3. Consider hiding or summarizing the debugger's raw `runtime/model_calls`
+   from Evolve's `debugger` root. Each request log repeats the whole growing
+   conversation, so its size grows quadratically with debugger turns. The
+   submitted diagnoses and `overview.md` are the intended Evolve inputs.
+4. Return match snippets around the hit, with columns, for long lines.
+
+## AHE-011: blocked meta stages cannot be retried or repaired in place
+
+### Plain-language summary
+
+When the AHE-010 failure happened, AHE marked `round.2.evolve` as
+**blocked** after one of its three allowed attempts. AHE retries a stage only
+if the error is classed as an infrastructure failure
+(`InfrastructureError`). A context overflow is not, so the stage was blocked.
+No `ahe` command unblocks a stage, so the remaining attempts cannot be used.
+The only remaining options are to edit `stage.json` by hand or to start
+over.
+
+A repair can't be continued in place either. The campaign manifest
+fingerprints AHE's package, core prompts, tool descriptions, `tools.py`,
+config, and role supplements. On the next command, any change raises
+`campaign identity changed in protected inputs [...]; use a new artifacts
+directory`. That protects reproducibility. Combined with the block, though,
+one meta-agent failure that needs a code fix throws away all completed
+evaluation work. Here that was round 1, about 46 minutes of live runs.
+
+### Evidence
+
+- `src/ahe_runner/state.py` (`StageStore.run`): `can_retry` requires
+  `isinstance(exc, InfrastructureError)`; otherwise
+  `stage["status"] = "blocked"`, and a blocked stage raises
+  `StageBlockedError` on every later call.
+- `src/ahe_runner/cli.py`: the commands are `init-project`, `conformance`,
+  `validate`, `run`, `resume`, `status`, `close-evolution`,
+  `run-validation`, `run-final-test`, and `run-round`. None of them unblocks
+  or retries a stage.
+- `src/ahe_runner/controller.py:830-905` (campaign manifest): the
+  `protected_runner_resources` fingerprints, and the `IntegrityError` above
+  on any change.
+- `harvey-lab-first-campaign/stages/round.2.evolve/stage.json`:
+  `status: blocked`, one `failed` attempt, `maximum_stage_attempts: 3`.
+
+### Local handling (no AHE patch)
+
+The operator chose a new campaign that includes the AHE-010 repair:
+`campaign.name: harvey-lab-campaign-2-search-cap`, with its own artifacts
+folder. The first campaign's artifacts are kept unchanged as evidence of the
+failure. Its round 1 results are recorded in
+`harvey-ahe-project/HARVEY_AHE_RUNBOOK.md` section 5a. Considered and not
+chosen:
+
+- Hand-resetting the blocked stage and retrying with identical code. The
+  same overflow could recur.
+- Patching and rewriting the manifest fingerprint. That defeats the
+  integrity guard.
+
+### Upstream recommendations
+
+1. Add an explicit operator command such as `ahe retry-stage <name>`. It
+   would record the reason, keep failed attempts, and respect
+   `maximum_stage_attempts`.
+2. Classify context-budget overflows of meta-agents as retryable, or as a
+   distinct "repairable" class, rather than final.
+3. Support a documented "runner patch" path. For example, record a new
+   runner fingerprint as a manifest amendment that later reports show,
+   instead of forcing a full restart for a fix that does not change the
+   evaluation contract.

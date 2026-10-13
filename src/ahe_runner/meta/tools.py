@@ -35,6 +35,11 @@ from ahe_runner.workspace import verify_checkpoint
 _MAX_READ_BYTES = 160_000
 _DEFAULT_READ_BYTES = 64_000
 _MAX_SEARCH_MATCHES = 300
+# Branch-local AHE-010 repair: bound one search result's serialized matches so
+# parallel searches cannot exceed the meta-agent context in a single turn.
+_MAX_SEARCH_OUTPUT_CHARS = 32_000
+_SEARCH_SNIPPET_CHARS = 400
+_SEARCH_SNIPPET_LEAD_CHARS = 150
 _MAX_LIST_ENTRIES = 5_000
 _EVOLVE_RESEARCH_BUDGET_BEFORE_COMMIT = 36
 
@@ -249,6 +254,29 @@ def search_text(
     matches: list[dict[str, Any]] = []
     skipped: list[dict[str, str]] = []
     searched_files = 0
+    output_chars = 0
+
+    def truncated_result(reason: str) -> str:
+        return _json(
+            {
+                "ok": True,
+                "matches": matches,
+                "truncated": True,
+                "truncation_reason": reason,
+                "match_limit": _MAX_SEARCH_MATCHES,
+                "output_char_limit": _MAX_SEARCH_OUTPUT_CHARS,
+                "output_chars": output_chars,
+                "searched_files": searched_files,
+                "skipped": skipped[:20],
+                "skipped_total": len(skipped),
+                "skipped_truncated": len(skipped) > 20,
+                "hint": (
+                    "Narrow relative_path, file_glob, or query, or use "
+                    "read_file on a reported path and line."
+                ),
+            }
+        )
+
     for path in candidates:
         if not path.is_file() or ".git" in path.parts:
             continue
@@ -270,35 +298,38 @@ def search_text(
         try:
             searched_files += 1
             for line_number, line in enumerate(handle, start=1):
-                if pattern.search(line):
-                    _record_debugger_access(
-                        agent_state,
-                        artifact=f"{root}:{root_relative}",
-                        mode="lines",
-                        start=line_number,
-                        end=line_number,
+                found = pattern.search(line)
+                if found:
+                    content = line.rstrip("\n")
+                    snippet_start = max(0, found.start() - _SEARCH_SNIPPET_LEAD_CHARS)
+                    snippet_end = min(
+                        len(content), snippet_start + _SEARCH_SNIPPET_CHARS
                     )
-                    matches.append(
-                        {
-                            "path": relative,
-                            "line": line_number,
-                            "text": line[:2_000].rstrip("\n"),
-                            "text_truncated": len(line) > 2_000,
-                        }
-                    )
-                    if len(matches) >= _MAX_SEARCH_MATCHES:
-                        return _json(
-                            {
-                                "ok": True,
-                                "matches": matches,
-                                "truncated": True,
-                                "match_limit": _MAX_SEARCH_MATCHES,
-                                "searched_files": searched_files,
-                                "skipped": skipped[:20],
-                                "skipped_total": len(skipped),
-                                "skipped_truncated": len(skipped) > 20,
-                            }
+                    entry = {
+                        "path": relative,
+                        "line": line_number,
+                        "column": found.start() + 1,
+                        "snippet_start_column": snippet_start + 1,
+                        "text": content[snippet_start:snippet_end],
+                        "text_truncated": snippet_start > 0
+                        or snippet_end < len(content),
+                    }
+                    entry_chars = len(json.dumps(entry, ensure_ascii=False))
+                    if output_chars + entry_chars > _MAX_SEARCH_OUTPUT_CHARS:
+                        return truncated_result("output_char_limit")
+                    if not entry["text_truncated"]:
+                        # Only a fully returned line is citable debugger evidence.
+                        _record_debugger_access(
+                            agent_state,
+                            artifact=f"{root}:{root_relative}",
+                            mode="lines",
+                            start=line_number,
+                            end=line_number,
                         )
+                    matches.append(entry)
+                    output_chars += entry_chars
+                    if len(matches) >= _MAX_SEARCH_MATCHES:
+                        return truncated_result("match_limit")
         except UnicodeDecodeError:
             skipped.append({"path": relative, "reason": "non-UTF-8 content"})
         except OSError as exc:
@@ -316,6 +347,8 @@ def search_text(
             "matches": matches,
             "truncated": False,
             "match_limit": _MAX_SEARCH_MATCHES,
+            "output_char_limit": _MAX_SEARCH_OUTPUT_CHARS,
+            "output_chars": output_chars,
             "searched_files": searched_files,
             "skipped": skipped[:20],
             "skipped_total": len(skipped),

@@ -174,7 +174,7 @@ Per-trial results are under `evaluations/.../units/<unit>/attempt-<n>/`:
 `result.json`, `trace.jsonl`, `run/output/` (graded copies), and `grading/`
 (both judges' per-criterion scores).
 
-## 5a. Campaign log: `harvey-lab-first-campaign`
+## 5a. Campaign log: `harvey-lab-first-campaign` (stopped at round 2)
 
 Run phase by phase. The operator approved each command.
 
@@ -231,6 +231,33 @@ The `Finish Tool ... execution failed, will continue` lines in the log are
 recoverable rejections: three are the Harvey `finish` gate, and one each
 comes from the debugger's `submit_debugger_diagnosis` and evolve's
 `complete_task`. In every case the agent retried and the stage completed.
+The exact messages:
+- `finish`: "Not finished: create /workspace/review_checklist.md ...".
+- Debugger: "failing paired evidence does not cite verified failing trial
+  artifacts". It had cited a task summary instead of trial traces.
+- Evolve: "change_manifest.json is invalid ... predicted_fixes and
+  risk_tasks overlap".
+
+### Round 2: `ahe run-round --round 2` (2026-10-13 07:56-08:00 UTC, exit 2, stopped)
+
+Log in `campaign-artifacts/run-round-2.log`. C1 train evaluation and
+evidence were reused. `round.2.debugger` completed. `round.2.evolve`
+attempt 1 failed on its third model call: six parallel `search_text` calls
+over the debugger's raw model-call logs returned 617,681 tokens, against a
+200,000-token context. The stage was then blocked with no retry path. See
+AHE-010 and AHE-011 in
+`docs/HARVEY_INTEGRATION_UPSTREAM_RECOMMENDATIONS.md`.
+
+This campaign ends here. Its artifacts are kept unchanged. The operator
+chose to repair `search_text` and start a new campaign (section 5b).
+
+## 5b. Campaign log: `harvey-lab-campaign-2-search-cap`
+
+Same pinned inputs, models, judges, budget, and seed as section 3a. One
+difference: the AHE-010 `search_text` output cap (branch-local, in
+`src/ahe_runner/meta/tools.py`). The protected-runner fingerprint changes,
+so this is a separate campaign, run from round 1. The operator approved the
+same phased sequence: rounds 1, 2, and 3, then `run-final-test`.
 
 ## 6. Known deviations and limits to report with results
 

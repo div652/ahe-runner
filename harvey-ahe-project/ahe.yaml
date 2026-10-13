@@ -5,12 +5,14 @@
 #     the endpoint's /v1/models catalog, without `copilot/` or `openai/` prefixes;
 #   * the live budget: campaign.rounds, evaluation.*_trials, and concurrency.
 # Model IDs and budget below were chosen by the operator on 2026-10-13; the
-# record is in HARVEY_AHE_RUNBOOK.md section 3a.
+# record is in HARVEY_AHE_RUNBOOK.md section 3a. The first campaign
+# (harvey-lab-first-campaign) stopped at round 2 on AHE-010; this second
+# campaign carries that repair (runbook sections 5a and 5b).
 schema_version: 1
 
 campaign:
-  name: harvey-lab-first-campaign
-  artifacts_dir: ./campaign-artifacts/harvey-lab-first-campaign
+  name: harvey-lab-campaign-2-search-cap
+  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-2-search-cap
   rounds: 3
   root_seed: 42
 

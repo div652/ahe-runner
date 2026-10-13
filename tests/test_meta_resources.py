@@ -401,6 +401,84 @@ def test_large_meta_files_support_ranged_reads_and_honest_search(
     )
 
 
+def test_search_text_bounds_total_output_and_returns_match_snippets(
+    tmp_path: Path,
+) -> None:
+    # AHE-010: six parallel searches over one-line JSON model-call logs once
+    # returned about 617k tokens in a single Evolve turn.
+    evidence = tmp_path / "evidence"
+    calls = evidence / "runtime" / "model_calls"
+    calls.mkdir(parents=True)
+    for index in range(60):
+        (calls / f"call-{index:04d}.json").write_text(
+            "\n".join(
+                json.dumps({"pad": "x" * 3_000, "task_key": "KEY-60e254", "n": row})
+                for row in range(5)
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    (evidence / "short.txt").write_text("KEY-60e254 short line\n", encoding="utf-8")
+    state = _AgentState(
+        {
+            "meta_role": "debugger",
+            "meta_read_roots": {"evidence": str(evidence)},
+            "meta_write_roots": {},
+            "meta_output_dir": str(tmp_path / "output"),
+        }
+    )
+
+    raw = tools.search_text(
+        root="evidence",
+        query="KEY-60e254",
+        agent_state=state,  # type: ignore[arg-type]
+    )
+    found = json.loads(raw)
+    assert found["ok"] is True
+    assert found["truncated"] is True
+    assert found["truncation_reason"] == "output_char_limit"
+    assert found["output_chars"] <= found["output_char_limit"] == 32_000
+    assert len(raw) < 48_000
+    assert 0 < len(found["matches"]) < 300
+    for match in found["matches"]:
+        assert "KEY-60e254" in match["text"]
+        assert len(match["text"]) <= 400
+    long_match = next(m for m in found["matches"] if m["path"] != "short.txt")
+    assert long_match["text_truncated"] is True
+    assert long_match["column"] > 3_000
+    assert long_match["snippet_start_column"] == long_match["column"] - 150
+
+    accesses = state.global_storage.get("debugger_artifact_accesses") or []
+    assert all("model_calls" not in str(item["artifact"]) for item in accesses)
+
+    short = json.loads(
+        tools.search_text(
+            root="evidence",
+            query="KEY-60e254",
+            file_glob="*.txt",
+            agent_state=state,  # type: ignore[arg-type]
+        )
+    )
+    assert short["truncated"] is False
+    assert short["matches"] == [
+        {
+            "path": "short.txt",
+            "line": 1,
+            "column": 1,
+            "snippet_start_column": 1,
+            "text": "KEY-60e254 short line",
+            "text_truncated": False,
+        }
+    ]
+    accesses = state.global_storage.get("debugger_artifact_accesses") or []
+    assert {
+        "artifact": "evidence:short.txt",
+        "mode": "lines",
+        "start": 1,
+        "end": 1,
+    } in accesses
+
+
 def test_debugger_submission_requires_read_evidence_and_paired_analysis(
     tmp_path: Path,
 ) -> None:
