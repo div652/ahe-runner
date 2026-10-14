@@ -1,13 +1,13 @@
 # Harvey Integration Upstream Disposition
 
-This document records the upstream review of AHE-001 through AHE-018 from
+This document records the upstream review of AHE-001 through AHE-020 from
 `HARVEY_INTEGRATION_UPSTREAM_RECOMMENDATIONS.md`. The findings were checked
 against the generic runner rather than accepted as Harvey-specific
 requirements.
 
 The resulting changes intentionally contain no Harvey task data, prompts,
 metrics, adapter code, campaign artifacts, or benchmark-specific policy. They
-form the AHE Runner 0.4.0 hardening boundary.
+form the AHE Runner 0.4.x hardening boundary.
 
 ## Summary
 
@@ -31,6 +31,8 @@ form the AHE Runner 0.4.0 hardening boundary.
 | AHE-016 | Meta-agent fidelity gap | Fixed: original-AHE-style guarded tools, per-role settings, optional Docker shell, long-output handling, context compaction, Evolve skill, and Debugger failure policy are restored generically. |
 | AHE-017 | Attribution bug | Fixed: Debugger task keys, benchmark task IDs, and evaluation task keys resolve to one stable attribution key, with unresolved references reported. |
 | AHE-018 | Metric-guidance drift | Fixed as an explicit process and warning contract: the adapter guide defines the full metric-change checklist and local checks warn on configured deprecated metric terms in role supplements. Arbitrary prose is not claimed to be semantically verified. |
+| AHE-019 | Prompt-assembly bug | Fixed: empty memory files add nothing, nonempty memory is separated from the rendered system prompt, and the generated memory starts empty instead of containing instructions meant for Evolve. |
+| AHE-020 | Benchmark-parity limitation | Fixed as a protected opt-in: strict schemas remain the default, while a manifest may allow omission of `additionalProperties`; explicit open schemas and `**kwargs` bindings remain invalid. |
 
 ## Important design decisions
 
@@ -106,9 +108,26 @@ supplements. The upstream contract therefore combines:
 This catches known obsolete vocabulary while avoiding false claims of semantic
 validation.
 
+### Long-term memory
+
+NexAU concatenates `system_prompt_suffix` directly. The runner therefore adds
+the separator itself and skips empty memory files. A generated project keeps
+`LongTermMEMORY.md` empty until Evolve has an evidence-supported reusable
+lesson; instructions about the component belong in Evolve's protected
+guidance, not in evaluated-agent prompt content.
+
+### Tool-schema parity
+
+`additionalProperties: false` remains the safe default because it tells the
+model that undeclared arguments are invalid. Some benchmark-native schemas
+omit the keyword, and exact harness comparisons must preserve that observable
+schema. `tool_schemas.allow_omitted_additional_properties` permits omission
+only, is frozen outside the evolvable harness, and never permits an explicit
+open schema or a catch-all Python binding.
+
 ## Generic regression coverage
 
-The 0.4.0 change adds or extends coverage for:
+The 0.4.x hardening changes add or extend coverage for:
 
 - evaluated-model preflight caching, proofs, and failures;
 - per-session resources and isolation;
@@ -120,7 +139,9 @@ The 0.4.0 change adds or extends coverage for:
 - explicit blocked-stage retry and exhausted-attempt rejection;
 - task-reference attribution aliases;
 - deprecated metric-term warnings;
-- readable evidence artifacts and imported branch campaign behavior.
+- readable evidence artifacts and imported branch campaign behavior;
+- separator-safe, empty-aware long-term-memory attachment;
+- strict-by-default benchmark tool-schema parity mode.
 
 Validation results are recorded separately after the implementation commit so
 the tested source identity remains explicit.

@@ -86,6 +86,20 @@ tools:
 `name` must match in both files. `input_schema` must be valid JSON Schema with
 `type: object` and `additionalProperties: false`.
 
+A protected manifest may opt into exact compatibility with an external tool
+schema that omits `additionalProperties`:
+
+```yaml
+tool_schemas:
+  allow_omitted_additional_properties: true
+```
+
+The default is `false`. Compatibility mode permits omission only; an explicit
+value other than `false` remains invalid. Tool bindings still cannot accept
+`**kwargs`, so an unexpected model argument reaches no benchmark operation:
+NexAU returns a tool error instead. The manifest is outside the candidate
+harness, so Evolve cannot relax this policy.
+
 ## Internal tool implementation
 
 The binding resolves relative to the harness root while the checkpoint is
@@ -211,8 +225,15 @@ It is active only when:
    ```
 
 The runner reads matched files and appends them to the root agent's in-memory
-`system_prompt_suffix` before constructing the `Agent`. The files are not
-copied into the task prompt.
+`system_prompt_suffix` before constructing the `Agent`. Empty or whitespace
+files add nothing. Nonempty memory is separated from the rendered system
+prompt by a blank line because NexAU otherwise concatenates the suffix
+directly. The files are not copied into the task prompt.
+
+The memory file itself is evaluated-agent prompt content. Keep it empty until
+there is an evidence-supported reusable procedure or stable lesson to retain;
+put instructions about how to use the component in Evolve guidance, not in
+the memory shown to the evaluated agent.
 
 Runtime conversation history is short-term memory. A file named
 `ShortTermMEMORY.md` is not automatically loaded; the template marks it

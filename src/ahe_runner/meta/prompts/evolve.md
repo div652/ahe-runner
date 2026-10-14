@@ -53,6 +53,11 @@ classes declared evolvable by the harness manifest:
 6. sub-agents;
 7. memory.
 
+Long-term memory is appended to the evaluated agent's system prompt. Keep its
+file empty until evidence supports a reusable procedure or stable lesson.
+Never use the memory file to describe its own purpose, store operator
+instructions, or mention grading, hidden state, or benchmark-specific answers.
+
 Protected controller, evaluator, benchmark, environment, model-routing, and
 runtime-owned surfaces are outside your authority. Never place benchmark task
 IDs, task text, expected answers, or task-specific lookup tables into the

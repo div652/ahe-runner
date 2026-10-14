@@ -162,6 +162,22 @@ def runtime_factory(
         runtime.close()
 
 
+def test_long_term_memory_attachment_skips_empty_files(tmp_path: Path) -> None:
+    config = load_config(make_example_project(tmp_path))
+    manifest = load_harness_manifest(config.harness_manifest_path)
+    memory = config.harness_dir / "LongTermMEMORY.md"
+    assert memory.read_text(encoding="utf-8") == ""
+    agent_config = SimpleNamespace(system_prompt_suffix=None)
+
+    runtime_module._attach_long_term_memory(
+        agent_config,
+        harness_dir=config.harness_dir,
+        manifest=manifest,
+    )
+
+    assert agent_config.system_prompt_suffix is None
+
+
 def test_runtime_intercepts_protected_actions_and_preserves_sessions(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -170,6 +186,10 @@ def test_runtime_intercepts_protected_actions_and_preserves_sessions(
     config_path = make_example_project(tmp_path)
     config = load_config(config_path)
     manifest = load_harness_manifest(config.harness_manifest_path)
+    (config.harness_dir / "LongTermMEMORY.md").write_text(
+        "Record only reusable procedures.\n",
+        encoding="utf-8",
+    )
     middleware_dir = config.harness_dir / "middleware"
     middleware_dir.mkdir(exist_ok=True)
     (middleware_dir / "force_continue.py").write_text(
@@ -347,6 +367,20 @@ def test_runtime_intercepts_protected_actions_and_preserves_sessions(
         serialized_messages = json.dumps(first_call["messages"])
         assert "lookup_account" not in serialized_messages
         assert "Record only" in serialized_messages
+        system_message = next(
+            message["content"]
+            for message in first_call["messages"]
+            if message["role"] == "system"
+        )
+        base_prompt = (
+            (config.harness_dir / "systemprompt.md").read_text(encoding="utf-8").strip()
+        )
+        assert system_message == (
+            base_prompt
+            + "\n\n# Persistent harness memory\n\n"
+            + "## Persistent harness memory: LongTermMEMORY.md\n\n"
+            + "Record only reusable procedures."
+        )
         assert len(FakeRecordedClient.instances[0].calls) == 1
 
         with pytest.raises(IntegrityError, match="exactly match"):

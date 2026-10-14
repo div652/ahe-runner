@@ -718,16 +718,16 @@ def _attach_long_term_memory(
         return
     sections: list[str] = []
     for path in paths:
+        content = path.read_text(encoding="utf-8").strip()
+        if not content:
+            continue
         relative_path = path.relative_to(harness_dir).as_posix()
-        sections.append(
-            f"## Persistent harness memory: {relative_path}\n\n"
-            f"{path.read_text(encoding='utf-8').strip()}"
-        )
-    memory = "\n\n".join(sections).strip()
-    if not memory:
+        sections.append(f"## Persistent harness memory: {relative_path}\n\n{content}")
+    if not sections:
         return
+    memory = "\n\n".join(sections)
     existing = (config.system_prompt_suffix or "").strip()
-    config.system_prompt_suffix = "\n\n".join(
+    config.system_prompt_suffix = "\n\n" + "\n\n".join(
         section
         for section in (
             existing,

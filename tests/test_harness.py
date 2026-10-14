@@ -173,6 +173,56 @@ def test_v2_conformance_rejects_inactive_and_mismatched_tools(
     assert "schema properties ['text']" in str(mismatch_error.value)
 
 
+def test_v2_conformance_allows_omitted_additional_properties_only_by_policy(
+    tmp_path: Path,
+) -> None:
+    config_path = make_example_project(tmp_path)
+    project = config_path.parent
+    manifest_path = project / "harness_manifest.yaml"
+    harness = project / "harness"
+    tool_path = harness / "tool_descriptions" / "record_note.tool.yaml"
+    tool = yaml.safe_load(tool_path.read_text(encoding="utf-8"))
+    tool["input_schema"].pop("additionalProperties")
+    tool_path.write_text(yaml.safe_dump(tool, sort_keys=False), encoding="utf-8")
+
+    with pytest.raises(CandidateValidationError, match="additionalProperties"):
+        validate_harness(
+            harness,
+            load_harness_manifest(manifest_path),
+            project_root=project,
+            run_nexau_smoke=False,
+        )
+
+    manifest_value = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest_value["tool_schemas"] = {
+        "allow_omitted_additional_properties": True,
+    }
+    parity_manifest_path = project / "harness_manifest.parity.yaml"
+    parity_manifest_path.write_text(
+        yaml.safe_dump(manifest_value, sort_keys=False),
+        encoding="utf-8",
+    )
+    parity_manifest = load_harness_manifest(parity_manifest_path)
+    assert parity_manifest.tool_schemas.allow_omitted_additional_properties
+    report = validate_harness(
+        harness,
+        parity_manifest,
+        project_root=project,
+        run_nexau_smoke=False,
+    )
+    assert report["valid"] is True
+
+    tool["input_schema"]["additionalProperties"] = True
+    tool_path.write_text(yaml.safe_dump(tool, sort_keys=False), encoding="utf-8")
+    with pytest.raises(CandidateValidationError, match="additionalProperties"):
+        validate_harness(
+            harness,
+            parity_manifest,
+            project_root=project,
+            run_nexau_smoke=False,
+        )
+
+
 def test_v2_conformance_accepts_transitive_tool_support_modules(
     tmp_path: Path,
 ) -> None:

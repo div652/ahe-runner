@@ -166,10 +166,16 @@ constructor arguments must bind, skills need valid substantive frontmatter,
 and sub-agent configs recursively conform. The installed NexAU version must
 equal the manifest version.
 
+Strict tool schemas require `additionalProperties: false`. A protected
+manifest can opt into allowing that keyword to be omitted for exact
+benchmark-schema parity; explicit open schemas remain invalid and candidate
+bindings still cannot accept `**kwargs`.
+
 Long-term memory is injected by the runner into the root
-`system_prompt_suffix` at session construction. `ShortTermMEMORY.md` is
-runtime-owned example state; actual short-term agent memory is NexAU session
-history.
+`system_prompt_suffix` at session construction. Empty memory adds nothing;
+nonempty memory receives a blank-line separator because NexAU concatenates
+suffix text directly. `ShortTermMEMORY.md` is runtime-owned example state;
+actual short-term agent memory is NexAU session history.
 
 ## Campaign configuration
 

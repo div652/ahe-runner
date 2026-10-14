@@ -113,6 +113,8 @@ Also declare:
 - `required_files`: must exist in every candidate;
 - `runtime_owned`: may be used at runtime but cannot change across checkpoints;
 - `protected_agent_fields`: exact `agent.yaml` values Evolve cannot alter;
+- optional `tool_schemas.allow_omitted_additional_properties: true` only when
+  exact parity with an external benchmark schema requires omission;
 - file and total-tree size limits.
 
 Conformance checks that every matched file is actually registered at runtime.
@@ -120,6 +122,10 @@ Tool schema properties must match explicit Python callable parameters,
 middleware constructors must accept their configured parameters, skills need
 substantive frontmatter, every registered skill asset must be declared,
 sub-agents recursively load, and the installed NexAU version must match.
+
+Keep a seed `LongTermMEMORY.md` empty unless it already contains a real
+reusable lesson. Its nonempty contents are appended to the evaluated system
+prompt, so explanatory notes about the file belong in Evolve guidance instead.
 
 The exact per-file schemas and Python signatures are in `HARNESS_ABI.md`.
 
