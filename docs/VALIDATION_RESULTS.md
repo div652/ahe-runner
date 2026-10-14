@@ -1,5 +1,63 @@
 # Validation Results
 
+## AHE-019 and AHE-020 upstream closure
+
+Validated at `2026-10-14T20:09:55Z` from source commit
+`6b71092743f9ddf22cc7c288da9000952bbf2f95`:
+
+```text
+Focused memory/schema contracts:             30 passed in 20.27s
+Complete suite:                              127 passed in 127.04s
+ruff check .:                                all checks passed
+ruff format --check .:                       106 files already formatted
+python -m compileall -q src tests:            exit 0
+git diff --check:                             exit 0
+uv build:                                     exit 0
+```
+
+Validation environment:
+
+```text
+Python:            3.14.7
+ahe-runner:        0.4.1
+NexAU:             0.3.9
+ag-ui-protocol:    0.1.22
+OpenAI Python:     3.29.0
+Pydantic:          2.14.1
+PyYAML:            6.0.3
+Pytest:            9.1.1
+Ruff:              0.17.0
+```
+
+Clean release artifacts:
+
+```text
+ahe_runner-0.4.1-py3-none-any.whl
+sha256: 253926a298f373fddf7bc9e678d7d05d27cb580a3c182c0c41384c4152ee20cc
+
+ahe_runner-0.4.1.tar.gz
+sha256: b5322cd1b18fdefd56c66b833a0586e8f3db95e048b3c184b2dfe0eb8a61319c
+```
+
+The wheel was installed with the `web` extra into an isolated Python 3.14
+environment outside the source checkout. Using only that installation:
+
+- wheel metadata and `ahe_runner.__version__` both reported `0.4.1`;
+- the imported package resolved from the isolated environment's
+  `site-packages`;
+- packaged and freshly generated `LongTermMEMORY.md` files were both zero
+  bytes;
+- the packaged Evolve prompt contained the long-term-memory prompt-safety
+  instructions;
+- an omitted `tool_schemas` block resolved to the strict
+  `allow_omitted_additional_properties: false` default;
+- `ahe init-project`, offline `ahe conformance`, and offline `ahe validate`
+  all passed with no structured warnings.
+
+No live model endpoint was contacted. NexAU emitted its expected optional
+`E2B SDK not installed` import message; the generated local example and its
+NexAU load smoke remained available.
+
 ## AHE-001–018 upstream hardening
 
 Validated at `2026-10-14T12:18:33Z` from source commit `5eff569`:
