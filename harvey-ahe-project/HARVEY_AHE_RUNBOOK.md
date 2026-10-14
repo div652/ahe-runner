@@ -1178,6 +1178,65 @@ interrupted stage. A blocked stage, or any other error, stops the loop.
 tmux new-session -d -s ahe-c7 -c ~/AHE_Harvey 'L=harvey-ahe-project/campaign-artifacts/c7-run.log; C=harvey-ahe-project/ahe.yaml; .venv/bin/ahe run --config $C 2>&1 | tee -a $L; rc=${PIPESTATUS[0]}; n=0; while [ $rc -ne 0 ] && [ $n -lt 3 ] && ! grep -q "\"status\": \"blocked\"" harvey-ahe-project/campaign-artifacts/harvey-lab-campaign-7-60-15-15/stages/*/stage.json; do n=$((n+1)); echo "== resume $n after exit $rc" | tee -a $L; sleep 120; .venv/bin/ahe resume --config $C 2>&1 | tee -a $L; rc=${PIPESTATUS[0]}; done; echo "== final exit $rc" | tee -a $L; exec bash'
 ```
 
+## 5i. Campaign log: `harvey-lab-campaign-7-60-15-15` (complete)
+
+Launched at 21:03 UTC on 2026-10-13 from commit `43743bb`. The run finished
+at 01:46 UTC on 2026-10-14 with exit 0, after 4 h 43 min. The log is
+`campaign-artifacts/c7-run.log`, and the artifacts take 5.9 GB.
+
+Interruptions. The endpoint timed out three agent model calls after
+300 s (HTTP 500), and each one interrupted its stage:
+- `evaluation.C4.train` at 00:17. 119 of 120 units were kept, and resume 1
+  reran the one failed unit in 2.5 min.
+- `evaluation.C3.validation` at 00:58 and again at 01:09, both on the same
+  unit. Resumes 2 and 3 handled them.
+
+The wrapper used all three resumes, so one more timeout would have stopped
+the run for the operator. A judge-call timeout in C3 training was absorbed
+by `grading_attempts`. No other model-call errors were recorded.
+
+| Stage (min) | Round 1 | Round 2 | Round 3 | Round 4 |
+|---|---|---|---|---|
+| debugger (60/60 diagnosed) | 9.2 | 9.1 | 10.9 | 12.7 |
+| evolve | 4.5 | 4.7 | 9.0 | 6.4 |
+| next train eval (120 trials) | 21.7 | 24.1 | 23.5 | 26 + 2.5 resume |
+
+C0's training evaluation took 21.1 min for about 9,000 model calls, with a
+maximum slot wait of 3 s. Exploration took 7.3 min. Validation of each
+checkpoint (30 trials) took 7-9 min, and test took 9.1 min for C0 and
+12.4 min for C4 (45 trials each).
+
+| Metric (mean criterion pass rate) | C0 | C1 | C2 | C3 | C4 |
+|---|---|---|---|---|---|
+| Train, 60 tasks × 2 | **0.506** | 0.477 | 0.469 | 0.469 | 0.473 |
+| Validation, 15 tasks × 2 | 0.498 | 0.505 | 0.508 | 0.516 | **0.538** |
+| Test, 15 tasks × 3 | **0.474** | - | - | - | 0.429 |
+
+Selected: **C4**. The test does not confirm the selection.
+- Validation, C4 against C0: +0.040, higher on 11 of 15 tasks, paired t 2.3.
+- Test, C4 against C0: −0.046, lower on 13 of 15 tasks, paired t −2.9.
+  Five test tasks dropped by more than 0.08 (healthcare 0.982 → 0.846, tax,
+  data privacy, venture capital, employment), and one rose (corporate
+  governance +0.107).
+- Training agrees with test: C0 is best, and C4 has 5 tasks up and 16 down
+  against C0 at the 0.08 threshold.
+- The evolved harness took about three times as many turns: 648 against
+  224 assistant turns on test.
+
+What Evolve changed (attribution with the 0.08 threshold):
+
+| Round | Changes | Verdicts |
+|---|---|---|
+| 1 | new skill `coverage-audit-protocol` with a required worklog and checklist | INEFFECTIVE 0/5; 16 unpredicted regressions |
+| 2 | worklog gate in prompt, skill, `finish` description and `finish` code | prompt and `finish` code HARMFUL 0/3; others INEFFECTIVE |
+| 3 | rolled back round 2's prompt, description and `finish` code to C1; refined the skill | skill PARTIALLY_EFFECTIVE 1/4 |
+| 4 | new `coverage_reviewer` sub-agent and a pre-finish review step in the skill | both INEFFECTIVE 0/4 |
+
+The debugger labelled 56-57 of 60 tasks `issue-coverage-gap` in every
+round. Every Evolve round targeted that pattern, and none raised training
+scores. C1 removed the 24 C0 trials that ended without `finish`, but that
+did not raise scores either.
+
 
 ## 6. Known deviations and limits to report with results
 
