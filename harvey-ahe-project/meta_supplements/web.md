@@ -17,8 +17,8 @@ knowledge, organised in the required SKILL.md sections.
 - **Output.** The agent must produce one or more files in an output folder:
   a memo, an issues list, a marked-up draft, a spreadsheet, or a short deck.
 - **Grading.** Two judge models grade the files' text against a hidden
-  rubric of several dozen criteria. A judge passes a trial only if every
-  criterion passes.
+  rubric of several dozen criteria, one pass or fail per criterion. The
+  score is the share of criteria passed, averaged over the two judges.
 - **Text conversion.** Judges read text extracted from the files:
   - `.docx` through pandoc;
   - `.xlsx` through pandas, which reads only the cell values saved in the

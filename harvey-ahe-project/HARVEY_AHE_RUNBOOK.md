@@ -1359,7 +1359,8 @@ supplements still described the old all-pass target (AHE-018, section 6).
   dual all-pass rate was the sole target and the criterion pass rate only a
   tie-breaker. The benchmark context and `ADAPTER.md` described the new
   metric, so both meta agents received conflicting objectives. The
-  supplements are part of campaign identity and are fixed after campaign 8
+  supplements are part of campaign identity, so they were fixed only after
+  campaign 8 finished; the corrected wording applies from campaign 9
   (AHE-018).
 - From campaign 4 on, all model calls in a process queue for one of 24 slots
   (AHE-015), and judge calls may use at most 18 of them.

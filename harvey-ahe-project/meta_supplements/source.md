@@ -81,7 +81,8 @@ Put in `# Agent Execution Loop`. Trace in NexAU, with `file:line`:
 
 Put in `# Benchmark Adapter Contract`. From `ADAPTER.md` section 2:
 
-- the all-or-nothing rule per judge, the trial score, the primary metric,
+- the per-criterion verdicts, the trial score (share of criteria passed,
+  averaged over both judges), the primary metric, the all-pass tie-breaker,
   and `judges_split`;
 - the text extraction for each file format, and what it means for producing
   files. For example: a `.docx` is read as pandoc markdown, and pandoc is

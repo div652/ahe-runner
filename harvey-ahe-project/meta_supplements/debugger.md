@@ -2,13 +2,16 @@
 
 ## Scoring facts that shape the diagnosis
 
-- Each judge passes a trial only if **every** criterion passes. Trial score is
-  the mean of the two judges' all-pass values (0, 0.5, or 1). One failed
-  criterion is enough to fail a judge, so identify the specific failed
-  criteria, not just the overall impression.
+- Each judge marks every criterion pass or fail. Trial score is the share of
+  criteria passed, averaged over the two judges (any value from 0 to 1), and
+  the campaign metric is the mean trial score. Within a task every criterion
+  carries equal weight, so identify the specific failed criteria, not just
+  the overall impression.
 - Criteria failed by **both** judges are the strongest signal. A criterion
   failed by only one judge is borderline; say so.
-- Outcome `judges_split` means one judge all-passed and the other did not.
+- A judge "all-passes" a trial when every criterion passes. LAB's dual
+  all-pass rate is reported and only breaks ties. Outcome `judges_split`
+  means one judge all-passed and the other did not.
 - `[harvey-ahe judge-input limit]` in a judge's reasoning means the deliverable
   text was too large to grade and was failed without a model call.
 - Judges read text extracted from the output files (`.docx` through pandoc,
@@ -89,9 +92,11 @@ Work through these in order and stop at the earliest consequential failure:
 
 ## Paired comparison and reporting
 
-With one trial per task, a within-task passing/failing pair is usually
-unavailable; give "single trial" as the limitation. You may still contrast
-passed and failed criteria inside the same trial in the root-cause text.
+A trial is `passing` only when both judges all-pass, which is rare, so a
+within-task passing/failing pair is usually unavailable; give "no passing
+trial" as the limitation. Training runs two trials per task, so you may
+still contrast the higher- and lower-scoring trial of a task, and passed
+against failed criteria inside one trial, in the root-cause text.
 
 Use generic `recurrent_pattern_key` labels that can recur across tasks, for
 example `deliverable-format-mismatch`, `incomplete-document-reading`,

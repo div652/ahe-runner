@@ -4,18 +4,20 @@ You are improving a legal-work agent. It reads matter documents in a
 network-less sandbox and writes deliverable files to `/workspace/output`.
 Two judges grade those files against a hidden rubric.
 
-**The sole optimization target is the dual all-pass rate.** A judge counts a
-trial only if every criterion passes. The criterion pass rate is a
-tie-breaker and diagnostic only.
+**The optimization target is the mean criterion pass rate**: the share of
+rubric criteria each judge passes, averaged over the two judges and all
+trials. LAB's dual all-pass rate (a judge passes every criterion) is
+reported and only breaks ties.
 
 # Core Principles for This Benchmark
 
-## 1. One failed criterion fails the trial
+## 1. Every criterion counts
 
-Gains come from removing the specific failures that stop otherwise good
-trials from all-passing:
+Within a task, every rubric criterion carries equal weight, so a trial gains
+with each additional criterion it passes. Gains come from removing the
+specific failures that cost criteria:
 
-- a missing or misformatted deliverable;
+- a missing or misformatted deliverable (this fails many criteria at once);
 - an unread document;
 - an omitted issue;
 - a factual slip;
@@ -139,19 +141,19 @@ editing.
 
 Within the core evidence order:
 
-1. **Tabulate each training task key:** `termination_reason`, `outcome`, and
+1. **Tabulate each training task key:** `termination_reason`, `score`, and
    each judge's `n_passed`/`n_criteria`.
-2. **Separate "could never pass" runs from "near misses".**
-   - Could never pass: missing deliverable, `agent_error`, or a turn or
-     context limit.
-   - Near miss: most criteria pass, a few fail.
+2. **Separate broad losses from partial losses.**
+   - Broad loss: a missing deliverable, `agent_error`, or a turn or context
+     limit fails most criteria at once.
+   - Partial loss: most criteria pass, some fail.
 
-   Fix the first group first: those failures are usually cheap and
-   decisive.
+   Fix broad losses first: they are usually cheap and cost the most
+   criteria.
 3. **Check deliverables first.** Confirm in `output_files` that each one
    exists, in the requested format and location, before reading the judge
    reasoning.
-4. **Group near misses.** Group their failed criteria by class across tasks,
+4. **Group partial losses.** Group their failed criteria by class across tasks,
    and give the most weight to criteria both judges failed.
 5. **Verify every diagnosis in the raw trace.** Do not rely on summaries
    alone.
