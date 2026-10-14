@@ -1355,6 +1355,11 @@ No meta agents run.
 - Model: `gpt-5.6-sol`, reasoning high, `max_tokens` 64000 (LAB's Copilot
   adapter default). 1 trial per task, 20 trials at once. Judges, helper,
   grading settings and the 24-call queue are unchanged from campaign 8.
+- Context limit: `max_context_tokens` 921,793, the `max_input_tokens` the
+  endpoint advertises for `gpt-5.6-sol`. LAB has no cap of its own. It ends
+  a run with `context_overflow` only when the provider rejects the prompt,
+  then grades the output. NexAU stops the same way once its own token count
+  passes this value. Its count may differ slightly from the provider's.
 - Checks on 2026-10-14: `ahe conformance` and `ahe validate` passed. The
   model preflight passed (`operator-preflight/2026-10-14/`), and one tool
   request returned a correct `read` call in 1.6 s. A podman smoke test ran
@@ -1375,6 +1380,22 @@ tmux new-session -d -s ahe-c9 -c ~/AHE_Harvey 'L=harvey-ahe-project/campaign-art
 Campaign 8's C0 training evaluation (120 trials) took 30 minutes. Campaign
 9 has 250 trials on larger tasks with high reasoning, so expect roughly 1.5
 to 3 hours.
+
+### First launch, stopped after 6 minutes (2026-10-14 19:33 UTC)
+
+`harness_lab/agent.yaml` still had the old harness's
+`max_context_tokens: 200000`. Two trials stopped with no output at 223,791
+and 297,887 prompt tokens. In one, the model had read eight .docx files in
+a single turn. LAB's `read` has no output cap either, so LAB would have sent
+those prompts to the model. The operator stopped the run, and the limit was
+changed to 921,793 (above), with a test. The aborted artifacts are in
+`campaign-artifacts/harvey-lab-campaign-9-aborted-ctx200k/` and are not
+used.
+
+Two things happened while stopping it. The runner ignored SIGINT while
+trials were in flight, so it needed SIGTERM. SIGTERM left 17
+`lab-sandbox-*` containers running, which had to be removed by hand
+(`podman rm -f`). Stop the wrapper loop first, or it will resume the run.
 
 
 ## 6. Known deviations and limits to report with results

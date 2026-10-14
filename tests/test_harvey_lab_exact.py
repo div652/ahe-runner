@@ -101,6 +101,15 @@ def test_harness_lab_prompt_and_memory_match_lab() -> None:
     assert (HARNESS_LAB / "LongTermMEMORY.md").read_text(encoding="utf-8") == ""
 
 
+def test_harness_lab_matches_lab_loop_limits() -> None:
+    config = yaml.safe_load((HARNESS_LAB / "agent.yaml").read_text(encoding="utf-8"))
+    assert config["max_iterations"] == 200
+    assert config["llm_config"]["max_tokens"] == 64000
+    assert config["middlewares"] == []
+    # The provider, not the harness, bounds the context in LAB.
+    assert config["max_context_tokens"] == 921793
+
+
 def test_harness_lab_tool_schemas_match_lab() -> None:
     for lab in _lab_tools():
         path = HARNESS_LAB / "tool_descriptions" / f"{lab['name']}.tool.yaml"

@@ -3,7 +3,10 @@ name: harvey_lab_agent
 description: >-
   Harvey LAB legal-work agent. Reads the task documents in its sandbox and
   produces the requested deliverables in the output directory.
-max_context_tokens: 200000
+# LAB has no context cap of its own: it ends a run only when the provider
+# rejects an over-long prompt. 921793 is the max_input_tokens that the Copilot
+# endpoint advertises for gpt-5.6-sol on 2026-10-14.
+max_context_tokens: 921793
 system_prompt: ./systemprompt.md
 system_prompt_type: file
 tool_call_mode: openai
