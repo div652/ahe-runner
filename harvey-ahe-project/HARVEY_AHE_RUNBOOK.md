@@ -1237,6 +1237,23 @@ round. Every Evolve round targeted that pattern, and none raised training
 scores. C1 removed the 24 C0 trials that ended without `finish`, but that
 did not raise scores either.
 
+## 5j. Campaign 8 setup: `harvey-lab-campaign-8-evaluated-gpt-5.4`
+
+The operator's choice on 2026-10-14: campaign 7's configuration with only
+the evaluated model changed, from `gpt-5.4-mini` to `gpt-5.4`. Reasoning
+stays at provider default, with `max_tokens` 64000. The meta model
+(`gpt-5.4`, reasoning high), judges (`claude-sonnet-5`, `gpt-5.5`), helper,
+split, trials, rounds and threshold are unchanged, so the scores stay
+comparable with campaign 7.
+
+Before launch, one `gpt-5.4` request with a tool schema and
+`max_tokens` 64000 returned a correct structured tool call in 1.8 s.
+`ahe conformance` and `ahe validate` both passed. Campaign 7 used all
+three of its resumes, and the larger evaluated model may run longer calls,
+so the launch wrapper now allows 5 resumes instead of 3. Otherwise it is
+the section 5h command with the campaign 8 log (`c8-run.log`), stage path
+and tmux session (`ahe-c8`).
+
 
 ## 6. Known deviations and limits to report with results
 

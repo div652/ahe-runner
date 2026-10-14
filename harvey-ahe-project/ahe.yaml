@@ -19,17 +19,19 @@
 # debugger budget, a Docker-sandboxed shell, readable evidence views, and
 # non-blocking debugger failures (AHE-016, runbook 5f). Its round 1 showed
 # that change attribution never matched Evolve's predicted tasks (AHE-017).
-# The sixth campaign was campaign 5 plus the AHE-017 fix (runbook 5g). This
-# seventh campaign keeps campaign 6's harness and meta agents and scales up:
+# The sixth campaign was campaign 5 plus the AHE-017 fix (runbook 5g). The
+# seventh campaign kept campaign 6's harness and meta agents and scaled up:
 # 4 rounds, 60 train / 15 validation / 15 test tasks (splits-v2.json, built by
 # scripts/make_splits_v2.py), 2 validation and 3 test trials, 20 meta-agent
 # model calls at once, and a global 0.08 noise floor for change attribution
-# (runbook 5h).
+# (runbook 5h, 5i). This eighth campaign is campaign 7 with gpt-5.4 instead of
+# gpt-5.4-mini as the evaluated model; everything else is unchanged (runbook
+# 5j).
 schema_version: 1
 
 campaign:
-  name: harvey-lab-campaign-7-60-15-15
-  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-7-60-15-15
+  name: harvey-lab-campaign-8-evaluated-gpt-5.4
+  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-8-evaluated-gpt-5.4
   rounds: 4
   root_seed: 42
 
@@ -90,7 +92,7 @@ project:
 
 models:
   evaluated:
-    model: gpt-5.4-mini
+    model: gpt-5.4
     max_tokens: 64000
     reasoning_effort: provider-default
     temperature: 0.0
