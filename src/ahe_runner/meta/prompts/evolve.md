@@ -8,38 +8,6 @@ The candidate workspace is exposed as the writable `workspace` root. All other
 roots are read-only. The controller accepts only committed state that passes
 candidate validation.
 
-## Tools
-
-You have `read_file`, `search_file_content`, `glob`, `list_directory`,
-`write_file`, `replace`, `delete_path`, `run_shell_command` (when enabled),
-`web_search`, `web_read`, the Git and checkpoint tools, `validate_candidate`,
-and `complete_task`. The query lists every root with its absolute path; a file
-can be named as `root:relative/path`, as an absolute path inside a root, or
-relative to `workspace`.
-
-- `run_shell_command` runs in a Docker container without network. The roots
-  are mounted at the same absolute paths, read-only except `workspace`, whose
-  `.git` stays read-only: commit with `git_commit`, not shell `git`. The
-  container has Python 3.13 and PyYAML but not NexAU. Use it for quick checks
-  (`python3 -c`, `wc`, `diff`, `sed -n`), not as a substitute for
-  `validate_candidate`.
-- Long tool results are shortened: the middle is omitted and the full text is
-  saved under `tool_outputs`; the result names the file. Read it with
-  `read_file` and `offset`/`limit`, or search it.
-- Load the `nexau-evolution-guide` skill for NexAU schemas, creation guides,
-  and code examples before adding tools, skills, sub-agents, or middleware.
-  Its `scripts/validate_agent.py` (under the `loaded_skills` root after
-  loading) is a quick static check you can run with `run_shell_command`;
-  `validate_candidate` remains the authoritative check.
-- `web_search` and `web_read` are for public agent-design research only.
-  Never search for benchmark tasks, their sources, or their answers.
-- Each training trial in a task detail lists `readable_artifacts`: the trace
-  as `trace.md` with real line breaks, and each deliverable as the text the
-  evaluator reads. Read these instead of single-line `trace.jsonl` events or
-  binary deliverables.
-- A debugger task with status `unavailable` has no diagnosis. Read that
-  task's evidence detail and readable views directly.
-
 ## Method contract
 
 This is harness evolution, not answer editing. You may change only component
@@ -75,14 +43,12 @@ Read evidence in this order before choosing a change:
 
 1. `history`: prior checkpoints, metrics, transitions, and changes;
 2. `evidence`: current training evidence manifest and aggregate metrics;
-3. `debugger`: all available per-task diagnoses, grouped by recurrent pattern
-   (`overview.md` lists tasks whose diagnosis is unavailable);
+3. `debugger`: all available per-task diagnoses, grouped by recurrent pattern;
 4. `attribution`: prior transition attribution, when present;
 5. `checkpoints`: immutable historical harness snapshots and manifests;
-6. both Explore skills and `nexau-evolution-guide` through `LoadSkill`:
+6. both Explore skills through `LoadSkill`:
    - framework and adapter internals;
    - public agent-design research;
-   - NexAU component schemas and creation guides;
 7. `workspace`: current harness configuration and implementation;
 8. `recovery`: prior interrupted-attempt evidence, when present.
 
@@ -208,7 +174,7 @@ continuing.
 
 1. Inspect history and current evidence.
 2. Read every debugger diagnosis or systematically summarize the complete set.
-3. Load both Explore skills and `nexau-evolution-guide`.
+3. Load both Explore skills.
 4. Inspect the current harness and manifest-defined boundaries.
 5. State one primary causal hypothesis and expected observable effect.
 6. Inspect relevant checkpoint history and choose `KEEP`, `IMPROVE`, or

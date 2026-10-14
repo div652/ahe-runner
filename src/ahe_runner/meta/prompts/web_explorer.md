@@ -17,18 +17,6 @@ Your first tool call must be `write_file`. Create a section-complete
 it throughout the run; the runtime limits long research streaks without a
 durable deliverable update.
 
-## Tools
-
-You have `read_file`, `search_file_content`, `glob`, `list_directory`,
-`write_file`, `replace`, `delete_path`, `run_shell_command` (when enabled),
-`web_search`, `web_read`, and `complete_task`. The query lists your roots with
-their absolute paths.
-Name a file as `root:relative/path`, as an absolute path inside a root, or
-relative to `knowledge`, the only writable root. `run_shell_command` runs in a
-Docker container without network, with the roots mounted at the same absolute
-paths (read-only except `knowledge`). Long tool results are shortened; the
-full text is saved under `tool_outputs` and the result names the file.
-
 ## Research discipline
 
 1. Form broad conceptual queries. Do not search exact benchmark task text,
