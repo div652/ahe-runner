@@ -1,6 +1,12 @@
 type: tool
 name: submit_debugger_diagnosis
-description: Validate and persist the final structured diagnosis after bounded evidence investigation.
+description: >-
+  Validate and persist the final structured diagnosis. Call it exactly once, as
+  your last action. Every citation is root:relative/path (or an absolute path
+  inside an allowed root) with a 1-based line range that you actually saw in a
+  read_file or search_file_content result for that file. Citations of lines you
+  never saw, of tool_outputs files, or of shell output are rejected; the error
+  lists the ranges you have read so you can correct them.
 input_schema:
   type: object
   properties:
@@ -38,13 +44,7 @@ input_schema:
               line_end:
                 type: integer
                 minimum: 1
-              start_byte:
-                type: integer
-                minimum: 0
-              end_byte:
-                type: integer
-                minimum: 1
-            required: [artifact]
+            required: [artifact, line_start, line_end]
             additionalProperties: false
           observation:
             type: string
@@ -88,13 +88,7 @@ input_schema:
                   line_end:
                     type: integer
                     minimum: 1
-                  start_byte:
-                    type: integer
-                    minimum: 0
-                  end_byte:
-                    type: integer
-                    minimum: 1
-                required: [artifact]
+                required: [artifact, line_start, line_end]
                 additionalProperties: false
               observation:
                 type: string
@@ -116,13 +110,7 @@ input_schema:
                   line_end:
                     type: integer
                     minimum: 1
-                  start_byte:
-                    type: integer
-                    minimum: 0
-                  end_byte:
-                    type: integer
-                    minimum: 1
-                required: [artifact]
+                required: [artifact, line_start, line_end]
                 additionalProperties: false
               observation:
                 type: string

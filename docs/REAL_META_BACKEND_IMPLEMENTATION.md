@@ -25,6 +25,8 @@ Every model-backed stage attempt receives a fresh preflight. It records model
 catalog evidence when available, an exact-model positive probe, and a random
 nonexistent-model negative control. Random IDs and timestamps are attempt
 evidence only; they do not alter semantic stage or campaign identity.
+Evaluated-agent runtimes perform the same preflight once before opening their
+first session in each evaluation stage attempt.
 
 The preflight and call logs explicitly state the observable-identity
 limitation: a proxy that synthesizes `response.model` may not expose
@@ -34,6 +36,9 @@ The runner disables retries in its OpenAI client. A configured endpoint can
 still perform its own internal retries; for example, a particular proxy
 implementation may retry the same selected model before returning one HTTP
 response. That endpoint behavior must be inspected and reported separately.
+When configured, all recorded clients share
+`transport.max_concurrent_requests` for that endpoint. Adapter-owned model
+clients participate only when they use the public `model_request_slot()` seam.
 
 OpenAI-compatible transports are not assumed to preserve native system-role
 semantics. When an endpoint translates system messages into ordinary user
@@ -55,7 +60,9 @@ The Source Explore Agent can read:
 The Web Explore Agent uses the resolved benchmark-family context, explicit
 research seed URLs, public research tools, and configured leakage-term guards.
 Source, Web, Debugger, and Evolve each receive an optional hashed append-only
-domain supplement after the protected core prompt.
+domain supplement after the protected core prompt. Resolved prompt text is
+appended after NexAU template rendering so supplement braces and template-like
+syntax remain literal.
 
 Each agent must write and validate a substantial `SKILL.md` with YAML
 frontmatter. The runner then removes write permission and records file/tree
@@ -68,8 +75,9 @@ and skipped when only the other explorer needs to resume.
 
 ## Debugger lifecycle
 
-The Debugger is a bounded read-only NexAU investigator operating only on
-adapter-materialized training evidence. Each task has a stable hash-derived
+The Debugger is a bounded NexAU investigator operating only on
+adapter-materialized training evidence. Evidence roots are read-only; a
+task-private scratch root is writable. Each task has a stable hash-derived
 directory containing:
 
 - the exact request and request hash;
@@ -86,7 +94,9 @@ error shape; transport calls themselves have no hidden retries.
 
 Task results resume independently. A result is reused only when its internal
 request hash matches the current prompt, evidence, model settings, checkpoint,
-and benchmark context.
+and benchmark context. An ordinary task-level Debugger failure is persisted as
+`unavailable` so Evolve can inspect the evidence directly; infrastructure
+failures still stop or retry the stage.
 
 ## Evolve lifecycle
 
@@ -122,8 +132,9 @@ does not trigger this retry path.
 Meta-agents use virtual roots rather than unrestricted filesystem access.
 Path traversal and unknown roots are rejected. The tool surface provides:
 
-- bounded list/read/search;
-- exact write/replace and empty-directory deletion;
+- guarded native read/search/glob/list;
+- guarded write/replace and empty-directory deletion;
+- an optional no-network Docker shell over declared mounts;
 - Git status, diff, and coherent commit;
 - generic candidate validation;
 - leakage-guarded public web search/read;
@@ -141,10 +152,16 @@ mandatory.
 
 ## Context management
 
-The NexAU middleware counts model-context tokens. Above the configured
-threshold it replaces only older tool-result contents, preserving recent
-iterations, tool-call structure, assistant reasoning, and the ability to
-re-read authoritative artifacts.
+Role-specific NexAU long-output middleware stores complete output in private
+attempt artifacts and returns bounded head/tail text to the model. The
+Debugger access ledger observes that post-truncation text, so citations cannot
+claim omitted lines.
+
+The role-specific context-compaction middleware uses the original
+threshold-0.75 policies and retained windows (15 Explore, 10 Debugger/Evolve).
+It compacts older tool results while preserving recent iterations,
+tool-call/result structure, assistant reasoning, and the ability to re-read
+authoritative artifacts.
 
 ## Durable artifacts
 

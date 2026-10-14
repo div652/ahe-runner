@@ -391,8 +391,17 @@ def _collect_skills(
         if not skill_path.is_file():
             errors.append(f"{entry_label} is missing SKILL.md")
             continue
-        relative = skill_path.relative_to(root).as_posix()
-        registrations["skills"].add(relative)
+        for asset in sorted(folder.rglob("*")):
+            if not asset.is_file():
+                continue
+            relative_path = asset.relative_to(root)
+            if (
+                ".git" in relative_path.parts
+                or "__pycache__" in relative_path.parts
+                or asset.suffix in {".pyc", ".pyo"}
+            ):
+                continue
+            registrations["skills"].add(relative_path.as_posix())
         metadata, body = _skill_document(skill_path, errors)
         name = metadata.get("name")
         description = metadata.get("description")
@@ -569,7 +578,7 @@ def _local_import_names(
         for alias in node.names:
             if alias.name == "*":
                 continue
-            names.add(".".join([*base_parts, *alias.name]))
+            names.add(".".join([*base_parts, alias.name]))
     return {name for name in names if name}
 
 

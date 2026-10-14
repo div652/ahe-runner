@@ -64,6 +64,7 @@ meta:
     web: ./meta_supplements/web.md
     debugger: ./meta_supplements/debugger.md
     evolve: ./meta_supplements/evolve.md
+  deprecated_metric_terms: []
   max_concurrent_model_calls: 2
   max_context_tokens: 200000
   max_running_subagents: 5

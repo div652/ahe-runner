@@ -110,6 +110,26 @@ project:
 These paths are hashed into campaign identity but are not automatically exposed
 to meta-agents.
 
+## Adapter packaging and dependencies
+
+The adapter runs in the same Python environment as `ahe-runner`. Prefer a
+plain project module plus `adapter_dependency_paths`; an adapter package should
+not redeclare `ahe-runner` or an unconstrained `nexau` dependency, because a
+resolver can otherwise replace the runner's tested framework version.
+
+The current runner pins:
+
+```text
+nexau @ git+https://github.com/nex-agi/NexAU.git@v0.3.9
+ag-ui-protocol>=0.1.10,<1.0
+```
+
+NexAU 0.3.9 is not published on PyPI. If a separately distributed adapter must
+declare these dependencies, use constraints compatible with the runner rather
+than a second PyPI-only NexAU declaration. Install and verify the runner first,
+then install benchmark-only dependencies without changing the resolved runner
+stack.
+
 ## Public source roots and role supplements
 
 Source Explore and Evolve can read only explicitly declared public adapter
@@ -218,6 +238,7 @@ session = runtime.open_session(
         working_directory=prepared_repository,
         benchmark_tools=(LOOK_UP,),
         context={"task_id": task_id},
+        session_resources={"public_repository": repository_index},
     )
 )
 try:
@@ -247,20 +268,26 @@ finally:
     session.close()
 ```
 
-    `working_directory` must be an existing per-trial directory. For the local
-    NexAU sandbox, the runner makes it the actual tool working directory instead
-    of inheriting the runner process's current directory. If it is omitted, the
-    runner creates `artifact_dir/workspace`. NexAU may materialize registered skill
-    assets under `.skills/` in that working directory, so adapters should use an
-    isolated trial workspace rather than the source repository or runner checkout.
+`working_directory` must be an existing per-trial directory. For the local
+NexAU sandbox, the runner makes it the actual tool working directory instead
+of inheriting the runner process's current directory. If it is omitted, the
+runner creates `artifact_dir/workspace`. NexAU may materialize registered
+skill assets under `.skills/` in that working directory, so adapters should
+use an isolated trial workspace rather than the source repository or runner
+checkout.
 
-    Session and activation `context` values are string-valued NexAU template
-    variables. Use the message content or benchmark-owned artifacts for structured
-    task payloads rather than hiding arbitrary objects in runtime context.
+Session and activation `context` values are string-valued NexAU template
+variables. `session_resources` is the separate object-valued seam: the runner
+places those objects in the root agent's NexAU `GlobalStorage`, which its
+sub-agents share, while every trial session receives a distinct storage
+instance. Use it only for capabilities intentionally available to harness
+tools or middleware. Never place hidden answers, verifier state, credentials,
+or protected benchmark action implementations there. It is capability
+routing, not an operating-system security boundary.
 
-    Repeated `session.run(...)` calls preserve that session's NexAU history.
-    Different sessions use different `Agent` instances and must not share mutable
-    trial state.
+Repeated `session.run(...)` calls preserve that session's NexAU history.
+Different sessions use different `Agent` instances and must not share mutable
+trial state.
 
 The runtime rejects missing, duplicate, unexpected, or mixed protected call
 IDs. NexAU never directly executes the protected action implementation.
@@ -288,6 +315,22 @@ concurrency request.
 Do not include fresh preflight timestamps, nonces, or process IDs in
 `semantic_inputs`. They are attempt evidence, not run identity.
 
+If the adapter makes its own calls to the same model endpoint—for example, a
+benchmark-native judge—join the runner's endpoint-wide request budget:
+
+```python
+from ahe_runner.model_requests import model_request_slot
+
+with model_request_slot(request.transport) as timing:
+    response = judge_client.chat.completions.create(...)
+```
+
+Set `transport.max_concurrent_requests` to the endpoint's safe process-wide
+limit. Recorded evaluated/meta calls and adapter calls wrapped by
+`model_request_slot()` then share one queue. `timing` contains
+`slot_wait_seconds` when a queue is configured. Unwrapped adapter clients
+cannot be throttled by the runner.
+
 Return native metrics in `EvaluationResult`. `artifact_hashes` should exclude
 the result files that contain those hashes, avoiding recursive identity. It
 must otherwise equal the complete output tree: every unit identity,
@@ -314,6 +357,20 @@ The adapter remains responsible for deciding whether the final text/action
 sequence is a valid benchmark outcome. The runner verifies artifact paths,
 hashes, and exact evidence agreement with the adapter-verified facts, but does
 not parse private trace events or invent a universal reward function.
+
+When metric semantics change, update all of these together:
+
+1. adapter identity and primary-metric name;
+2. evaluation aggregation and selection key;
+3. protected verification and `EvaluationTrialFact` derivation;
+4. `meta_prompt_context()` metric definitions;
+5. public benchmark documentation and all role supplements;
+6. tests, examples, and report labels.
+
+Optionally list obsolete labels under `meta.deprecated_metric_terms`. Local
+`validate` and `conformance` then warn when a role supplement still contains
+one. This is a literal stale-term check, not a semantic proof that arbitrary
+metric prose is correct. Metric changes require a fresh campaign directory.
 
 ## `verify_evaluation()`
 

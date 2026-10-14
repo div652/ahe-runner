@@ -37,6 +37,7 @@ transport:
   observable_model_policy: exact
   model_catalog: required
   negative_control: required
+  max_concurrent_requests: 4
 
 evaluation:
   train_trials: 1
@@ -65,6 +66,7 @@ meta:
     web: ./runtime_meta_supplements/web.md
     debugger: ./runtime_meta_supplements/debugger.md
     evolve: ./runtime_meta_supplements/evolve.md
+  deprecated_metric_terms: []
   max_concurrent_model_calls: 2
   max_context_tokens: 200000
   max_running_subagents: 5

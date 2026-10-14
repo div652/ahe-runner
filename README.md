@@ -143,6 +143,7 @@ models:
 transport:
   base_url: http://127.0.0.1:3141/v1
   api_key_env: null
+  max_concurrent_requests: 4
 ```
 
 - Use exact, unprefixed model IDs advertised by the endpoint.
@@ -193,6 +194,10 @@ After both samples succeed:
 6. Use a fresh campaign name and artifacts directory when protected inputs
    change.
 
+Keep adapter dependencies in the same environment as the runner, but do not
+make an adapter package install a second or unconstrained copy of
+`ahe-runner`/NexAU. The exact compatibility rules are in the adapter guide.
+
 When protected structured tools exist, both tool classes are model-visible but
 have different execution owners:
 
@@ -219,6 +224,12 @@ ahe status --config /path/to/your-project/ahe.research.yaml
 
 # Continue an interrupted campaign
 ahe resume --config /path/to/your-project/ahe.research.yaml
+
+# Reopen a deterministic blocked stage after fixing its external cause
+ahe retry-stage --config /path/to/your-project/ahe.research.yaml \
+  --stage round.2.evolve \
+  --reason "Corrected the adapter-side parser"
+ahe resume --config /path/to/your-project/ahe.research.yaml
 ```
 
 The campaign directory preserves checkpoints, evaluations, traces, evidence,
@@ -244,6 +255,7 @@ and [Read the outputs](docs/OPERATOR_GUIDE.md#10-read-the-outputs).
 Additional references:
 [`V2_DESIGN.md`](docs/V2_DESIGN.md),
 [`PROMPT_FIDELITY.md`](docs/PROMPT_FIDELITY.md),
+[`HARVEY_INTEGRATION_UPSTREAM_DISPOSITION.md`](docs/HARVEY_INTEGRATION_UPSTREAM_DISPOSITION.md),
 [`VALIDATION_RESULTS.md`](docs/VALIDATION_RESULTS.md),
 [`FUTURE_FEATURES.md`](docs/FUTURE_FEATURES.md), and
 [`TAU2_MIGRATION.md`](docs/TAU2_MIGRATION.md).

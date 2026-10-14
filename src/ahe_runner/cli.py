@@ -37,6 +37,10 @@ def main(argv: list[str] | None = None) -> int:
     round_parser = subparsers.add_parser("run-round")
     round_parser.add_argument("--config", type=Path, required=True)
     round_parser.add_argument("--round", type=int, required=True)
+    retry_parser = subparsers.add_parser("retry-stage")
+    retry_parser.add_argument("--config", type=Path, required=True)
+    retry_parser.add_argument("--stage", required=True)
+    retry_parser.add_argument("--reason", required=True)
     args = parser.parse_args(argv)
 
     try:
@@ -90,6 +94,8 @@ def _dispatch(controller: CampaignController, args: argparse.Namespace) -> Any:
         return controller.status()
     if args.command == "run-round":
         return controller.run_round(args.round)
+    if args.command == "retry-stage":
+        return controller.retry_stage(name=args.stage, reason=args.reason)
     if args.command == "close-evolution":
         return controller.close_evolution()
     if args.command == "run-validation":

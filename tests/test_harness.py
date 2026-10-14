@@ -244,6 +244,71 @@ def test_v2_conformance_accepts_transitive_tool_support_modules(
         }
 
 
+def test_v2_conformance_tracks_skill_assets_and_package_imports(
+    tmp_path: Path,
+) -> None:
+    config_path = make_example_project(tmp_path)
+    project = config_path.parent
+    manifest = load_harness_manifest(project / "harness_manifest.yaml")
+    harness = project / "harness"
+    skill_asset = harness / "skills" / "evidence-first" / "references" / "guide.md"
+    skill_asset.parent.mkdir()
+    skill_asset.write_text("Use the benchmark-visible evidence.\n", encoding="utf-8")
+    (harness / "tools" / "helper.py").write_text(
+        "def normalize_note(value: str) -> str:\n    return value.strip()\n",
+        encoding="utf-8",
+    )
+    tool_path = harness / "tools" / "record_note.py"
+    tool_path.write_text(
+        tool_path.read_text(encoding="utf-8")
+        .replace(
+            "from typing import Any\n",
+            "from typing import Any\n\nfrom tools import helper\n",
+        )
+        .replace(
+            "    notes = list(",
+            "    note = helper.normalize_note(note)\n    notes = list(",
+        ),
+        encoding="utf-8",
+    )
+
+    report = validate_harness(
+        harness,
+        manifest,
+        project_root=project,
+        run_nexau_smoke=False,
+    )
+
+    assert report["conformance"]["registrations"]["skills"] == [
+        "skills/evidence-first/SKILL.md",
+        "skills/evidence-first/references/guide.md",
+    ]
+    assert report["conformance"]["registrations"]["tool_implementations"] == [
+        "tools/helper.py",
+        "tools/record_note.py",
+    ]
+
+
+def test_harness_validation_rejects_top_level_module_shadowing(
+    tmp_path: Path,
+) -> None:
+    config_path = make_example_project(tmp_path)
+    project = config_path.parent
+    manifest = load_harness_manifest(project / "harness_manifest.yaml")
+    harness = project / "harness"
+    (harness / "json.py").write_text("loads = None\n", encoding="utf-8")
+
+    with pytest.raises(CandidateValidationError) as error:
+        validate_harness(
+            harness,
+            manifest,
+            project_root=project,
+            run_nexau_smoke=False,
+        )
+
+    assert "shadows the Python standard library" in str(error.value)
+
+
 @pytest.mark.parametrize("import_scope", ["eager", "lazy"])
 @pytest.mark.parametrize("import_style", ["absolute", "relative"])
 def test_v2_conformance_attaches_nested_package_initializers(

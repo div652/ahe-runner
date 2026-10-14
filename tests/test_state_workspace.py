@@ -4,7 +4,13 @@ from pathlib import Path
 
 import pytest
 
-from ahe_runner.errors import InfrastructureError, IntegrityError, StageInterruptedError
+from ahe_runner.errors import (
+    ConfigurationError,
+    InfrastructureError,
+    IntegrityError,
+    StageBlockedError,
+    StageInterruptedError,
+)
 from ahe_runner.io import atomic_write_json, read_json
 from ahe_runner.state import StageResult, StageStore
 from ahe_runner.workspace import git_output, prepare_evolve_workspace
@@ -77,6 +83,54 @@ def test_stage_store_rejects_semantic_input_drift(tmp_path: Path) -> None:
     store.run(name="stable", semantic_inputs={"value": 1}, action=action)
     with pytest.raises(IntegrityError, match="semantic inputs changed"):
         store.run(name="stable", semantic_inputs={"value": 2}, action=action)
+
+
+def test_stage_store_explicitly_retries_blocked_stage(tmp_path: Path) -> None:
+    campaign = tmp_path / "campaign"
+    store = StageStore(campaign_dir=campaign, maximum_attempts=2)
+    output = campaign / "output.json"
+
+    def fail(_context):  # type: ignore[no-untyped-def]
+        raise ValueError("candidate output was invalid")
+
+    with pytest.raises(StageBlockedError):
+        store.run(name="candidate.validate", semantic_inputs={}, action=fail)
+
+    retry = store.retry_blocked(
+        name="candidate.validate",
+        reason="fixed the adapter-side parser",
+    )
+    assert retry["status"] == "interrupted"
+    assert retry["retry"]["next_attempt"] == 2
+
+    def complete(context):  # type: ignore[no-untyped-def]
+        assert context.attempt == 2
+        atomic_write_json(output, {"ok": True})
+        return StageResult(outputs=(output,), data={"ok": True})
+
+    assert store.run(
+        name="candidate.validate",
+        semantic_inputs={},
+        action=complete,
+    ).data == {"ok": True}
+    stage = read_json(campaign / "stages" / "candidate.validate" / "stage.json")
+    assert stage["manual_retries"][0]["reason"] == "fixed the adapter-side parser"
+    assert [row["status"] for row in stage["attempts"]] == ["failed", "completed"]
+
+    with pytest.raises(ConfigurationError, match="not blocked"):
+        store.retry_blocked(name="candidate.validate", reason="try again")
+
+
+def test_stage_store_cannot_retry_exhausted_blocked_stage(tmp_path: Path) -> None:
+    store = StageStore(campaign_dir=tmp_path / "campaign", maximum_attempts=1)
+
+    def fail(_context):  # type: ignore[no-untyped-def]
+        raise ValueError("permanent")
+
+    with pytest.raises(StageBlockedError):
+        store.run(name="demo", semantic_inputs={}, action=fail)
+    with pytest.raises(StageBlockedError, match="exhausted"):
+        store.retry_blocked(name="demo", reason="operator requested retry")
 
 
 def test_evolve_workspace_continues_committed_head_only(tmp_path: Path) -> None:

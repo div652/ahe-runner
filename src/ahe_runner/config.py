@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .errors import ConfigurationError
 from .io import sha256_file
@@ -51,6 +51,9 @@ class TransportSettings(StrictModel):
     observable_model_policy: Literal["exact"] = "exact"
     model_catalog: Literal["required", "optional", "disabled"] = "optional"
     negative_control: Literal["required", "best_effort", "disabled"] = "best_effort"
+    # Model calls in flight at once across every recorded client in the
+    # process for this endpoint; extra calls wait for a slot. None: no queue.
+    max_concurrent_requests: int | None = Field(default=None, ge=1)
 
     @field_validator("base_url")
     @classmethod
@@ -123,17 +126,75 @@ class RoleSupplementSettings(StrictModel):
     evolve: str | None = None
 
 
+class MetaRoleModelSettings(StrictModel):
+    """Per-role overrides of models.meta (the original AHE sets these per agent)."""
+
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    max_tokens: int | None = Field(default=None, gt=0)
+
+
+class MetaRolesSettings(StrictModel):
+    debugger: MetaRoleModelSettings = Field(default_factory=MetaRoleModelSettings)
+    evolve: MetaRoleModelSettings = Field(default_factory=MetaRoleModelSettings)
+    explorers: MetaRoleModelSettings = Field(default_factory=MetaRoleModelSettings)
+
+
+class MetaShellSettings(StrictModel):
+    """Sandbox for the meta agents' run_shell_command tool."""
+
+    backend: Literal["disabled", "docker"] = "disabled"
+    image: str | None = None
+    docker_binary: str = "docker"
+    timeout_seconds: float = Field(default=300.0, gt=0)
+    memory: str = "2g"
+    cpus: float = Field(default=2.0, gt=0)
+    pids_limit: int = Field(default=256, gt=0)
+    tmpfs_size: str = "1g"
+
+    @field_validator("image")
+    @classmethod
+    def validate_image(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("meta.shell.image must be non-empty when set")
+        return value
+
+    @model_validator(mode="after")
+    def require_image_for_docker(self) -> MetaShellSettings:
+        if self.backend == "docker" and self.image is None:
+            raise ValueError("meta.shell.backend=docker requires meta.shell.image")
+        return self
+
+
 class MetaSettings(StrictModel):
     backend: Literal["nexau", "scripted"] = "nexau"
     explore: ExploreSettings = Field(default_factory=ExploreSettings)
     role_supplements: RoleSupplementSettings = Field(
         default_factory=RoleSupplementSettings
     )
+    roles: MetaRolesSettings = Field(default_factory=MetaRolesSettings)
+    shell: MetaShellSettings = Field(default_factory=MetaShellSettings)
+    deprecated_metric_terms: list[str] = Field(default_factory=list)
     max_concurrent_model_calls: int = Field(default=2, gt=0)
     max_context_tokens: int = Field(default=200_000, gt=0)
     max_running_subagents: int = Field(default=5, gt=0)
     evolve_max_iterations: int = Field(default=500, gt=0)
     explore_max_iterations: int = Field(default=200, gt=0)
+
+    @field_validator("deprecated_metric_terms")
+    @classmethod
+    def validate_deprecated_metric_terms(cls, values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            term = value.strip()
+            if not term:
+                raise ValueError("deprecated metric terms must be non-empty")
+            key = term.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(term)
+        return normalized
 
 
 class ConfigDocument(StrictModel):

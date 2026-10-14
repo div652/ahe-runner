@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fnmatch
+import importlib.machinery
 import importlib.metadata
 import json
 import re
@@ -123,6 +124,8 @@ def validate_harness(
                 errors.append(f"file exceeds maximum size: {relative}")
     if total_bytes > manifest.limits.maximum_tree_bytes:
         errors.append("harness exceeds maximum tree size")
+
+    errors.extend(_module_shadowing_errors(root, files))
 
     relative_files = {path.relative_to(root).as_posix() for path in files}
     for required in manifest.required_files:
@@ -245,6 +248,91 @@ def _component_matches(
         name: sorted(_match_patterns(relative_files, patterns))
         for name, patterns in components.model_dump(mode="python").items()
     }
+
+
+def _module_shadowing_errors(root: Path, files: Iterable[Path]) -> list[str]:
+    """Reject candidate import roots that can replace protected host modules."""
+
+    import_names = _root_import_names(root, files)
+    loaded_roots = {name.partition(".")[0] for name in sys.modules}
+    protected_stdlib = set(sys.builtin_module_names) | set(sys.stdlib_module_names)
+    errors: list[str] = []
+    for name in sorted(import_names):
+        if name in protected_stdlib:
+            errors.append(
+                f"top-level harness module {name!r} shadows the Python standard library"
+            )
+            continue
+        if name in loaded_roots:
+            errors.append(
+                f"top-level harness module {name!r} shadows an already loaded module"
+            )
+            continue
+        specification = _host_module_spec(name, root)
+        if specification is None:
+            continue
+        locations = [
+            Path(value).resolve()
+            for value in (specification.submodule_search_locations or ())
+        ]
+        if specification.origin not in {None, "built-in", "frozen"}:
+            locations.append(Path(specification.origin).resolve())
+        if locations and all(_inside(root, location) for location in locations):
+            continue
+        errors.append(
+            f"top-level harness module {name!r} shadows an importable host package"
+        )
+    return errors
+
+
+def _host_module_spec(
+    name: str,
+    harness_root: Path,
+) -> importlib.machinery.ModuleSpec | None:
+    search_path: list[str] = []
+    for entry in sys.path:
+        resolved = Path(entry or Path.cwd()).resolve()
+        if resolved == harness_root:
+            continue
+        search_path.append(entry)
+    try:
+        return importlib.machinery.PathFinder.find_spec(name, search_path)
+    except (ImportError, AttributeError, ValueError):
+        return None
+
+
+def _root_import_names(root: Path, files: Iterable[Path]) -> set[str]:
+    suffixes = tuple(
+        sorted(importlib.machinery.all_suffixes(), key=len, reverse=True)
+    )
+    names: set[str] = set()
+    python_directories: set[str] = set()
+    for path in files:
+        relative = path.relative_to(root)
+        if not relative.parts or relative.parts[0].startswith("."):
+            continue
+        import_name = _import_name_from_filename(relative.name, suffixes)
+        if len(relative.parts) == 1 and import_name is not None:
+            names.add(import_name)
+        elif (
+            len(relative.parts) > 1
+            and import_name is not None
+            and relative.parts[0].isidentifier()
+        ):
+            python_directories.add(relative.parts[0])
+    names.update(python_directories)
+    return names
+
+
+def _import_name_from_filename(
+    filename: str,
+    suffixes: tuple[str, ...],
+) -> str | None:
+    for suffix in suffixes:
+        if filename.endswith(suffix):
+            value = filename[: -len(suffix)]
+            return value if value.isidentifier() else None
+    return None
 
 
 def matched_component_paths(

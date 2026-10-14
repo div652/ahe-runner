@@ -110,12 +110,20 @@ Rules:
 Registered implementations may import support modules under the manifest's
 tool-implementation globs. Conformance treats those transitive local imports
 as active dependencies, including ordinary imports inside a registered tool
-function, so helpers do not need dummy tool registrations. The validator walks
-the local static import graph without executing tool functions and also
-retains observed eager imports. Dynamic imports are recognized only when they
-execute while the registered binding loads or are represented by an explicit
-registered component. Unreferenced Python files matched by the same globs
-remain invalid because they are not attached to runtime behavior.
+function and forms such as `from tools import helper`, so helpers do not need
+dummy tool registrations. The validator walks the local static import graph
+without executing tool functions and also retains observed eager imports.
+Dynamic imports are recognized only when they execute while the registered
+binding loads or are represented by an explicit registered component.
+Unreferenced Python files matched by the same globs remain invalid because
+they are not attached to runtime behavior.
+
+Top-level candidate module/package names must not collide with Python
+standard-library modules, already loaded host modules, or other importable
+packages in the runner environment. The runner temporarily puts the harness
+first on `sys.path`; rejecting names such as `json.py` prevents candidate code
+from replacing runner, adapter, evaluator, or dependency imports. Prefer
+harness-specific package names and keep reusable helpers below those packages.
 
 ## Middleware
 
@@ -166,7 +174,20 @@ Substantive reusable instructions...
 ```
 
 Both `name` and `description` are required, names must be unique within one
-agent, and the body must contain substantive instructions.
+agent, and the body must contain substantive instructions. The complete
+registered skill directory is runtime-attached: `SKILL.md`, scripts,
+references, templates, and other regular assets are hashed and checked by
+conformance because NexAU uploads the complete directory. Declare the complete
+directory in the component manifest, for example:
+
+```yaml
+components:
+  skills:
+    - skills/**/*
+```
+
+An undeclared file inside a registered skill fails conformance rather than
+silently changing runtime behavior.
 
 ## Sub-agents
 

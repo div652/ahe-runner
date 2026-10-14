@@ -101,7 +101,7 @@ components:
   middleware:
     - middleware/**/*.py
   skills:
-    - skills/**/SKILL.md
+    - skills/**/*
   sub_agents:
     - sub_agents/**/agent.yaml
   long_term_memory:
@@ -118,8 +118,8 @@ Also declare:
 Conformance checks that every matched file is actually registered at runtime.
 Tool schema properties must match explicit Python callable parameters,
 middleware constructors must accept their configured parameters, skills need
-substantive frontmatter, sub-agents recursively load, and the installed NexAU
-version must match.
+substantive frontmatter, every registered skill asset must be declared,
+sub-agents recursively load, and the installed NexAU version must match.
 
 The exact per-file schemas and Python signatures are in `HARNESS_ABI.md`.
 
@@ -200,6 +200,7 @@ transport:
   observable_model_policy: exact
   model_catalog: required
   negative_control: required
+  max_concurrent_requests: 4
 
 meta:
   backend: nexau
@@ -219,12 +220,41 @@ meta:
     web: ./meta_supplements/web.md
     debugger: ./meta_supplements/debugger.md
     evolve: ./meta_supplements/evolve.md
+  deprecated_metric_terms: []
 ```
 
 Role supplements are appended after the protected core procedures; they cannot
 replace tool permissions, evidence boundaries, or deliverable contracts.
+They are injected as literal text, so braces or other Jinja syntax in
+benchmark documentation are not rendered by NexAU. Add obsolete metric labels
+to `deprecated_metric_terms` when changing scoring semantics; local validation
+will report matching supplement text.
+
 All four roles receive the same resolved benchmark-family context. Web Explore
 also receives the configured seed URLs before broader research.
+
+`transport.max_concurrent_requests` is the process-wide queue for recorded
+model calls to that endpoint. Adapter-owned provider calls participate only
+when wrapped with `ahe_runner.model_requests.model_request_slot`; see the
+adapter guide.
+
+Optional per-role token/temperature overrides and the protected meta-agent
+shell are configured under:
+
+```yaml
+meta:
+  roles:
+    debugger: {temperature: 0.2, max_tokens: 32000}
+    evolve: {temperature: 0.2, max_tokens: 64000}
+    explorers: {temperature: 0.2, max_tokens: 32000}
+  shell:
+    backend: disabled  # or docker
+    image: null        # required when backend is docker
+```
+
+The shell is disabled by default. Docker mode validates the configured image
+and runs commands in the protected tool sandbox; do not describe host-imported
+middleware or the local NexAU sandbox as an OS security boundary.
 
 Model IDs sent to the endpoint are exact and unprefixed. Do not use
 `openai/<id>` or `copilot/<id>` in this file.
@@ -336,6 +366,21 @@ and exposes archived dirty state as recovery evidence.
 Do not delete a failed attempt to make resume proceed. Its identity and
 artifacts are part of the recovery contract.
 
+If a deterministic stage is `blocked`, first fix the external cause, then
+explicitly authorize another attempt:
+
+```bash
+ahe retry-stage --config /path/to/my-ahe-project/ahe.yaml \
+  --stage round.2.evolve \
+  --reason "Corrected the adapter-side parser"
+ahe resume --config /path/to/my-ahe-project/ahe.yaml
+```
+
+The reason and prior error remain in `stage.json`; no attempt is removed or
+rewritten. The command only reopens a blocked stage while its configured
+attempt budget still has capacity. Exhausted stages remain blocked and require
+a new campaign rather than an identity-changing amendment.
+
 ## 9. Optional phase control
 
 ```bash
@@ -391,7 +436,9 @@ The complete lineage remains available:
 
 - `interrupted`: infrastructure failed and `resume` may continue.
 - `blocked`: deterministic failure, policy violation, invalid candidate, or
-  exhausted attempts; inspect the stage's `error.json`.
+  exhausted attempts; inspect the stage's `error.json`. If capacity remains
+  after correcting the cause, use `retry-stage`; it never erases the failed
+  attempt.
 - valid low or zero reward: completed benchmark evidence, never an
   infrastructure retry.
 - campaign identity changed: use a new `artifacts_dir`; immutable inputs cannot

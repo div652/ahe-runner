@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import (
+    ConfigurationError,
     InfrastructureError,
     IntegrityError,
     StageBlockedError,
@@ -200,6 +201,51 @@ class StageStore:
         atomic_write_json(attempt_dir / "attempt.json", completed_attempt)
         atomic_write_json(stage_path, stage)
         return result
+
+    def retry_blocked(self, *, name: str, reason: str) -> dict[str, Any]:
+        """Authorize one more attempt of a blocked stage without erasing history."""
+
+        normalized_reason = reason.strip()
+        if not normalized_reason:
+            raise ConfigurationError("retry reason must be non-empty")
+        stage_path = self.root / _stage_directory_name(name) / "stage.json"
+        if not stage_path.is_file():
+            raise ConfigurationError(f"campaign stage does not exist: {name}")
+        stage = read_json(stage_path)
+        if stage.get("name") != name:
+            raise IntegrityError(f"stage name does not match its path: {name}")
+        if stage.get("status") != "blocked":
+            raise ConfigurationError(
+                f"stage {name!r} is {stage.get('status')!r}, not blocked"
+            )
+        attempts = list(stage.get("attempts") or [])
+        if len(attempts) >= self.maximum_attempts:
+            raise StageBlockedError(
+                name,
+                f"stage exhausted {self.maximum_attempts} attempts",
+            )
+        requested_at = datetime.now(UTC).isoformat()
+        event = {
+            "requested_at": requested_at,
+            "reason": normalized_reason,
+            "prior_error": stage.get("last_error"),
+            "completed_attempts": len(attempts),
+            "next_attempt": len(attempts) + 1,
+            "attempts_remaining_after_retry": (
+                self.maximum_attempts - len(attempts) - 1
+            ),
+        }
+        retries = list(stage.get("manual_retries") or [])
+        retries.append(event)
+        stage["manual_retries"] = retries
+        stage["status"] = "interrupted"
+        stage["updated_at"] = requested_at
+        atomic_write_json(stage_path, stage)
+        return {
+            "stage": name,
+            "status": stage["status"],
+            "retry": event,
+        }
 
     def status(self) -> list[dict[str, Any]]:
         if not self.root.is_dir():

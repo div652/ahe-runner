@@ -5,10 +5,11 @@ from pathlib import Path
 import pytest
 import yaml
 
+from ahe_runner.adapter import EvaluationResult
 from ahe_runner.config import load_config
 from ahe_runner.controller import CampaignController
 from ahe_runner.errors import InfrastructureError, IntegrityError, StageInterruptedError
-from ahe_runner.io import read_json
+from ahe_runner.io import atomic_write_json, read_json
 from ahe_runner.meta.scripted import ScriptedMetaBackend
 from ahe_runner.workspace import git_output
 
@@ -45,6 +46,50 @@ def test_full_deterministic_campaign_and_idempotent_resume(tmp_path: Path) -> No
     assert attempts_after == attempts_before
     assert resumed["selection"] == status["selection"]
     assert resumed["final_test"] == status["final_test"]
+
+
+def test_validation_warns_about_deprecated_metric_guidance(tmp_path: Path) -> None:
+    config_path = make_example_project(tmp_path)
+    value = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    value["meta"]["deprecated_metric_terms"] = ["legacy-pass@k"]
+    config_path.write_text(yaml.safe_dump(value, sort_keys=False), encoding="utf-8")
+    supplement = config_path.parent / "meta_supplements" / "debugger.md"
+    supplement.write_text(
+        supplement.read_text(encoding="utf-8")
+        + "\nOptimize the legacy-pass@k score.\n",
+        encoding="utf-8",
+    )
+
+    controller = CampaignController(load_config(config_path))
+    validation = controller.validate_project()
+
+    assert len(validation["warnings"]) == 1
+    assert "legacy-pass@k" in validation["warnings"][0]
+    assert controller.conformance()["warnings"] == validation["warnings"]
+
+
+def test_attribution_aliases_map_debugger_keys_to_task_keys(tmp_path: Path) -> None:
+    config_path = make_example_project(tmp_path, rounds=1)
+    controller = CampaignController(load_config(config_path))
+    controller.run_round(1)
+    campaign_dir = controller.config.campaign_dir
+    before = EvaluationResult.model_validate(
+        read_json(campaign_dir / "evaluations" / "C0-train" / "adapter_result.json")
+    )
+    after = EvaluationResult.model_validate(
+        read_json(campaign_dir / "evaluations" / "C1-train" / "adapter_result.json")
+    )
+    task = next(row for row in before.summary.task_states if row.task_id)
+    atomic_write_json(
+        campaign_dir / "debugger" / "C1" / "summary.json",
+        {"tasks": [{"task_key": "task-opaque", "task_id": task.task_id}]},
+    )
+
+    aliases = controller._attribution_task_aliases(1, before, after)
+
+    assert aliases["task-opaque"] == task.task_key
+    assert aliases[str(task.task_id)] == task.task_key
+    assert aliases[task.task_key] == task.task_key
 
 
 def test_campaign_identity_drift_requires_new_artifacts_dir(tmp_path: Path) -> None:

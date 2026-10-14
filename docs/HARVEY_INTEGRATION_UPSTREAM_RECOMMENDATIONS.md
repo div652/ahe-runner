@@ -5,6 +5,9 @@ plan and generated campaign artifacts. It contains confirmed issues, their
 impact, approved branch-local repairs, and recommendations for upstream AHE.
 It does not claim that a local patch has been accepted upstream.
 
+The completed generic upstream review and AHE-001–018 dispositions are in
+[`HARVEY_INTEGRATION_UPSTREAM_DISPOSITION.md`](HARVEY_INTEGRATION_UPSTREAM_DISPOSITION.md).
+
 ## Working agreement
 
 For every newly encountered issue:

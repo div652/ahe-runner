@@ -105,6 +105,7 @@ class CampaignController:
                 for name, split in self.splits.items()
             },
             "harness": report,
+            "warnings": self._metric_guidance_warnings(),
         }
 
     def conformance(self) -> dict[str, Any]:
@@ -115,6 +116,7 @@ class CampaignController:
             "benchmark_interface": validation["benchmark_interface"],
             "harness_abi": validation["harness"]["conformance"],
             "nexau_smoke": validation["harness"]["nexau_smoke"],
+            "warnings": validation["warnings"],
             "valid": validation["harness"]["valid"],
         }
 
@@ -301,6 +303,26 @@ class CampaignController:
         atomic_write_json(self.config.campaign_dir / "campaign_state.json", payload)
         return payload
 
+    def retry_stage(self, *, name: str, reason: str) -> dict[str, Any]:
+        result = self.stage_store.retry_blocked(name=name, reason=reason)
+        self._write_state()
+        return result
+
+    def _metric_guidance_warnings(self) -> list[str]:
+        terms = self.config.document.meta.deprecated_metric_terms
+        if not terms:
+            return []
+        warnings: list[str] = []
+        for role, path in sorted(self.config.role_supplements):
+            text = path.read_text(encoding="utf-8").casefold()
+            for term in terms:
+                if term.casefold() in text:
+                    warnings.append(
+                        f"meta role supplement {role!r} contains deprecated "
+                        f"metric term {term!r}: {path}"
+                    )
+        return warnings
+
     def _freeze_baseline(self, context: StageContext) -> StageResult:
         del context
         validation = validate_harness(
@@ -481,6 +503,7 @@ class CampaignController:
             semantic_inputs={
                 "baseline_harness_sha256": baseline["harness_sha256"],
                 "meta_model": self.config.document.models.meta.model_dump(mode="json"),
+                **self._meta_stage_inputs("explorers"),
                 "source_enabled": self.config.document.meta.explore.source_enabled,
                 "web_enabled": self.config.document.meta.explore.web_enabled,
                 "prompt_context": self.prompt_context.model_dump(mode="json"),
@@ -489,6 +512,18 @@ class CampaignController:
         )
         self._write_state()
         return output_dir
+
+    def _meta_stage_inputs(self, role: str) -> dict[str, Any]:
+        """Meta settings that change a stage's result (AHE-016), when set."""
+
+        meta = self.config.document.meta
+        inputs: dict[str, Any] = {}
+        overrides = getattr(meta.roles, role).model_dump(exclude_none=True)
+        if overrides:
+            inputs["meta_role_overrides"] = overrides
+        if meta.shell.backend != "disabled":
+            inputs["meta_shell"] = meta.shell.model_dump(mode="json")
+        return inputs
 
     def _ensure_debugger(self, index: int, evidence_dir: Path) -> Path:
         checkpoint = f"C{index - 1}"
@@ -510,6 +545,7 @@ class CampaignController:
                 "parent_checkpoint": checkpoint,
                 "evidence_manifest_sha256": evidence_sha,
                 "meta_model": self.config.document.models.meta.model_dump(mode="json"),
+                **self._meta_stage_inputs("debugger"),
                 "prompt_context": self.prompt_context.model_dump(mode="json"),
             },
             action=action,
@@ -575,6 +611,7 @@ class CampaignController:
                 "evidence_sha256": sha256_file(evidence_dir / "evidence_manifest.json"),
                 "debugger_sha256": sha256_file(debugger_dir / "overview.json"),
                 "meta_model": self.config.document.models.meta.model_dump(mode="json"),
+                **self._meta_stage_inputs("evolve"),
                 "explore_skills_sha256": sha256_file(
                     self.config.campaign_dir / "explore_skills" / "skills_manifest.json"
                 ),
@@ -700,6 +737,7 @@ class CampaignController:
             self._checkpoint_dir(index) / "harness" / "change_manifest.json"
         )
         output_dir = self.config.campaign_dir / "attribution" / f"C{index}"
+        task_aliases = self._attribution_task_aliases(index, before, after)
 
         def action(context: StageContext) -> StageResult:
             del context
@@ -708,6 +746,7 @@ class CampaignController:
                 output_dir=output_dir,
                 transition=transition,
                 change_manifest=change_manifest,
+                task_aliases=task_aliases,
             )
             return StageResult(
                 outputs=(path,),
@@ -722,11 +761,37 @@ class CampaignController:
                 "change_manifest_sha256": sha256_json(
                     change_manifest.model_dump(mode="json")
                 ),
+                "task_aliases_sha256": sha256_json(task_aliases),
             },
             retryable=False,
             action=action,
         )
         return output_dir
+
+    def _attribution_task_aliases(
+        self,
+        index: int,
+        before: EvaluationResult,
+        after: EvaluationResult,
+    ) -> dict[str, str]:
+        """Map debugger keys, task ids and task keys to evaluation task keys."""
+        aliases: dict[str, str] = {}
+        key_by_task_id: dict[str, str] = {}
+        for task in (*before.summary.task_states, *after.summary.task_states):
+            aliases[task.task_key] = task.task_key
+            if task.task_id:
+                key_by_task_id[task.task_id] = task.task_key
+                aliases[task.task_id] = task.task_key
+        summary_path = (
+            self.config.campaign_dir / "debugger" / f"C{index}" / "summary.json"
+        )
+        if summary_path.is_file():
+            for row in read_json(summary_path).get("tasks") or []:
+                debugger_key = row.get("task_key")
+                task_key = key_by_task_id.get(row.get("task_id") or "")
+                if debugger_key and task_key:
+                    aliases[str(debugger_key)] = task_key
+        return aliases
 
     def _close_evolution_action(
         self,
@@ -946,6 +1011,7 @@ def _protected_path_identity(path: Path) -> dict[str, Any]:
             "type": "file",
             "sha256": sha256_file(resolved),
         }
+
     if resolved.is_dir():
         files = tree_hashes(resolved)
         return {

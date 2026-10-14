@@ -128,7 +128,7 @@ components:
   middleware:
     - middleware/**/*.py
   skills:
-    - skills/**/SKILL.md
+    - skills/**/*
   sub_agents:
     - sub_agents/**/agent.yaml
   long_term_memory:
@@ -337,6 +337,13 @@ actions and resumes the same session with exact `ToolResultBlock` call IDs.
 Evolve may improve how the harness chooses actions but cannot modify or
 reimplement the benchmark interface.
 
+String `context` remains NexAU template input. Object-valued
+`session_resources` are instead placed in a new per-session `GlobalStorage`
+shared only by that root agent and its sub-agents. This avoids accidental
+process-global cross-trial routing, but adapters may expose only intentional
+harness capabilities through it; it is not a security boundary for hidden
+benchmark state.
+
 A trusted capture hook runs before candidate after-model middleware. NexAU
 legacy `after_model_hooks` are normalized into the same guarded chain before
 executor construction. Once an official action is present, candidate
@@ -532,6 +539,12 @@ checkpoints.
 Uncommitted edits are evidence, not a checkpoint. They are archived before the
 workspace is reset to the last successful commit.
 
+A deterministic blocked stage can be explicitly reopened only while its
+attempt budget has capacity. `retry-stage` records the operator reason and
+prior error, then changes the stage to interrupted so normal `resume` creates
+the next immutable attempt. It never erases attempts or changes semantic
+inputs.
+
 ## Model transport contract
 
 The default transport uses non-streaming OpenAI-compatible chat completions.
@@ -544,7 +557,8 @@ For every model-calling role, the runner records:
 - response or error;
 - timeout and retry classification.
 
-Before a model-backed meta stage, a fresh preflight checks:
+Before a model-backed meta stage, and once before the first evaluated session
+in each evaluation stage attempt, a fresh preflight checks:
 
 1. endpoint availability;
 2. model catalog membership when `/models` exists;
@@ -567,6 +581,11 @@ sub-agent and again at the recorded request boundary. Protected aliases and
 `extra_body` collisions are rejected before provider access. Resolved API keys
 are injected only into in-memory configurations and clients, never generated
 meta-agent YAML, while each session preserves its own `HistoryList`.
+
+When configured, `transport.max_concurrent_requests` provides one
+process-wide semaphore per endpoint for recorded clients. Adapter-owned
+provider calls join that same budget only through the public
+`model_request_slot()` seam.
 
 ## Evaluation recovery contract
 
