@@ -277,7 +277,7 @@ def _module_shadowing_errors(root: Path, files: Iterable[Path]) -> list[str]:
         ]
         if specification.origin not in {None, "built-in", "frozen"}:
             locations.append(Path(specification.origin).resolve())
-        if locations and all(_inside(root, location) for location in locations):
+        if locations and all(location.is_relative_to(root) for location in locations):
             continue
         errors.append(
             f"top-level harness module {name!r} shadows an importable host package"
@@ -302,9 +302,7 @@ def _host_module_spec(
 
 
 def _root_import_names(root: Path, files: Iterable[Path]) -> set[str]:
-    suffixes = tuple(
-        sorted(importlib.machinery.all_suffixes(), key=len, reverse=True)
-    )
+    suffixes = tuple(sorted(importlib.machinery.all_suffixes(), key=len, reverse=True))
     names: set[str] = set()
     python_directories: set[str] = set()
     for path in files:

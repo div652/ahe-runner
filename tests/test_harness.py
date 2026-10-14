@@ -289,14 +289,23 @@ def test_v2_conformance_tracks_skill_assets_and_package_imports(
     ]
 
 
+@pytest.mark.parametrize(
+    ("filename", "message"),
+    [
+        ("json.py", "shadows the Python standard library"),
+        ("ddgs.py", "shadows an importable host package"),
+    ],
+)
 def test_harness_validation_rejects_top_level_module_shadowing(
     tmp_path: Path,
+    filename: str,
+    message: str,
 ) -> None:
     config_path = make_example_project(tmp_path)
     project = config_path.parent
     manifest = load_harness_manifest(project / "harness_manifest.yaml")
     harness = project / "harness"
-    (harness / "json.py").write_text("loads = None\n", encoding="utf-8")
+    (harness / filename).write_text("value = None\n", encoding="utf-8")
 
     with pytest.raises(CandidateValidationError) as error:
         validate_harness(
@@ -306,7 +315,7 @@ def test_harness_validation_rejects_top_level_module_shadowing(
             run_nexau_smoke=False,
         )
 
-    assert "shadows the Python standard library" in str(error.value)
+    assert message in str(error.value)
 
 
 @pytest.mark.parametrize("import_scope", ["eager", "lazy"])

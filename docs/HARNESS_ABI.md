@@ -183,7 +183,7 @@ directory in the component manifest, for example:
 ```yaml
 components:
   skills:
-    - skills/**/*
+    - skills/*/**
 ```
 
 An undeclared file inside a registered skill fails conformance rather than

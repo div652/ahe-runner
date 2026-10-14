@@ -128,7 +128,7 @@ components:
   middleware:
     - middleware/**/*.py
   skills:
-    - skills/**/*
+    - skills/*/**
   sub_agents:
     - sub_agents/**/agent.yaml
   long_term_memory:

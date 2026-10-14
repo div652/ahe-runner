@@ -1176,12 +1176,15 @@ def test_failed_debugger_task_is_unavailable_not_fatal(
         "_run_agent",
         lambda **_kwargs: pytest.fail("cached unavailable task was rerun"),
     )
-    assert backend._run_debugger_task(
-        checkpoint="C0",
-        evidence_dir=evidence_dir,
-        output_dir=output_dir,
-        task=task,
-    ) == result
+    assert (
+        backend._run_debugger_task(
+            checkpoint="C0",
+            evidence_dir=evidence_dir,
+            output_dir=output_dir,
+            task=task,
+        )
+        == result
+    )
 
     def infrastructure(**_kwargs):  # type: ignore[no-untyped-def]
         raise InfrastructureError("model endpoint is down")
