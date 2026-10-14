@@ -1,5 +1,54 @@
 # Validation Results
 
+## AHE-001–018 upstream hardening
+
+Validated at `2026-10-14T12:18:33Z` from source commit `5eff569`:
+
+```text
+Focused hardening contracts:                 117 passed in 124.58s
+Complete suite:                              125 passed in 130.69s
+ruff check .:                                all checks passed
+ruff format --check .:                       106 files already formatted
+python -m compileall -q src tests:            exit 0
+git diff --check:                             exit 0
+uv build:                                     exit 0
+```
+
+Validation environment:
+
+```text
+Python:            3.14.7
+ahe-runner:        0.4.0
+NexAU:             0.3.9
+ag-ui-protocol:    0.1.22
+OpenAI Python:     3.29.0
+Pydantic:          2.14.1
+```
+
+Clean release artifacts:
+
+```text
+ahe_runner-0.4.0-py3-none-any.whl
+sha256: 55e136f44f9cb4f4218749de7265f1b8372e3d2a0fd5f17a8835f735b4599c4c
+
+ahe_runner-0.4.0.tar.gz
+sha256: 5d578bb9d9756088791529cc2515c3f9ab01a88aa79eb723e4fc91e05e48a92b
+```
+
+The wheel was installed into a fresh Python 3.14 environment outside the
+source checkout. The smoke check confirmed:
+
+- wheel metadata reports `0.4.0`;
+- the packaged `nexau-evolution-guide` contains `SKILL.md` and its license;
+- `init-project` emits the skill-asset manifest glob;
+- the runtime sample emits the endpoint request limit and metric-warning
+  configuration.
+
+No live model endpoint was contacted. NexAU emitted its expected optional
+`E2B SDK not installed` warning during import; the runner's local and optional
+Docker paths remained available. The reviewed dispositions are in
+[`HARVEY_INTEGRATION_UPSTREAM_DISPOSITION.md`](HARVEY_INTEGRATION_UPSTREAM_DISPOSITION.md).
+
 ## F05, F06, and version closure
 
 Validated from implementation commit
