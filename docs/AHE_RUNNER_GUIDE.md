@@ -364,9 +364,11 @@ The meta values can be changed per role with `meta.roles` (section 3.8).
 | `model_catalog` | `optional` | `required`, `optional` or `disabled`: check `/models` lists the model |
 | `negative_control` | `best_effort` | `required`, `best_effort` or `disabled`: check a fake model ID is refused |
 | `max_concurrent_requests` | `null` | Max model calls in flight in this process (AHE-015). `null` means no limit |
+| `hung_call_retries` | `0` | Times to resend a model call whose request timed out (client or endpoint) before any response, at most 5 (AHE-022). Each failed attempt is saved as `hung-attempt-N.json` in the call folder and listed under `hung_attempts` in `response.json` or `error.json`. Other errors are never resent |
 
 Harvey sets `model_catalog: required`, `negative_control: required` and
-`max_concurrent_requests: 24`.
+`max_concurrent_requests: 24`; from the campaign 9 rerun also
+`hung_call_retries: 2`.
 
 ### 3.5 `evaluation`
 
@@ -1059,6 +1061,7 @@ From the runbook and the recommendations doc:
 | Campaign 3: one `list_files` call returned 274,020 characters into Evolve | No output budget on that tool (AHE-014) | Backstop middleware in campaign 4; replaced by the original middleware in AHE-016 |
 | Judge load probe: 120 calls at once, 30 failed with HTTP 500 | Upstream HTTP 429: the Copilot service refuses large bursts, and nothing queued calls (AHE-015) | `transport.max_concurrent_requests: 24`, Harvey judge cap 18 |
 | Campaign 3 final test: models were listed but chat calls hung for 300 s | An orphaned VS Code extension host behind the endpoint | Relaunched; the endpoint now runs in tmux session `copilot-host` on the server |
+| Campaign 9: 52 evaluated-agent calls hung until the 300 s endpoint timeout, each failing its whole trial | Upstream stalls specific to gpt-5.6-sol (2.6% of its calls; under 0.1% for other models), mostly in calls 2-9 of a trial | `transport.hung_call_retries` resends the call (AHE-022) |
 | Campaign 4, round 1: debugger submissions refused for uncovered citations | Citing single-line trace records that were not fully read | Recoverable inside the run; readable views and line-only rules (AHE-016) make this clearer |
 | Campaign 4, round 1: Evolve `complete_task` refused, "predicted_fixes and risk_tasks overlap" | A task listed as both a predicted fix and a risk | Recoverable inside the run; the agent fixed its manifest |
 | Campaign 4, round 2: two debuggers stopped with "context remains above the configured compaction target", stage blocked | They read `.docx`/`.xlsx` files as text (about 36,000 tokens each); old compaction stopped the agent | AHE-016: binary refusal in `read_file`, readable views, original middleware, non-blocking debugger failures |

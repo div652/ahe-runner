@@ -282,6 +282,102 @@ def test_recorded_client_fails_closed_on_mismatch_and_timeout(
     assert (tmp_path / "timeout" / "call-0001" / "error.json").is_file()
 
 
+def _hung_client(
+    tmp_path: Path, retries: int, outcomes: list[Any]
+) -> tuple[RecordedExactModelClient, list[dict[str, Any]]]:
+    sent: list[dict[str, Any]] = []
+
+    def callback(kwargs):  # type: ignore[no-untyped-def]
+        sent.append(json.loads(json.dumps(kwargs)))
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return SimpleNamespace(
+            model="exact-model",
+            choices=[SimpleNamespace(message=SimpleNamespace(content=outcome))],
+            model_dump=lambda mode="json": {"model": "exact-model"},
+        )
+
+    client = RecordedExactModelClient(
+        transport=_transport().model_copy(update={"hung_call_retries": retries}),
+        api_key="placeholder",
+        settings=_settings(),
+        log_dir=tmp_path / "calls",
+    )
+    client._base = _FakeOpenAI(callback)  # type: ignore[attr-defined]
+    return client, sent
+
+
+_SERVER_HANG = RuntimeError(
+    "Error code: 500 - {'error': {'message': 'Model request timed out after "
+    "300000 ms', 'type': 'server_error'}}"
+)
+
+
+def test_hung_call_is_resent_and_every_attempt_is_recorded(tmp_path: Path) -> None:
+    client, sent = _hung_client(
+        tmp_path, 2, [_SERVER_HANG, TimeoutError("read timed out"), "OK"]
+    )
+    response = client.chat.completions.create(
+        model="exact-model", messages=[{"role": "user", "content": "hello"}]
+    )
+    assert response.choices[0].message.content == "OK"
+    assert len(sent) == 3 and sent[0] == sent[1] == sent[2]
+    call = tmp_path / "calls" / "call-0001"
+    assert sorted(path.name for path in call.iterdir()) == [
+        "hung-attempt-1.json",
+        "hung-attempt-2.json",
+        "request.json",
+        "response.json",
+    ]
+    recorded = json.loads((call / "response.json").read_text("utf-8"))
+    assert [row["message"] for row in recorded["hung_attempts"]] == [
+        str(_SERVER_HANG),
+        "read timed out",
+    ]
+
+
+def test_hung_call_retries_are_bounded_and_off_by_default(tmp_path: Path) -> None:
+    client, sent = _hung_client(tmp_path / "bounded", 1, [_SERVER_HANG] * 3)
+    with pytest.raises(InfrastructureError, match="timed out"):
+        client.chat.completions.create(
+            model="exact-model", messages=[{"role": "user", "content": "hello"}]
+        )
+    assert len(sent) == 2
+    call = tmp_path / "bounded" / "calls" / "call-0001"
+    error = json.loads((call / "error.json").read_text("utf-8"))
+    assert len(error["hung_attempts"]) == 1
+    assert (call / "hung-attempt-1.json").is_file()
+
+    client, sent = _hung_client(tmp_path / "default", 0, [_SERVER_HANG, "OK"])
+    with pytest.raises(InfrastructureError):
+        client.chat.completions.create(
+            model="exact-model", messages=[{"role": "user", "content": "hello"}]
+        )
+    assert len(sent) == 1
+    error = json.loads(
+        (tmp_path / "default" / "calls" / "call-0001" / "error.json").read_text()
+    )
+    assert "hung_attempts" not in error
+    with pytest.raises(ValueError, match="hung_call_retries"):
+        _transport().model_validate(
+            {**_transport().model_dump(), "hung_call_retries": -1}
+        )
+
+
+def test_other_errors_are_not_resent(tmp_path: Path) -> None:
+    overload = RuntimeError(
+        "Error code: 503 - upstream model provider is experiencing high demand"
+    )
+    client, sent = _hung_client(tmp_path, 2, [overload, "OK"])
+    with pytest.raises(InfrastructureError, match="high demand"):
+        client.chat.completions.create(
+            model="exact-model", messages=[{"role": "user", "content": "hello"}]
+        )
+    assert len(sent) == 1
+    assert not list((tmp_path / "calls" / "call-0001").glob("hung-attempt-*"))
+
+
 def _queued_transport(port: int, limit: int | None) -> TransportSettings:
     return TransportSettings(
         base_url=f"http://127.0.0.1:{port}/v1",

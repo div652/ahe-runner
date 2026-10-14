@@ -182,16 +182,30 @@ class RecordedExactModelClient:
                 "request_sha256": sha256_json(request_payload),
             },
         )
-        waited: dict[str, float] = {}
-        try:
-            with _request_slot(self._request_slots, waited):
-                response = self._base.chat.completions.create(*args, **kwargs)
-        except Exception as exc:
-            error = {**_error_payload(exc), **waited}
-            atomic_write_json(call_dir / "error.json", error)
-            if is_infrastructure_exception(exc):
-                raise InfrastructureError(error["message"]) from exc
-            raise
+        hung_attempts: list[dict[str, Any]] = []
+        while True:
+            waited: dict[str, float] = {}
+            try:
+                with _request_slot(self._request_slots, waited):
+                    response = self._base.chat.completions.create(*args, **kwargs)
+                break
+            except Exception as exc:
+                error = {**_error_payload(exc), **waited}
+                if (
+                    is_hung_call_exception(exc)
+                    and len(hung_attempts) < self._transport.hung_call_retries
+                ):
+                    hung_attempts.append(error)
+                    atomic_write_json(
+                        call_dir / f"hung-attempt-{len(hung_attempts)}.json", error
+                    )
+                    continue
+                if hung_attempts:
+                    error["hung_attempts"] = hung_attempts
+                atomic_write_json(call_dir / "error.json", error)
+                if is_infrastructure_exception(exc):
+                    raise InfrastructureError(error["message"]) from exc
+                raise
         returned_model = getattr(response, "model", None)
         if returned_model != self._settings.model:
             error = {
@@ -212,6 +226,7 @@ class RecordedExactModelClient:
                 "returned_model": returned_model,
                 "response": response_payload,
                 **waited,
+                **({"hung_attempts": hung_attempts} if hung_attempts else {}),
             },
         )
         return response
@@ -331,6 +346,20 @@ def is_infrastructure_exception(exc: BaseException) -> bool:
                 "error code: 504",
             )
         ):
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def is_hung_call_exception(exc: BaseException) -> bool:
+    """A request timeout (client or endpoint) fired before any response."""
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, (APITimeoutError, TimeoutError)):
+            return True
+        if "timed out" in str(current).casefold():
             return True
         current = current.__cause__ or current.__context__
     return False

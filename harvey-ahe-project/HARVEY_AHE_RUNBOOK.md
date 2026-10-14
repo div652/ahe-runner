@@ -1412,7 +1412,11 @@ Three kinds of infrastructure errors appeared that campaigns 7 and 8 never
 had:
 
 - "Model request timed out after 300000 ms": hung calls on small prompts.
-  Not explained yet.
+  These are upstream stalls specific to gpt-5.6-sol (2.6% of its calls,
+  against 0-0.03% for the other models in the same hour), mostly in calls
+  2-9 of a trial. Successful calls never took more than 96 s. Each hang
+  failed its whole trial; about 27% of unit attempts were lost. Repair:
+  `transport.hung_call_retries` (AHE-022).
 - "Message exceeds token limit": a single message over the ~270k budget.
 - Copilot 400 "No tool call found for function call output with
   call_id ...", although each request contained the matching call.

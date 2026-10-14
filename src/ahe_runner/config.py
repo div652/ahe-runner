@@ -54,6 +54,10 @@ class TransportSettings(StrictModel):
     # Model calls in flight at once across every recorded client in the
     # process for this endpoint; extra calls wait for a slot. None: no queue.
     max_concurrent_requests: int | None = Field(default=None, ge=1)
+    # Extra attempts for a model call that hung (a request timeout fired before
+    # any response). The identical request is resent and every failed attempt
+    # is kept in the call directory. 0: a hung call fails as before.
+    hung_call_retries: int = Field(default=0, ge=0, le=5)
 
     @field_validator("base_url")
     @classmethod
