@@ -30,12 +30,14 @@
 # starting harness (harness_lab/, harness_manifest_lab.yaml) evaluated once
 # as C0 on all 250 firm-knowledge tasks with gpt-5.6-sol, reasoning high
 # (splits-firm-knowledge.json; runbook 5l). Only the C0 training evaluation
-# is run; no meta agents are used.
+# is run; no meta agents are used. The first run was stopped (runbook 5m);
+# this file now holds a 10-task pilot on the patched GH Copilot Server
+# (splits-firm-knowledge-pilot10.json) before the full rerun.
 schema_version: 1
 
 campaign:
-  name: harvey-lab-campaign-9-lab-exact-firm-knowledge
-  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-9-lab-exact-firm-knowledge
+  name: harvey-lab-campaign-9-pilot-patched
+  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-9-pilot-patched
   rounds: 0
   root_seed: 42
 
@@ -46,7 +48,7 @@ project:
   adapter_settings:
     # Relative paths resolve against this file's directory.
     lab_root: ../../harvey-labs
-    split_file: ./splits-firm-knowledge.json
+    split_file: ./splits-firm-knowledge-pilot10.json
     # Firm-knowledge tasks fail the pilot filter (shared docs_dir store, more
     # files and criteria); campaign 9 evaluates all of them unfiltered.
     apply_task_filter: false
@@ -91,7 +93,7 @@ project:
   adapter_dependency_paths:
     - ./benchmark_adapter.py
     - ./harvey_ahe
-    - ./splits-firm-knowledge.json
+    - ./splits-firm-knowledge-pilot10.json
     - ./pyproject.toml
     - ./requirements.txt
   meta_agent_source_roots:
@@ -122,6 +124,10 @@ transport:
   # slot (AHE-015). The 2026-10-13 load probe saw Copilot refuse calls beyond
   # about 30 new requests per burst and pass 24 at once (runbook 5d).
   max_concurrent_requests: 24
+  # Resend a call that hangs until a request timeout, up to twice; every
+  # attempt is recorded (AHE-022). Campaign 9's first run lost about 27% of
+  # unit attempts to gpt-5.6-sol stalls.
+  hung_call_retries: 2
 
 evaluation:
   train_trials: 1

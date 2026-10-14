@@ -1,0 +1,61 @@
+{
+  "model": "gpt-5.6-sol",
+  "base_url": "http://127.0.0.1:3141/v1",
+  "started": "2026-10-14T21:30:18Z",
+  "effort": [
+    {
+      "ok": true,
+      "seconds": 1.46,
+      "model": "gpt-5.6-sol",
+      "text": "923",
+      "error": null,
+      "requested_effort": "none"
+    },
+    {
+      "ok": true,
+      "seconds": 11.68,
+      "model": "gpt-5.6-sol",
+      "text": "1477",
+      "error": null,
+      "requested_effort": "high"
+    },
+    {
+      "ok": true,
+      "seconds": 0.89,
+      "model": "gpt-5.6-sol",
+      "text": "1384",
+      "error": null,
+      "requested_effort": "none"
+    },
+    {
+      "ok": true,
+      "seconds": 5.17,
+      "model": "gpt-5.6-sol",
+      "text": "1477",
+      "error": null,
+      "requested_effort": "high"
+    }
+  ],
+  "context": [
+    {
+      "ok": true,
+      "seconds": 0.96,
+      "model": "gpt-5.6-sol",
+      "text": "PELICAN-4821",
+      "error": null,
+      "label": "control_small",
+      "prompt_tokens_o200k": 5331,
+      "secret_recalled": true
+    },
+    {
+      "ok": true,
+      "seconds": 5.97,
+      "model": "gpt-5.6-sol",
+      "text": "PELICAN-4821",
+      "error": null,
+      "label": "over_272k",
+      "prompt_tokens_o200k": 316780,
+      "secret_recalled": true
+    }
+  ]
+}

@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "identity": "harvey-lab-firm-knowledge-pilot-10",
+  "lab_commit": "86678eba6fcbc6c03958742c6e9e75737514f513",
+  "selection_policy": "Pilot for the campaign 9 rerun on the patched GH Copilot Server: train holds 10 of the 250 firm-knowledge train tasks of splits-firm-knowledge.json, chosen with random.Random(9).sample(range(250), 10) over that file's train order and kept in that order. The other 240 are left out only because this is a pilot; its scores are not campaign results. Validation and test keep the same single placeholders.",
+  "splits": {
+    "train": [
+      {
+        "task_id": "firm-knowledge/tasks/002",
+        "task_json_sha256": "8a2aafbdd6eccede3d37ce8009aed6e50b1aaa7397b1d57abf01754b191905f3",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/036",
+        "task_json_sha256": "af5c4b887011bbfe0058cbf703b5e951c2f146089c55d512862bd8d97da362df",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/048",
+        "task_json_sha256": "8c0c138e3b12221030d66f83ef6498acf6989aa24ef7eec0a6cbb074b281d2a0",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/069",
+        "task_json_sha256": "02f6b55416450bc50908d697ebcbb8294a011befad9a7361c53d5f47a57887cb",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/087",
+        "task_json_sha256": "f3f1402522b1a20d84bcf8dbea9d0607180ba14d614cac74a1409fef386993a7",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/096",
+        "task_json_sha256": "3213da0ca680886772f15e1050f5ba773bba8950ce8d8d10089f18876376af0c",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/119",
+        "task_json_sha256": "f2da037c1cbe2a972f0e6cd8e10b364913ab4a7fdf2c291fff2f00c147a34099",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/157",
+        "task_json_sha256": "b4ea59db99cb930c92ad87c61665e2ebd7df630848d6361b6292dae6dd8fe533",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/174",
+        "task_json_sha256": "62f23cda08c7b04a1bb371f24d318e111d9c94eac5f42b8553a97cf62d594970",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/222",
+        "task_json_sha256": "f05f375d1a4459664b4be3b5d00569208f02c71e7c354afe48235b1c3bf08647",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      }
+    ],
+    "validation": [
+      {
+        "task_id": "arbitration-international-dispute-resolution/identify-issues-in-counterpartys-document-production-requests",
+        "task_json_sha256": "8547a63612200584afa4777025ccd772bb41e0aa8ef210690720754b752a9861",
+        "documents_sha256": "6f8cb1b446ca2942da0b28145a745e37118f67a62dcd577da97d1d28a7d9ec60"
+      }
+    ],
+    "test": [
+      {
+        "task_id": "energy-natural-resources/identify-issues-in-interconnection-agreement",
+        "task_json_sha256": "da075c4d75c6e8b94f06a85df73686ab13f58d1d4f47abfb66ebdb4d75862018",
+        "documents_sha256": "c2806ba2efa30d8262d08df39b3979fce8bb65729a67998a27097413a225daa1"
+      }
+    ]
+  }
+}

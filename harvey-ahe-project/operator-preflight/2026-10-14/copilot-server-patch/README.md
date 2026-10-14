@@ -12,13 +12,14 @@ Change, after the `max_tokens` block: set `options.configuration.contextSize`
 to the model's `maxInputTokens`, and `options.configuration.reasoningEffort`
 to `request.reasoning.effort` when the request has one.
 
-Probe: `scripts/copilot_context_effort_probe.py`, model gpt-5.4.
+Probe: `scripts/copilot_context_effort_probe.py`, models gpt-5.4 and gpt-5.6-sol.
 
 | File | What it shows |
 |---|---|
 | `before-effort-gpt-5.4.json` | Effort "none" and "high" both take 8.5-13 s and both answer 1477: effort ignored |
 | `before-context-gpt-5.4.json` | 5k-token prompt recalls the code; 317k-token prompt answers `UNKNOWN`: start of prompt cut |
 | `after-gpt-5.4.json` | "none" 0.9-1.2 s with wrong answers, "high" about 12 s and right; 317k prompt recalls the code |
+| `after-gpt-5.6-sol.json` | "none" 0.9-1.5 s with wrong answers (923, 1384), "high" 5-12 s and right; 317k prompt recalls the code |
 
 The context part of the first "before" run was invalid (too small
 `max_tokens`, unclear wording) and was removed from `before-effort-gpt-5.4.json`.
