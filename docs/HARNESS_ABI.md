@@ -86,6 +86,13 @@ tools:
 `name` must match in both files. `input_schema` must be valid JSON Schema with
 `type: object` and `additionalProperties: false`.
 
+A manifest can set `tool_schemas.allow_omitted_additional_properties: true` so
+that a harness can copy an external benchmark's tool schemas exactly. Then
+`additionalProperties` may be omitted, but any value other than `false` is
+still rejected. Because bindings cannot accept `**kwargs`, an unexpected
+argument still fails as a tool error. The manifest lives outside the harness,
+so evolution cannot change this setting.
+
 ## Internal tool implementation
 
 The binding resolves relative to the harness root while the checkpoint is

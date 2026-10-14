@@ -47,6 +47,12 @@ class HarnessAttachments(HarnessModel):
     long_term_memory: Literal["system_prompt_suffix"]
 
 
+class ToolSchemaPolicy(HarnessModel):
+    # Lets a harness reproduce an external benchmark's tool schemas exactly.
+    # An explicit non-false value is still rejected.
+    allow_omitted_additional_properties: bool = False
+
+
 class HarnessManifest(HarnessModel):
     schema_version: int
     abi_version: str | None = None
@@ -58,6 +64,7 @@ class HarnessManifest(HarnessModel):
     required_files: list[str]
     protected_agent_fields: dict[str, Any] = Field(default_factory=dict)
     limits: HarnessLimits = Field(default_factory=HarnessLimits)
+    tool_schemas: ToolSchemaPolicy = Field(default_factory=ToolSchemaPolicy)
 
 
 def load_harness_manifest(path: Path) -> HarnessManifest:

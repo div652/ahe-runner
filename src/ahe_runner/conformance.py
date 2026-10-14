@@ -95,6 +95,9 @@ def validate_v2_conformance(
             registrations=registrations,
             tool_contracts=tool_contracts,
             import_contracts=import_contracts,
+            allow_omitted_additional_properties=(
+                manifest.tool_schemas.allow_omitted_additional_properties
+            ),
         )
         _collect_skills(
             root=root,
@@ -271,6 +274,7 @@ def _collect_tools(
     registrations: dict[str, set[str]],
     tool_contracts: list[dict[str, Any]],
     import_contracts: list[dict[str, Any]],
+    allow_omitted_additional_properties: bool = False,
 ) -> None:
     tools = config.get("tools", [])
     if not isinstance(tools, list):
@@ -324,7 +328,12 @@ def _collect_tools(
         if not isinstance(description, str) or len(description.strip()) < 20:
             errors.append(f"{entry_label} description is not substantive")
         schema = tool_yaml.get("input_schema")
-        _validate_tool_schema(schema, entry_label, errors)
+        _validate_tool_schema(
+            schema,
+            entry_label,
+            errors,
+            allow_omitted_additional_properties=allow_omitted_additional_properties,
+        )
         lazy = bool(entry.get("lazy", tool_yaml.get("lazy", False)))
         if lazy:
             errors.append(
@@ -600,6 +609,8 @@ def _validate_tool_schema(
     schema: Any,
     label: str,
     errors: list[str],
+    *,
+    allow_omitted_additional_properties: bool = False,
 ) -> None:
     if not isinstance(schema, dict):
         errors.append(f"{label}.input_schema must be an object")
@@ -611,7 +622,10 @@ def _validate_tool_schema(
         return
     if schema.get("type") != "object":
         errors.append(f"{label}.input_schema.type must be 'object'")
-    if schema.get("additionalProperties") is not False:
+    omitted = "additionalProperties" not in schema
+    if schema.get("additionalProperties") is not False and not (
+        omitted and allow_omitted_additional_properties
+    ):
         errors.append(f"{label}.input_schema.additionalProperties must be false")
     properties = schema.get("properties", {})
     required = schema.get("required", [])

@@ -34,8 +34,13 @@ from lab_core.sandbox.sandbox import PodmanError
 import ahe_runner.runtime as runtime_module
 from ahe_runner.adapter import BenchmarkInterface, SplitName
 from ahe_runner.config import ModelSettings, TransportSettings
-from ahe_runner.errors import ConfigurationError, InfrastructureError, IntegrityError
-from ahe_runner.harness import load_harness_manifest
+from ahe_runner.errors import (
+    CandidateValidationError,
+    ConfigurationError,
+    InfrastructureError,
+    IntegrityError,
+)
+from ahe_runner.harness import load_harness_manifest, validate_harness
 from ahe_runner.runtime import EvaluatedAgentRuntime
 
 from .harvey_fakes import LAB_ROOT, PROJECT_ROOT, FakeSandbox, started_sandbox
@@ -44,6 +49,7 @@ from .test_runtime import FakeRecordedClient
 
 LAB_HARNESS = LAB_ROOT / "lab_core" / "harness"
 HARNESS_LAB = PROJECT_ROOT / "harness_lab"
+LAB_MANIFEST = PROJECT_ROOT / "harness_manifest_lab.yaml"
 FIRM_TASK = "firm-knowledge/tasks/001"
 
 
@@ -103,6 +109,50 @@ def test_harness_lab_tool_schemas_match_lab() -> None:
         assert ours["input_schema"] == lab["parameters"]
 
 
+def _validation_errors(harness: Path, manifest: Path) -> list[str]:
+    try:
+        validate_harness(
+            harness,
+            load_harness_manifest(manifest),
+            project_root=PROJECT_ROOT,
+            run_nexau_smoke=False,
+        )
+    except CandidateValidationError as exc:
+        return list(exc.report["errors"])
+    return []
+
+
+def test_harness_lab_validates_only_with_the_lab_manifest() -> None:
+    assert _validation_errors(HARNESS_LAB, LAB_MANIFEST) == []
+    strict = _validation_errors(HARNESS_LAB, PROJECT_ROOT / "harness_manifest.yaml")
+    assert strict and all("additionalProperties must be false" in e for e in strict)
+    assert len(strict) == len(_lab_tools())
+
+
+def test_lab_manifest_differs_only_in_the_schema_policy() -> None:
+    strict = load_harness_manifest(PROJECT_ROOT / "harness_manifest.yaml")
+    lab = load_harness_manifest(LAB_MANIFEST)
+    assert not strict.tool_schemas.allow_omitted_additional_properties
+    assert lab.tool_schemas.allow_omitted_additional_properties
+    assert lab.model_dump(exclude={"tool_schemas"}) == strict.model_dump(
+        exclude={"tool_schemas"}
+    )
+
+
+@pytest.mark.parametrize("value", [True, {"type": "string"}])
+def test_lab_manifest_still_rejects_explicit_open_schemas(
+    tmp_path: Path, value: object
+) -> None:
+    harness = tmp_path / "harness"
+    shutil.copytree(HARNESS_LAB, harness, ignore=shutil.ignore_patterns("__pycache__"))
+    path = harness / "tool_descriptions" / "read.tool.yaml"
+    tool = yaml.safe_load(path.read_text(encoding="utf-8"))
+    tool["input_schema"]["additionalProperties"] = value
+    path.write_text(yaml.safe_dump(tool, sort_keys=False), encoding="utf-8")
+    errors = _validation_errors(harness, LAB_MANIFEST)
+    assert errors == ["agent.tools[1].input_schema.additionalProperties must be false"]
+
+
 def test_harness_lab_seed_scripts_match_lab() -> None:
     seed = HARNESS_LAB / "workspace_seed"
     assert sorted(p.name for p in seed.iterdir()) == ["skills"]
@@ -138,7 +188,7 @@ def test_harness_lab_sends_lab_system_message_and_tools(
     artifact_root = tmp_path / "runtime"
     runtime = EvaluatedAgentRuntime(
         harness_dir=HARNESS_LAB,
-        manifest=load_harness_manifest(PROJECT_ROOT / "harness_manifest.yaml"),
+        manifest=load_harness_manifest(LAB_MANIFEST),
         benchmark_interface=BenchmarkInterface(
             description="Harvey offline fixture.",
             input_kinds=("prompt", "data", "environment"),
