@@ -1,0 +1,71 @@
+schema_version: 1
+
+campaign:
+  name: example-ahe-campaign
+  artifacts_dir: ./campaign-artifacts/example-ahe-campaign
+  rounds: 3
+  root_seed: 42
+
+project:
+  harness_dir: ./harness
+  harness_manifest: ./harness_manifest.yaml
+  adapter: benchmark_adapter:ExampleAdapter
+  adapter_settings: {}
+  adapter_dependency_paths:
+    - ./benchmark_adapter.py
+  meta_agent_source_roots:
+    - ./benchmark_public/ADAPTER.md
+
+models:
+  evaluated:
+    model: example-evaluated-model
+    max_tokens: 4096
+    reasoning_effort: provider-default
+    temperature: 0.2
+  meta:
+    model: example-meta-model
+    max_tokens: 8192
+    reasoning_effort: provider-default
+    temperature: 0.2
+
+transport:
+  base_url: http://127.0.0.1:3141/v1
+  api_key_env: null
+  api_mode: chat_completions
+  stream: false
+  request_timeout_seconds: 300
+  observable_model_policy: exact
+  model_catalog: optional
+  negative_control: best_effort
+
+evaluation:
+  train_trials: 2
+  validation_trials: 2
+  test_trials: 2
+  max_concurrency: 4
+
+debugger:
+  max_concurrency: 4
+  max_iterations: 80
+
+recovery:
+  maximum_stage_attempts: 3
+  archive_incomplete_attempts: true
+
+meta:
+  backend: scripted
+  explore:
+    source_enabled: true
+    web_enabled: true
+    web_search_backend: disabled
+    research_seed_urls: []
+  role_supplements:
+    source: ./meta_supplements/source.md
+    web: ./meta_supplements/web.md
+    debugger: ./meta_supplements/debugger.md
+    evolve: ./meta_supplements/evolve.md
+  max_concurrent_model_calls: 2
+  max_context_tokens: 200000
+  max_running_subagents: 5
+  evolve_max_iterations: 500
+  explore_max_iterations: 200

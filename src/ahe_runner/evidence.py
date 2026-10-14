@@ -62,6 +62,9 @@ class EvidenceTrial(EvidenceModel):
     termination_reason: str
     diagnostic_class: Literal["passing", "failing", "other"]
     artifacts: list[EvidenceArtifact] = Field(min_length=2)
+    # AHE-016: optional text views written inside the evidence directory
+    # (for example a trace with real line breaks, or a .docx as plain text).
+    readable_artifacts: list[EvidenceArtifact] = Field(default_factory=list)
 
     @field_validator("unit_id", "outcome", "termination_reason")
     @classmethod
@@ -241,6 +244,25 @@ def verify_evidence_bundle(
                         f"duplicate evidence artifact: {artifact.path}"
                     )
                 declared_artifacts[key] = artifact.kind
+            readable_paths: set[str] = set()
+            for artifact in trial.readable_artifacts:
+                readable_path = _relative_path(
+                    root,
+                    artifact.path,
+                    label="readable evidence artifact",
+                )
+                if (
+                    not readable_path.is_file()
+                    or sha256_file(readable_path) != artifact.sha256
+                ):
+                    raise IntegrityError(
+                        f"readable evidence hash mismatch: {artifact.path}"
+                    )
+                if artifact.path in readable_paths:
+                    raise IntegrityError(
+                        f"duplicate readable evidence artifact: {artifact.path}"
+                    )
+                readable_paths.add(artifact.path)
             result_key = (unit.result_path, unit.result_sha256)
             trace_key = (unit.trace_path, unit.trace_sha256)
             if declared_artifacts.get(trace_key) != "trace":

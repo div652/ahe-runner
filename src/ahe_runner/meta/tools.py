@@ -34,294 +34,7 @@ from ahe_runner.workspace import verify_checkpoint
 
 _MAX_READ_BYTES = 160_000
 _DEFAULT_READ_BYTES = 64_000
-_MAX_SEARCH_MATCHES = 300
-_MAX_LIST_ENTRIES = 5_000
 _EVOLVE_RESEARCH_BUDGET_BEFORE_COMMIT = 36
-
-
-def list_files(
-    root: str,
-    relative_path: str = ".",
-    recursive: bool = False,
-    agent_state: AgentState | None = None,
-) -> str:
-    blocked = _research_gate(agent_state)
-    if blocked:
-        return blocked
-    base = _resolve_virtual(agent_state, root, relative_path, write=False)
-    if not base.exists():
-        return _json({"ok": False, "error": f"path does not exist: {relative_path}"})
-    if base.is_file():
-        return _json({"ok": True, "entries": [_entry(base, base.parent)]})
-    iterator = base.rglob("*") if recursive else base.iterdir()
-    entries: list[dict[str, Any]] = []
-    for path in sorted(iterator, key=lambda item: item.as_posix()):
-        if ".git" in path.parts:
-            continue
-        entries.append(_entry(path, base))
-        if len(entries) >= _MAX_LIST_ENTRIES:
-            return _json(
-                {
-                    "ok": True,
-                    "entries": entries,
-                    "truncated": True,
-                    "limit": _MAX_LIST_ENTRIES,
-                }
-            )
-    return _json({"ok": True, "entries": entries, "truncated": False})
-
-
-def read_file(
-    root: str,
-    relative_path: str,
-    start_line: int = 1,
-    end_line: int = 400,
-    start_byte: int | None = None,
-    end_byte: int | None = None,
-    max_bytes: int = _DEFAULT_READ_BYTES,
-    agent_state: AgentState | None = None,
-) -> str:
-    blocked = _research_gate(agent_state)
-    if blocked:
-        return blocked
-    path = _resolve_virtual(agent_state, root, relative_path, write=False)
-    if not path.is_file():
-        return _json({"ok": False, "error": f"not a file: {relative_path}"})
-    if max_bytes < 1 or max_bytes > _MAX_READ_BYTES:
-        return _json(
-            {
-                "ok": False,
-                "error": f"max_bytes must be between 1 and {_MAX_READ_BYTES}",
-            }
-        )
-    file_size = path.stat().st_size
-    if start_byte is not None or end_byte is not None:
-        if (
-            start_byte is None
-            or end_byte is None
-            or start_byte < 0
-            or end_byte <= start_byte
-        ):
-            return _json(
-                {
-                    "ok": False,
-                    "error": ("byte reads require 0 <= start_byte < end_byte"),
-                }
-            )
-        requested = end_byte - start_byte
-        if requested > max_bytes:
-            return _json(
-                {
-                    "ok": False,
-                    "error": "requested byte range exceeds max_bytes",
-                    "requested_bytes": requested,
-                    "max_bytes": max_bytes,
-                }
-            )
-        with path.open("rb") as handle:
-            handle.seek(start_byte)
-            content_bytes = handle.read(min(requested, max(file_size - start_byte, 0)))
-        if content_bytes:
-            _record_debugger_access(
-                agent_state,
-                artifact=f"{root}:{Path(relative_path).as_posix()}",
-                mode="bytes",
-                start=start_byte,
-                end=start_byte + len(content_bytes),
-            )
-        return _json(
-            {
-                "ok": True,
-                "mode": "bytes",
-                "path": relative_path,
-                "start_byte": start_byte,
-                "end_byte": start_byte + len(content_bytes),
-                "requested_end_byte": end_byte,
-                "file_size": file_size,
-                "bytes_returned": len(content_bytes),
-                "has_more": start_byte + len(content_bytes) < file_size,
-                "content": content_bytes.decode("utf-8", errors="replace"),
-                "sha256": sha256_file(path),
-            }
-        )
-    if start_line < 1 or end_line < start_line:
-        return _json({"ok": False, "error": "invalid line range"})
-    selected: list[str] = []
-    bytes_returned = 0
-    last_line = start_line - 1
-    lines_seen = 0
-    total_lines: int | None = None
-    content_truncated = False
-    has_more_after_range = False
-    partial_line: int | None = None
-    partial_start_byte: int | None = None
-    partial_end_byte: int | None = None
-    byte_offset = 0
-    with path.open("rb") as handle:
-        for line_number, encoded in enumerate(handle, start=1):
-            lines_seen = line_number
-            line_start_byte = byte_offset
-            byte_offset += len(encoded)
-            if line_number < start_line:
-                continue
-            if line_number > end_line:
-                has_more_after_range = True
-                break
-            remaining = max_bytes - bytes_returned
-            if len(encoded) > remaining:
-                if remaining:
-                    selected.append(
-                        encoded[:remaining].decode("utf-8", errors="replace")
-                    )
-                    bytes_returned += remaining
-                    partial_line = line_number
-                    partial_start_byte = line_start_byte
-                    partial_end_byte = line_start_byte + remaining
-                content_truncated = True
-                has_more_after_range = True
-                break
-            selected.append(encoded.decode("utf-8", errors="replace"))
-            bytes_returned += len(encoded)
-            last_line = line_number
-        else:
-            total_lines = lines_seen
-    artifact = f"{root}:{Path(relative_path).as_posix()}"
-    if bytes_returned and last_line >= start_line:
-        _record_debugger_access(
-            agent_state,
-            artifact=artifact,
-            mode="lines",
-            start=start_line,
-            end=last_line,
-        )
-    if partial_start_byte is not None and partial_end_byte is not None:
-        _record_debugger_access(
-            agent_state,
-            artifact=artifact,
-            mode="bytes",
-            start=partial_start_byte,
-            end=partial_end_byte,
-        )
-    return _json(
-        {
-            "ok": True,
-            "mode": "lines",
-            "path": relative_path,
-            "start_line": start_line,
-            "end_line": last_line,
-            "requested_end_line": end_line,
-            "total_lines": total_lines,
-            "file_size": file_size,
-            "bytes_returned": bytes_returned,
-            "content_truncated": content_truncated,
-            "partial_line": partial_line,
-            "partial_start_byte": partial_start_byte,
-            "partial_end_byte": partial_end_byte,
-            "has_more_after_range": has_more_after_range,
-            "content": "".join(selected),
-            "sha256": sha256_file(path),
-        }
-    )
-
-
-def search_text(
-    root: str,
-    query: str,
-    relative_path: str = ".",
-    file_glob: str = "**/*",
-    case_sensitive: bool = False,
-    regex: bool = False,
-    agent_state: AgentState | None = None,
-) -> str:
-    blocked = _research_gate(agent_state)
-    if blocked:
-        return blocked
-    base = _resolve_virtual(agent_state, root, relative_path, write=False)
-    if not base.exists():
-        return _json({"ok": False, "error": f"path does not exist: {relative_path}"})
-    flags = 0 if case_sensitive else re.IGNORECASE
-    try:
-        pattern = re.compile(query if regex else re.escape(query), flags)
-    except re.error as exc:
-        return _json({"ok": False, "error": f"invalid regular expression: {exc}"})
-    candidates = [base] if base.is_file() else sorted(base.glob(file_glob))
-    root_base = _resolve_virtual(agent_state, root, ".", write=False)
-    matches: list[dict[str, Any]] = []
-    skipped: list[dict[str, str]] = []
-    searched_files = 0
-    for path in candidates:
-        if not path.is_file() or ".git" in path.parts:
-            continue
-        root_relative = path.relative_to(root_base).as_posix()
-        if path.is_symlink():
-            skipped.append({"path": root_relative, "reason": "symlink"})
-            continue
-        try:
-            handle = path.open("r", encoding="utf-8")
-        except OSError as exc:
-            skipped.append(
-                {
-                    "path": root_relative,
-                    "reason": f"{type(exc).__name__}: {exc}",
-                }
-            )
-            continue
-        relative = path.relative_to(base if base.is_dir() else base.parent).as_posix()
-        try:
-            searched_files += 1
-            for line_number, line in enumerate(handle, start=1):
-                if pattern.search(line):
-                    _record_debugger_access(
-                        agent_state,
-                        artifact=f"{root}:{root_relative}",
-                        mode="lines",
-                        start=line_number,
-                        end=line_number,
-                    )
-                    matches.append(
-                        {
-                            "path": relative,
-                            "line": line_number,
-                            "text": line[:2_000].rstrip("\n"),
-                            "text_truncated": len(line) > 2_000,
-                        }
-                    )
-                    if len(matches) >= _MAX_SEARCH_MATCHES:
-                        return _json(
-                            {
-                                "ok": True,
-                                "matches": matches,
-                                "truncated": True,
-                                "match_limit": _MAX_SEARCH_MATCHES,
-                                "searched_files": searched_files,
-                                "skipped": skipped[:20],
-                                "skipped_total": len(skipped),
-                                "skipped_truncated": len(skipped) > 20,
-                            }
-                        )
-        except UnicodeDecodeError:
-            skipped.append({"path": relative, "reason": "non-UTF-8 content"})
-        except OSError as exc:
-            skipped.append(
-                {
-                    "path": relative,
-                    "reason": f"{type(exc).__name__}: {exc}",
-                }
-            )
-        finally:
-            handle.close()
-    return _json(
-        {
-            "ok": True,
-            "matches": matches,
-            "truncated": False,
-            "match_limit": _MAX_SEARCH_MATCHES,
-            "searched_files": searched_files,
-            "skipped": skipped[:20],
-            "skipped_total": len(skipped),
-            "skipped_truncated": len(skipped) > 20,
-        }
-    )
 
 
 def submit_debugger_diagnosis(
@@ -347,9 +60,9 @@ def submit_debugger_diagnosis(
         "task_id": expected_task_id,
         "primary_failure_class": primary_failure_class,
         "earliest_failure": earliest_failure,
-        "evidence": evidence,
-        "evidence_coverage": evidence_coverage,
-        "paired_comparison": paired_comparison,
+        "evidence": _canonical_citations(agent_state, evidence),
+        "evidence_coverage": _canonical_coverage(agent_state, evidence_coverage),
+        "paired_comparison": _canonical_paired(agent_state, paired_comparison),
         "root_cause": root_cause,
         "contributing_factors": contributing_factors,
         "recommended_changes": recommended_changes,
@@ -377,8 +90,10 @@ def submit_debugger_diagnosis(
         )
     if not claimed <= accessed:
         return _completion_error(
-            "evidence_coverage.artifacts_read includes files not read through "
-            "the bounded tools: " + ", ".join(sorted(claimed - accessed))
+            "evidence_coverage.artifacts_read includes files with no recorded "
+            "read_file or search_file_content lines: "
+            + ", ".join(sorted(claimed - accessed))
+            + _accessed_hint(accesses)
         )
     citations = [item.citation for item in diagnosis.evidence] + [
         item.citation
@@ -394,8 +109,9 @@ def submit_debugger_diagnosis(
     ]
     if uncovered:
         return _completion_error(
-            "debugger citations were not covered by nonempty bounded reads or "
-            "search hits: " + ", ".join(uncovered)
+            "these citations are not covered by lines you read with read_file "
+            "or saw as search_file_content hits (line ranges only; shell output "
+            "does not count): " + ", ".join(uncovered) + _accessed_hint(accesses)
         )
     citation_artifacts = {citation.artifact for citation in citations}
     if not citation_artifacts <= claimed:
@@ -459,94 +175,6 @@ def submit_debugger_diagnosis(
         "task_key": str(_context_value(agent_state, "debugger_task_key")),
         "diagnosis_sha256": sha256_file(path),
     }
-
-
-def write_file(
-    root: str,
-    relative_path: str,
-    content: str,
-    agent_state: AgentState | None = None,
-) -> str:
-    path = _resolve_virtual(agent_state, root, relative_path, write=True)
-    progress_error = _deliverable_write_error(agent_state, path, content)
-    if progress_error is not None:
-        return progress_error
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(content, encoding="utf-8")
-    _record_deliverable_write(agent_state, path, content)
-    _record_mutation(agent_state)
-    return _json(
-        {
-            "ok": True,
-            "path": relative_path,
-            "bytes": path.stat().st_size,
-            "sha256": sha256_file(path),
-        }
-    )
-
-
-def replace_text(
-    root: str,
-    relative_path: str,
-    old_text: str,
-    new_text: str,
-    expected_occurrences: int = 1,
-    agent_state: AgentState | None = None,
-) -> str:
-    path = _resolve_virtual(agent_state, root, relative_path, write=True)
-    if not path.is_file():
-        return _json({"ok": False, "error": f"not a file: {relative_path}"})
-    text = path.read_text(encoding="utf-8")
-    occurrences = text.count(old_text)
-    if occurrences != expected_occurrences:
-        return _json(
-            {
-                "ok": False,
-                "error": (
-                    f"expected {expected_occurrences} occurrence(s), found "
-                    f"{occurrences}"
-                ),
-            }
-        )
-    updated = text.replace(old_text, new_text)
-    progress_error = _deliverable_write_error(agent_state, path, updated)
-    if progress_error is not None:
-        return progress_error
-    path.write_text(updated, encoding="utf-8")
-    _record_deliverable_write(agent_state, path, updated)
-    _record_mutation(agent_state)
-    return _json(
-        {
-            "ok": True,
-            "path": relative_path,
-            "occurrences": occurrences,
-            "sha256": sha256_file(path),
-        }
-    )
-
-
-def delete_path(
-    root: str,
-    relative_path: str,
-    agent_state: AgentState | None = None,
-) -> str:
-    path = _resolve_virtual(agent_state, root, relative_path, write=True)
-    if path.is_dir():
-        try:
-            path.rmdir()
-        except OSError as exc:
-            return _json(
-                {
-                    "ok": False,
-                    "error": f"directory must be empty before deletion: {exc}",
-                }
-            )
-    elif path.exists():
-        path.unlink()
-    else:
-        return _json({"ok": False, "error": f"path does not exist: {relative_path}"})
-    _record_mutation(agent_state)
-    return _json({"ok": True, "path": relative_path})
 
 
 def git_status(agent_state: AgentState | None = None) -> str:
@@ -1053,44 +681,6 @@ def _validate_skill(path: Path, role: str) -> list[str]:
     return problems
 
 
-def _resolve_virtual(
-    agent_state: AgentState | None,
-    root: str,
-    relative_path: str,
-    *,
-    write: bool,
-) -> Path:
-    roots_key = "meta_write_roots" if write else "meta_read_roots"
-    roots = {
-        str(key): Path(str(value)).resolve()
-        for key, value in dict(_context_value(agent_state, roots_key) or {}).items()
-    }
-    if not write:
-        roots.update(
-            {
-                str(key): Path(str(value)).resolve()
-                for key, value in dict(
-                    _context_value(agent_state, "meta_write_roots") or {}
-                ).items()
-            }
-        )
-    if root not in roots:
-        raise ValueError(f"unknown or prohibited root: {root}")
-    base = roots[root]
-    if relative_path in {"", "."}:
-        target = base
-    else:
-        relative = Path(relative_path)
-        if relative.is_absolute() or ".." in relative.parts:
-            raise ValueError("relative_path must stay within the selected root")
-        target = (base / relative).resolve(strict=False)
-    try:
-        target.relative_to(base)
-    except ValueError as exc:
-        raise ValueError("resolved path escapes the selected root") from exc
-    return target
-
-
 def _workspace(agent_state: AgentState | None) -> Path:
     return Path(str(_context_value(agent_state, "workspace_dir"))).resolve()
 
@@ -1185,18 +775,6 @@ def _git(workspace: Path, *args: str) -> str:
     if completed.returncode != 0:
         raise RuntimeError(completed.stdout.strip() or f"git {' '.join(args)} failed")
     return completed.stdout
-
-
-def _entry(path: Path, base: Path) -> dict[str, Any]:
-    try:
-        relative = path.relative_to(base).as_posix()
-    except ValueError:
-        relative = path.name
-    return {
-        "path": relative or ".",
-        "type": "directory" if path.is_dir() else "file",
-        "size": path.stat().st_size if path.is_file() else None,
-    }
 
 
 def _json(payload: Any) -> str:
@@ -1351,21 +929,91 @@ def _citation_is_covered(
     citation: Any,
     accesses: list[dict[str, str | int]],
 ) -> bool:
-    if citation.line_start is not None:
-        mode = "lines"
-        start = citation.line_start
-        end = citation.line_end
-    else:
-        mode = "bytes"
-        start = citation.start_byte
-        end = citation.end_byte
-    return any(
-        access["artifact"] == citation.artifact
-        and access["mode"] == mode
-        and int(access["start"]) <= int(start)
-        and int(access["end"]) >= int(end)
+    """Line citations are covered by the union of recorded line reads."""
+
+    if citation.line_start is None:
+        # AHE-016: reads are recorded as line ranges only.
+        return False
+    intervals = sorted(
+        (int(access["start"]), int(access["end"]))
         for access in accesses
+        if access["artifact"] == citation.artifact and access["mode"] == "lines"
     )
+    needed = int(citation.line_start)
+    end = int(citation.line_end)
+    for start, stop in intervals:
+        if start > needed:
+            break
+        needed = max(needed, stop + 1)
+        if needed > end:
+            return True
+    return needed > end
+
+
+def _accessed_hint(accesses: list[dict[str, str | int]]) -> str:
+    ranges: dict[str, list[str]] = {}
+    for access in accesses:
+        if access["mode"] != "lines":
+            continue
+        ranges.setdefault(str(access["artifact"]), []).append(
+            f"{access['start']}-{access['end']}"
+        )
+    if not ranges:
+        return ". No evidence lines are recorded yet."
+    shown = "; ".join(
+        f"{artifact} lines {', '.join(values[:12])}"
+        + (" ..." if len(values) > 12 else "")
+        for artifact, values in sorted(ranges.items())
+    )
+    return f". Recorded reads: {shown}"
+
+
+def _canonical_artifact(agent_state: AgentState | None, value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    from .guarded_tools import canonical_artifact
+
+    return canonical_artifact(agent_state, value)
+
+
+def _canonical_citations(agent_state: AgentState | None, items: Any) -> Any:
+    if not isinstance(items, list):
+        return items
+    result: list[Any] = []
+    for item in items:
+        if isinstance(item, Mapping) and isinstance(item.get("citation"), Mapping):
+            citation = dict(item["citation"])
+            citation["artifact"] = _canonical_artifact(
+                agent_state, citation.get("artifact")
+            )
+            result.append({**item, "citation": citation})
+        else:
+            result.append(item)
+    return result
+
+
+def _canonical_coverage(agent_state: AgentState | None, coverage: Any) -> Any:
+    if not isinstance(coverage, Mapping):
+        return coverage
+    artifacts = coverage.get("artifacts_read")
+    if not isinstance(artifacts, list):
+        return coverage
+    return {
+        **coverage,
+        "artifacts_read": [
+            _canonical_artifact(agent_state, item) for item in artifacts
+        ],
+    }
+
+
+def _canonical_paired(agent_state: AgentState | None, paired: Any) -> Any:
+    if not isinstance(paired, Mapping):
+        return paired
+    result = dict(paired)
+    for key in ("passing_evidence", "failing_evidence"):
+        if key in result:
+            result[key] = _canonical_citations(agent_state, result[key])
+    return result
 
 
 def _citation_label(citation: Any) -> str:

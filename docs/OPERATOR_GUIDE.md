@@ -239,9 +239,18 @@ Before a live run, explicitly confirm:
 4. `chat_completions` and non-streaming mode;
 5. task/attempt scope and model-call concurrency.
 
-Keep the unauthenticated extension on loopback. The runner performs a fresh
-positive probe and nonexistent-model negative control for every model-backed
-stage attempt, then verifies the observable response label on every call.
+Keep the unauthenticated extension on loopback. Model-backed meta stages run a
+fresh preflight for each attempt. A V2 evaluated attempt runs its preflight
+before opening its first new session, then shares that proof across the
+attempt's sessions. The configured catalog and negative-control policies apply
+to the evaluated model as well as the meta model. Every normal completion also
+has an exact observable response-label check.
+
+Evaluated proofs are retained under
+`evaluations/<checkpoint>-<split>/runtime/model-preflights/attempt-*/model-preflight.json`.
+Each session manifest links its proof by path and hash. Failed proofs are
+preserved on retry; fully cached evaluations that open no new sessions make no
+fresh preflight calls.
 
 That label may be synthesized by a proxy from its selected model object.
 Without independent upstream telemetry, transparent upstream substitution

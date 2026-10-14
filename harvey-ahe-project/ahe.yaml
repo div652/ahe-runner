@@ -1,0 +1,170 @@
+# AHE campaign configuration for evolving a NexAU harness on Harvey LAB.
+#
+# Operator-owned values (fill before any command; see HARVEY_AHE_RUNBOOK.md):
+#   * every `replace-with-exact-...` model ID: use the exact IDs advertised by
+#     the endpoint's /v1/models catalog, without `copilot/` or `openai/` prefixes;
+#   * the live budget: campaign.rounds, evaluation.*_trials, and concurrency.
+# Model IDs and budget below were chosen by the operator on 2026-10-13; the
+# record is in HARVEY_AHE_RUNBOOK.md section 3a. The first campaign
+# (harvey-lab-first-campaign) stopped at round 2 on AHE-010. The second
+# (harvey-lab-campaign-2-search-cap) was stopped early in round 1 to switch to
+# LAB's default grading parallelism. The third campaign
+# (harvey-lab-campaign-3-grading-parallel) carried both changes. This fourth
+# campaign adds a shared queue for all model calls (24 at once, AHE-015), a
+# judge cap of 18 inside it with grading_parallel 10, the AHE-014 long
+# tool-output safety net for Evolve and Explore, the criterion pass rate as
+# primary metric, and 2 training trials (runbook sections 5a-5d). Its round
+# 2 debugger stopped on binary .docx reads (runbook 5e). This fifth campaign
+# gives every meta agent the original AHE tools, middleware, temperatures and
+# debugger budget, a Docker-sandboxed shell, readable evidence views, and
+# non-blocking debugger failures (AHE-016, runbook 5f). Its round 1 showed
+# that change attribution never matched Evolve's predicted tasks (AHE-017).
+# The sixth campaign was campaign 5 plus the AHE-017 fix (runbook 5g). The
+# seventh campaign kept campaign 6's harness and meta agents and scaled up:
+# 4 rounds, 60 train / 15 validation / 15 test tasks (splits-v2.json, built by
+# scripts/make_splits_v2.py), 2 validation and 3 test trials, 20 meta-agent
+# model calls at once, and a global 0.08 noise floor for change attribution
+# (runbook 5h, 5i). This eighth campaign is campaign 7 with gpt-5.4 instead of
+# gpt-5.4-mini as the evaluated model; everything else is unchanged (runbook
+# 5j).
+schema_version: 1
+
+campaign:
+  name: harvey-lab-campaign-8-evaluated-gpt-5.4
+  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-8-evaluated-gpt-5.4
+  rounds: 4
+  root_seed: 42
+
+project:
+  harness_dir: ./harness
+  harness_manifest: ./harness_manifest.yaml
+  adapter: benchmark_adapter:HarveyAdapter
+  adapter_settings:
+    # Relative paths resolve against this file's directory.
+    lab_root: ../../harvey-labs
+    split_file: ./splits-v2.json
+    # LAB's standard judge pair is claude-sonnet-4-6 and gpt-5.5. The results
+    # carry the `lab-standard-dual-v1` profile label only when the configured IDs
+    # equal those strings; any other IDs are labelled `custom-dual`.
+    # claude-sonnet-4-6 is not advertised by the loopback endpoint (catalog of
+    # 2026-10-13), so judge 1 and the helper use claude-sonnet-5 and results are
+    # labelled `custom-dual`. Reasoning is provider default for judges/helper.
+    judges:
+      - model: claude-sonnet-5
+        max_tokens: 64000
+        temperature: 0.0
+      - model: gpt-5.5
+        max_tokens: 64000
+        temperature: 0.0
+    # LAB's deliverable filename helper (claude-sonnet-4-6, 1024 tokens, T=0).
+    helper:
+      model: claude-sonnet-5
+      max_tokens: 1024
+      temperature: 0.0
+    judge_max_prompt_chars: 240000
+    # Must already exist locally (pull or build; the runbook shows both).
+    sandbox_image: lab-sandbox:latest
+    shell_timeout: 60
+    # null uses the system temporary directory for per-trial scratch copies.
+    scratch_root: null
+    # Rubric criteria graded concurrently per judge per trial (adapter limit
+    # 100). LAB's own default is 6 (lab_core/evaluation/run_eval.py --parallel).
+    # Verdicts stay in rubric order.
+    grading_parallel: 10
+    # Judge criterion calls at once across all trials graded in this process
+    # (adapter limit 100; unset means no shared cap). Kept below
+    # transport.max_concurrent_requests so agents always have free slots.
+    judge_max_concurrent_calls: 18
+    grading_attempts: 2
+    # Attribution counts a training task as improved or regressed only when
+    # its score moves by more than this, the same value for every task. 0.08
+    # is about the 80th percentile of task-level changes between three runs of
+    # the unchanged seed harness (campaigns 4-6); 0.0 counts any change.
+    attribution_min_task_delta: 0.08
+  adapter_dependency_paths:
+    - ./benchmark_adapter.py
+    - ./harvey_ahe
+    - ./splits-v2.json
+    - ./pyproject.toml
+    - ./requirements.txt
+  meta_agent_source_roots:
+    - ./benchmark_public
+
+models:
+  evaluated:
+    model: gpt-5.4
+    max_tokens: 64000
+    reasoning_effort: provider-default
+    temperature: 0.0
+  meta:
+    model: gpt-5.4
+    max_tokens: 32000
+    reasoning_effort: high
+    temperature: 0.2
+
+transport:
+  base_url: http://127.0.0.1:3141/v1
+  api_key_env: null
+  api_mode: chat_completions
+  stream: false
+  request_timeout_seconds: 600
+  observable_model_policy: exact
+  model_catalog: required
+  negative_control: required
+  # All model calls in flight at once in one process; extra calls wait for a
+  # slot (AHE-015). The 2026-10-13 load probe saw Copilot refuse calls beyond
+  # about 30 new requests per burst and pass 24 at once (runbook 5d).
+  max_concurrent_requests: 24
+
+evaluation:
+  train_trials: 2
+  validation_trials: 2
+  test_trials: 3
+  max_concurrency: 20
+
+debugger:
+  max_concurrency: 20
+  # The original AHE debugger: 25 iterations, prompt budget of 20 (AHE-016).
+  max_iterations: 25
+
+recovery:
+  maximum_stage_attempts: 3
+  archive_incomplete_attempts: true
+
+meta:
+  backend: nexau
+  explore:
+    source_enabled: true
+    web_enabled: true
+    web_search_backend: ddgs
+    research_seed_urls:
+      - https://github.com/nex-agi/NexAU
+      - https://python-docx.readthedocs.io/en/latest/
+      - https://openpyxl.readthedocs.io/en/stable/
+      - https://python-pptx.readthedocs.io/en/latest/
+  role_supplements:
+    source: ./meta_supplements/source.md
+    web: ./meta_supplements/web.md
+    debugger: ./meta_supplements/debugger.md
+    evolve: ./meta_supplements/evolve.md
+  max_concurrent_model_calls: 20
+  max_context_tokens: 200000
+  max_running_subagents: 5
+  evolve_max_iterations: 500
+  explore_max_iterations: 200
+  # Original AHE per-agent model settings (AHE-016); unset values use
+  # models.meta.
+  roles:
+    debugger:
+      temperature: 0.4
+      max_tokens: 20000
+    evolve:
+      temperature: 0.7
+    explorers:
+      temperature: 0.2
+  # run_shell_command for all meta agents, in a container without network.
+  # Build once: docker build -t ahe-meta-shell:py313-v2
+  #   -f docker/meta-shell.Dockerfile docker   (from this directory)
+  shell:
+    backend: docker
+    image: ahe-meta-shell:py313-v2

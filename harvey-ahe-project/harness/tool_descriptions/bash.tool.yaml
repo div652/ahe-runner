@@ -1,0 +1,18 @@
+type: tool
+name: bash
+description: >-
+  Execute a bash command and return its output. Use for running scripts, file
+  manipulation, and any shell operation. Each call runs in a fresh shell that
+  starts in /workspace; cd, shell variables, and background processes do not
+  persist between calls. The sandbox has no network access.
+input_schema:
+  type: object
+  additionalProperties: false
+  properties:
+    command:
+      type: string
+      description: The bash command to execute
+  required:
+    - command
+disable_parallel: true
+binding: tools.bash:bash

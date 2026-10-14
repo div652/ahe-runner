@@ -551,6 +551,14 @@ Before a model-backed meta stage, a fresh preflight checks:
 3. a positive exact-model completion;
 4. a nonexistent-model negative control when supported.
 
+The V2 evaluated runtime uses the same preflight for the exact evaluated
+model before its first new session in an evaluation attempt. A synchronized
+attempt-local cache shares success or failure across sessions without adding
+inner retries. Each attempt receives a fresh evidence directory under
+`runtime/model-preflights/`; session manifests record its proof path and hash.
+The runtime is lazy, so reopening an evaluation whose units are already
+verified does not introduce model calls.
+
 Fresh preflight timestamps and random negative-control IDs are attempt
 evidence, not semantic campaign inputs. This prevents fresh preflights from
 changing checkpoint or evaluation identities.

@@ -1,0 +1,27 @@
+type: agent
+name: example_agent
+description: File-backed NexAU Harness ABI V2 example.
+max_context_tokens: 200000
+system_prompt: ./systemprompt.md
+system_prompt_type: file
+tool_call_mode: openai
+max_iterations: 20
+max_running_subagents: 5
+
+llm_config:
+  model: UNCONFIGURED
+  base_url: http://127.0.0.1:1/v1
+  api_key: local-placeholder
+  max_tokens: 4096
+  stream: false
+  api_type: openai_chat_completion
+
+tools:
+  - name: record_note
+    yaml_path: ./tool_descriptions/record_note.tool.yaml
+skills:
+  - ./skills/evidence-first
+sub_agents:
+  - name: reviewer
+    config_path: ./sub_agents/reviewer/agent.yaml
+middlewares: []

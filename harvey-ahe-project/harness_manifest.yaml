@@ -1,0 +1,53 @@
+schema_version: 2
+abi_version: ahe.harness/v2
+
+framework:
+  name: nexau
+  version: "0.3.9"
+
+agent_config: agent.yaml
+
+components:
+  system_prompt:
+    - systemprompt.md
+    - sub_agents/**/systemprompt.md
+  tool_descriptions:
+    - tool_descriptions/**/*.tool.yaml
+  tool_implementations:
+    - tools/**/*.py
+  middleware:
+    - middleware/**/*.py
+  skills:
+    - skills/**/SKILL.md
+  sub_agents:
+    - sub_agents/**/agent.yaml
+  long_term_memory:
+    - LongTermMEMORY.md
+
+attachments:
+  long_term_memory: system_prompt_suffix
+
+runtime_owned:
+  - ShortTermMEMORY.md
+
+required_files:
+  - agent.yaml
+  - systemprompt.md
+  - LongTermMEMORY.md
+  - ShortTermMEMORY.md
+
+# The Harvey adapter additionally rejects candidates without a `finish` tool,
+# with sub-agent max_iterations above 200, or with banned imports, calls, or
+# grader text (harvey_ahe.candidate_checks).
+protected_agent_fields:
+  tool_call_mode: openai
+  llm_config.model: UNCONFIGURED
+  llm_config.stream: false
+  llm_config.api_type: openai_chat_completion
+  max_iterations: 200
+  stop_tools:
+    - finish
+
+limits:
+  maximum_file_bytes: 1000000
+  maximum_tree_bytes: 8000000

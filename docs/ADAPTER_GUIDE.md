@@ -257,6 +257,20 @@ finally:
     Session and activation `context` values are string-valued NexAU template
     variables. Use the message content or benchmark-owned artifacts for structured
     task payloads rather than hiding arbitrary objects in runtime context.
+    Do not use `context` to route a session to a per-trial resource either:
+    NexAU v0.3.9 keeps its current context in one process-wide slot, and a
+    sub-agent copies whatever is there when it starts, which may be another
+    concurrent session's values (AHE-006 in
+    `docs/HARVEY_INTEGRATION_UPSTREAM_RECOMMENDATIONS.md`).
+
+    `session_resources` (branch-local, `harveybench`) binds adapter-owned objects,
+    such as a per-trial sandbox handle, to exactly one session. The runtime puts
+    them in that session Agent's own NexAU `GlobalStorage`. Its sub-agents share
+    that storage object, and no other session can reach it. Harness tools read a
+    resource with `agent_state.get_global_value(key)`. Keys must be public Python
+    identifiers and may not be NexAU-reserved storage keys. The adapter owns the
+    resource lifecycle, and NexAU skips non-serializable values when it persists
+    session state.
 
     Repeated `session.run(...)` calls preserve that session's NexAU history.
     Different sessions use different `Agent` instances and must not share mutable

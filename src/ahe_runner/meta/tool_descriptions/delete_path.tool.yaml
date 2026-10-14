@@ -1,12 +1,15 @@
 type: tool
 name: delete_path
-description: Delete one file or one already-empty directory in a writable root.
+description: >-
+  Delete one file, or one directory that is already empty, inside your
+  writable root. `.git` paths cannot be deleted.
 input_schema:
   type: object
   properties:
-    root:
+    file_path:
       type: string
-    relative_path:
-      type: string
-  required: [root, relative_path]
+      description: >-
+        Absolute path of the file or empty directory to delete. A relative
+        path is resolved against your writable root.
+  required: [file_path]
   additionalProperties: false

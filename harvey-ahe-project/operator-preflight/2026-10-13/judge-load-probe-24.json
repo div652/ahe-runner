@@ -1,0 +1,341 @@
+{
+  "started_at": "2026-10-13T14:23:43.719320+00:00",
+  "base_url": "http://127.0.0.1:3141/v1",
+  "evaluation_dir": "harvey-ahe-project/campaign-artifacts/harvey-lab-campaign-3-grading-parallel/evaluations/C2-train",
+  "concurrency": 24,
+  "client_retries": 0,
+  "timeout_seconds": 600.0,
+  "summary": {
+    "calls": 24,
+    "ok": 24,
+    "wall_seconds": 6.13,
+    "per_model": {
+      "claude-sonnet-5": {
+        "calls": 12,
+        "ok": 12,
+        "errors": 0,
+        "label_mismatches": 0,
+        "unparsed_verdicts": 0,
+        "verdict_agreement_with_baseline": 12,
+        "probe_seconds": {
+          "p50": 2.32,
+          "p90": 2.87,
+          "max": 3.45
+        },
+        "baseline_seconds_at_original_concurrency": {
+          "p50": 6.71,
+          "p90": 8.57,
+          "max": 9.06
+        }
+      },
+      "gpt-5.5": {
+        "calls": 12,
+        "ok": 12,
+        "errors": 0,
+        "label_mismatches": 0,
+        "unparsed_verdicts": 0,
+        "verdict_agreement_with_baseline": 12,
+        "probe_seconds": {
+          "p50": 2.56,
+          "p90": 3.46,
+          "max": 6.12
+        },
+        "baseline_seconds_at_original_concurrency": {
+          "p50": 4.85,
+          "p90": 6.91,
+          "max": 7.59
+        }
+      }
+    }
+  },
+  "calls": [
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-1/model_calls/call-0001",
+      "requested_model": "claude-sonnet-5",
+      "prompt_chars": 8523,
+      "baseline_seconds": 6.588689,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 2.134879015851766,
+      "returned_model": "claude-sonnet-5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-1/model_calls/call-0002",
+      "requested_model": "claude-sonnet-5",
+      "prompt_chars": 8518,
+      "baseline_seconds": 9.059174,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 3.4494417710229754,
+      "returned_model": "claude-sonnet-5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-1/model_calls/call-0003",
+      "requested_model": "claude-sonnet-5",
+      "prompt_chars": 8622,
+      "baseline_seconds": 8.568829,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 2.871349503286183,
+      "returned_model": "claude-sonnet-5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-1/model_calls/call-0004",
+      "requested_model": "claude-sonnet-5",
+      "prompt_chars": 8578,
+      "baseline_seconds": 6.829432,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 2.2259578071534634,
+      "returned_model": "claude-sonnet-5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-1/model_calls/call-0005",
+      "requested_model": "claude-sonnet-5",
+      "prompt_chars": 8495,
+      "baseline_seconds": 5.02103,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 2.158871979918331,
+      "returned_model": "claude-sonnet-5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-1/model_calls/call-0006",
+      "requested_model": "claude-sonnet-5",
+      "prompt_chars": 8598,
+      "baseline_seconds": 6.354308,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 2.479227741714567,
+      "returned_model": "claude-sonnet-5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-1/model_calls/call-0007",
+      "requested_model": "claude-sonnet-5",
+      "prompt_chars": 8656,
+      "baseline_seconds": 8.404036,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 2.7042484250850976,
+      "returned_model": "claude-sonnet-5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-1/model_calls/call-0008",
+      "requested_model": "claude-sonnet-5",
+      "prompt_chars": 8578,
+      "baseline_seconds": 6.037196,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 2.2515381476841867,
+      "returned_model": "claude-sonnet-5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-1/model_calls/call-0009",
+      "requested_model": "claude-sonnet-5",
+      "prompt_chars": 8587,
+      "baseline_seconds": 5.340139,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 2.2505924268625677,
+      "returned_model": "claude-sonnet-5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-1/model_calls/call-0010",
+      "requested_model": "claude-sonnet-5",
+      "prompt_chars": 8659,
+      "baseline_seconds": 6.87561,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 2.119827966671437,
+      "returned_model": "claude-sonnet-5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-1/model_calls/call-0011",
+      "requested_model": "claude-sonnet-5",
+      "prompt_chars": 8715,
+      "baseline_seconds": 6.569673,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 2.3808674779720604,
+      "returned_model": "claude-sonnet-5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-1/model_calls/call-0012",
+      "requested_model": "claude-sonnet-5",
+      "prompt_chars": 8648,
+      "baseline_seconds": 7.707583,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 2.424631195142865,
+      "returned_model": "claude-sonnet-5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-2/model_calls/call-0001",
+      "requested_model": "gpt-5.5",
+      "prompt_chars": 8622,
+      "baseline_seconds": 4.878453,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 2.747332189232111,
+      "returned_model": "gpt-5.5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-2/model_calls/call-0002",
+      "requested_model": "gpt-5.5",
+      "prompt_chars": 8518,
+      "baseline_seconds": 7.590791,
+      "baseline_verdict": "pass",
+      "ok": true,
+      "seconds": 6.1230673138052225,
+      "returned_model": "gpt-5.5",
+      "verdict": "pass",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-2/model_calls/call-0003",
+      "requested_model": "gpt-5.5",
+      "prompt_chars": 8523,
+      "baseline_seconds": 4.554336,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 2.5561112933792174,
+      "returned_model": "gpt-5.5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-2/model_calls/call-0004",
+      "requested_model": "gpt-5.5",
+      "prompt_chars": 8495,
+      "baseline_seconds": 4.868787,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 2.100510003976524,
+      "returned_model": "gpt-5.5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-2/model_calls/call-0005",
+      "requested_model": "gpt-5.5",
+      "prompt_chars": 8598,
+      "baseline_seconds": 4.505435,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 2.5725103323347867,
+      "returned_model": "gpt-5.5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-2/model_calls/call-0006",
+      "requested_model": "gpt-5.5",
+      "prompt_chars": 8578,
+      "baseline_seconds": 6.909103,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 2.5407187403179705,
+      "returned_model": "gpt-5.5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-2/model_calls/call-0007",
+      "requested_model": "gpt-5.5",
+      "prompt_chars": 8656,
+      "baseline_seconds": 4.830125,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 3.036577471997589,
+      "returned_model": "gpt-5.5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-2/model_calls/call-0008",
+      "requested_model": "gpt-5.5",
+      "prompt_chars": 8578,
+      "baseline_seconds": 3.813654,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 2.224640524946153,
+      "returned_model": "gpt-5.5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-2/model_calls/call-0009",
+      "requested_model": "gpt-5.5",
+      "prompt_chars": 8587,
+      "baseline_seconds": 3.582842,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 2.529299304820597,
+      "returned_model": "gpt-5.5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-2/model_calls/call-0010",
+      "requested_model": "gpt-5.5",
+      "prompt_chars": 8659,
+      "baseline_seconds": 5.514554,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 2.4897191179916263,
+      "returned_model": "gpt-5.5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-2/model_calls/call-0011",
+      "requested_model": "gpt-5.5",
+      "prompt_chars": 8715,
+      "baseline_seconds": 4.862047,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 3.4584055920131505,
+      "returned_model": "gpt-5.5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    },
+    {
+      "source": "units/05f4f640ce055bf9912bed917acf1c2a/attempt-1/grading/grading-1/judge-2/model_calls/call-0012",
+      "requested_model": "gpt-5.5",
+      "prompt_chars": 8648,
+      "baseline_seconds": 4.466936,
+      "baseline_verdict": "fail",
+      "ok": true,
+      "seconds": 3.225199921987951,
+      "returned_model": "gpt-5.5",
+      "verdict": "fail",
+      "verdict_matches_baseline": true
+    }
+  ]
+}
