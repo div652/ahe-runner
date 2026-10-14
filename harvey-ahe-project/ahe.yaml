@@ -26,23 +26,30 @@
 # model calls at once, and a global 0.08 noise floor for change attribution
 # (runbook 5h, 5i). This eighth campaign is campaign 7 with gpt-5.4 instead of
 # gpt-5.4-mini as the evaluated model; everything else is unchanged (runbook
-# 5j).
+# 5j). The ninth campaign is a single evaluation, not evolution: the LAB-exact
+# starting harness (harness_lab/, harness_manifest_lab.yaml) evaluated once
+# as C0 on all 250 firm-knowledge tasks with gpt-5.6-sol, reasoning high
+# (splits-firm-knowledge.json; runbook 5l). Only the C0 training evaluation
+# is run; no meta agents are used.
 schema_version: 1
 
 campaign:
-  name: harvey-lab-campaign-8-evaluated-gpt-5.4
-  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-8-evaluated-gpt-5.4
-  rounds: 4
+  name: harvey-lab-campaign-9-lab-exact-firm-knowledge
+  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-9-lab-exact-firm-knowledge
+  rounds: 0
   root_seed: 42
 
 project:
-  harness_dir: ./harness
-  harness_manifest: ./harness_manifest.yaml
+  harness_dir: ./harness_lab
+  harness_manifest: ./harness_manifest_lab.yaml
   adapter: benchmark_adapter:HarveyAdapter
   adapter_settings:
     # Relative paths resolve against this file's directory.
     lab_root: ../../harvey-labs
-    split_file: ./splits-v2.json
+    split_file: ./splits-firm-knowledge.json
+    # Firm-knowledge tasks fail the pilot filter (shared docs_dir store, more
+    # files and criteria); campaign 9 evaluates all of them unfiltered.
+    apply_task_filter: false
     # LAB's standard judge pair is claude-sonnet-4-6 and gpt-5.5. The results
     # carry the `lab-standard-dual-v1` profile label only when the configured IDs
     # equal those strings; any other IDs are labelled `custom-dual`.
@@ -84,7 +91,7 @@ project:
   adapter_dependency_paths:
     - ./benchmark_adapter.py
     - ./harvey_ahe
-    - ./splits-v2.json
+    - ./splits-firm-knowledge.json
     - ./pyproject.toml
     - ./requirements.txt
   meta_agent_source_roots:
@@ -92,9 +99,9 @@ project:
 
 models:
   evaluated:
-    model: gpt-5.4
+    model: gpt-5.6-sol
     max_tokens: 64000
-    reasoning_effort: provider-default
+    reasoning_effort: high
     temperature: 0.0
   meta:
     model: gpt-5.4
@@ -117,7 +124,7 @@ transport:
   max_concurrent_requests: 24
 
 evaluation:
-  train_trials: 2
+  train_trials: 1
   validation_trials: 2
   test_trials: 3
   max_concurrency: 20

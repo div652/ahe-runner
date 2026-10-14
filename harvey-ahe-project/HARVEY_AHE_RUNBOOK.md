@@ -1330,6 +1330,52 @@ The debugger labelled 53-57 of 60 tasks `issue-coverage-gap` in every
 round, as in campaign 7. Throughout, the Debugger and Evolve role
 supplements still described the old all-pass target (AHE-018, section 6).
 
+## 5l. Campaign 9 setup: `harvey-lab-campaign-9-lab-exact-firm-knowledge`
+
+The operator's choice on 2026-10-14 was a single evaluation, not evolution.
+LAB's own harness is evaluated once, as C0, on all 250 firm-knowledge tasks.
+No meta agents run.
+
+- Harness: `harness_lab/` with `harness_manifest_lab.yaml`. It has LAB's
+  system prompt including the docx, pptx and xlsx manuals, LAB's seven tool
+  schemas and descriptions unchanged, and LAB's skill scripts. The scripts
+  are copied into each sandbox's `/workspace/skills/` from `workspace_seed/`.
+  The memory file is empty, so nothing is appended to the prompt (AHE-019).
+  A test checks that the system message and tools actually sent through
+  NexAU equal LAB's. The remaining differences from LAB are listed in
+  section 6.
+- Tasks (`splits-firm-knowledge.json`, built by
+  `scripts/make_splits_firm_knowledge.py`): train is all 250
+  `tasks/firm-knowledge/` tasks, unfiltered (`apply_task_filter: false`).
+  They share the `firm-knowledge/dms` store (9,288 files), mounted read-only
+  in place, as LAB does. A tamper check runs after each trial. The other
+  1,760 LAB tasks are not included. AHE requires non-empty validation and
+  test splits, so each holds one placeholder from `splits-v2.json`. They are
+  never run.
+- Model: `gpt-5.6-sol`, reasoning high, `max_tokens` 64000 (LAB's Copilot
+  adapter default). 1 trial per task, 20 trials at once. Judges, helper,
+  grading settings and the 24-call queue are unchanged from campaign 8.
+- Checks on 2026-10-14: `ahe conformance` and `ahe validate` passed. The
+  model preflight passed (`operator-preflight/2026-10-14/`), and one tool
+  request returned a correct `read` call in 1.6 s. A podman smoke test ran
+  LAB's `generate_from_md.py` and `validate.py` inside the sandbox and got a
+  valid .docx. Writes to `documents/` failed (read-only), and the store was
+  unchanged afterwards.
+
+`ahe run` with `rounds: 0` would still start the Explore agents and the
+validation and test evaluations. So `scripts/run_c0_train_only.py` runs
+only the controller's baseline freeze and C0 training-evaluation stages.
+Rerunning it resumes; only unfinished trials run again. The wrapper is the
+section 5h loop with this script:
+
+```bash
+tmux new-session -d -s ahe-c9 -c ~/AHE_Harvey 'L=harvey-ahe-project/campaign-artifacts/c9-run.log; C=harvey-ahe-project/ahe.yaml; S=harvey-ahe-project/scripts/run_c0_train_only.py; n=0; .venv/bin/python $S --config $C 2>&1 | tee -a $L; rc=${PIPESTATUS[0]}; while [ $rc -ne 0 ] && [ $n -lt 5 ] && ! grep -q "\"status\": \"blocked\"" harvey-ahe-project/campaign-artifacts/harvey-lab-campaign-9-lab-exact-firm-knowledge/stages/*/stage.json; do n=$((n+1)); echo "== resume $n after exit $rc" | tee -a $L; sleep 120; .venv/bin/python $S --config $C 2>&1 | tee -a $L; rc=${PIPESTATUS[0]}; done; echo "== final exit $rc" | tee -a $L; exec bash'
+```
+
+Campaign 8's C0 training evaluation (120 trials) took 30 minutes. Campaign
+9 has 250 trials on larger tasks with high reasoning, so expect roughly 1.5
+to 3 hours.
+
 
 ## 6. Known deviations and limits to report with results
 
@@ -1370,6 +1416,9 @@ supplements still described the old all-pass target (AHE-018, section 6).
   (LAB-004). Firm-knowledge tasks mount LAB's shared store read-only in
   place, as LAB does, and the run checks that the store is unchanged after
   each trial.
+- Campaign 9 task scope: only the 250 firm-knowledge tasks (12% of LAB's
+  2,010), one trial each, C0 only (section 5l). Its score is not comparable
+  with campaigns 1 to 8, which used a different 166-task subset and harness.
 - LAB-002: a judge prompt above 240,000 characters is scored `fail` without a
   model call. LAB-003: judge disagreement scores 0.5 but is a failing
   diagnostic. See `docs/HARVEY_LAB_BENCHMARK_ISSUES.md`.
