@@ -153,6 +153,15 @@ docxtpl), Node.js (`docx`, `pptxgenjs`; `NODE_PATH` is set), pandoc, and
 LibreOffice for producing binary deliverables. Nothing can be installed at run
 time (no network).
 
+Files under a harness's `workspace_seed/` folder are copied into each trial's
+`/workspace` before the agent starts (regular files only; symlinks are
+skipped). Use it for scripts the agent runs with `bash` inside the sandbox.
+For example, `workspace_seed/skills/docx/scripts/validate.py` becomes
+`/workspace/skills/docx/scripts/validate.py`. Seed files count toward the
+harness size limits. The LAB-exact starting harness (`harness_lab/`) uses
+this for LAB's skill scripts. It has LAB's own system prompt, with the
+docx, pptx and xlsx manuals, and LAB's tool descriptions unchanged.
+
 ## 7. Candidate rules enforced by the adapter
 
 In addition to the AHE harness manifest checks, a candidate is rejected if:
@@ -164,7 +173,8 @@ In addition to the AHE harness manifest checks, a candidate is rejected if:
   `nexau`, for example to subclass `Middleware`, is allowed);
 - harness Python imports process, network, FFI, or dynamic-import modules
   (for example `subprocess`, `socket`, `ssl`, `urllib`, `requests`, `httpx`,
-  `http`, `ctypes`, `multiprocessing`, `pty`, `importlib`, `builtins`), or
+  `http`, `ctypes`, `multiprocessing`, `pty`, `importlib`, `builtins`,
+  `runpy`), or
   calls `eval`, `exec`, `compile`, `__import__`, `os.system`, `os.popen`,
   `os.fork*`, `os.exec*`, `os.spawn*`, or `os.posix_spawn*`;
 - a top-level harness module or package name collides with a protected,
@@ -172,6 +182,9 @@ In addition to the AHE harness manifest checks, a candidate is rejected if:
   `nexau` is not);
 - `.py` or `.yaml` files contain grader-internal identifiers, or any text
   file contains a training task identifier.
+- host `.py` or `.yaml` files import or bind anything under `workspace_seed/`
+  (seed code runs only inside the sandbox, so the import rules above do not
+  apply to it).
 
 These are static checks, not an operating-system boundary. Treat them as
 rules, not as obstacles to work around.

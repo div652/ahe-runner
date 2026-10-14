@@ -243,11 +243,11 @@ are H19.
 | H01 | Done: decisions recorded above, in the issue records, and in the runbook | this file, `HARVEY_AHE_RUNBOOK.md` |
 | H02 | Partly: AHE venv with editable `lab-core`; operator builds or pulls the image; each trial records the image ID | `requirements.txt`, runbook section 2 |
 | H03 | Done | `harvey-ahe-project/`, `.gitignore` |
-| H04 | Done for the pilot scope (no `docs_dir` tasks) | `harvey_ahe/tasks.py` |
+| H04 | Done. `docs_dir` tasks (firm-knowledge) load from 2026-10-14: the shared store is mounted read-only in place, as in LAB, and checked for changes after each trial | `harvey_ahe/tasks.py`, `harvey_ahe/adapter.py` |
 | H05 | Done: 6/3/3 grouped pilot, hash-pinned | `splits.json` |
 | H06 | Implemented | `harvey_ahe/adapter.py`, `harvey_ahe/workspace.py` |
 | H07 | Runner seams added with approval (AHE-005, AHE-006, AHE-008); scripted tool tests pending | `src/ahe_runner/runtime.py`, recommendations doc |
-| H08 | Implemented: skills-free LAB tool set and prompt | `harness/` |
+| H08 | Implemented: skills-free LAB tool set and prompt (campaigns 1 to 8); LAB-exact harness with skills and scripts (campaign 9) | `harness/`, `harness_lab/` |
 | H09 | Implemented; NexAU load and tool-signature checks pass offline | `harness_manifest.yaml` |
 | H10 | Done (LAB-001, LAB-002) | `harvey_ahe/grading.py`, `copilot_deliverable_matcher.py` |
 | H11 | Implemented (LAB-003) | `harvey_ahe/adapter.py` |

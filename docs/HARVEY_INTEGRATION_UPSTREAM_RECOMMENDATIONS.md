@@ -27,7 +27,7 @@ The assistant announces new permanent files before creating them.
 | ID | Confirmed issue | Operator approval | Branch-local status |
 |---|---|---|---|
 | AHE-001 | Evaluated-agent sessions skipped the configured model preflight | Explained; repair authorized on 2026-10-12 | Fixed in `4a4e57b`; targeted offline regressions and lint passed |
-| AHE-002 | Registered skill folders' helper/resource files are not recognized as active skill components | Explained; operator chose a skills-free initial harness instead of a repair | No patch; outside the initial harness scope, potentially relevant to future scripted skills |
+| AHE-002 | Registered skill folders' helper/resource files are not recognized as active skill components | Explained; operator chose a skills-free initial harness instead of a repair; on 2026-10-14 the operator asked for a LAB-exact harness for campaign 9 | No conformance patch. Campaign 9 puts LAB's skill scripts in the Harvey `workspace_seed/` folder, copied into each sandbox (see the AHE-002 section) |
 | LAB-001 | Filename helper bypasses configured Copilot routing and suppresses its API failure | Explained in plain language; repair authorized on 2026-10-12 | Fixed in LAB `86678eba6` and AHE `f0e3b0b`; 92 LAB and 19 AHE offline cases passed |
 | AHE-003 | Candidate harness folders can shadow protected Python modules during evaluation and grading | Explained in plain language; adapter-level repair authorized on 2026-10-12 | Adapter-level rejection in Harvey `validate_candidate`; AHE source unchanged |
 | AHE-004 | `ahe-runner` cannot be declared as a dependency of an operator package under uv, because of its NexAU git-URL pin | Explained; recording authorized on 2026-10-12 | Worked around in the Harvey `pyproject.toml`; AHE source unchanged |
@@ -45,6 +45,8 @@ The assistant announces new permanent files before creating them.
 | AHE-016 | The meta agents' harnesses differ from the original AHE agents: different file tools without binary or line-length protection, no long-output middleware for the Debugger, a context compaction that stops the agent instead of falling back, no shell, an 80-iteration debugger, and a debugger failure blocks the round. In campaign 4 round 2 a debugger read four `.docx` files as text and was stopped | Explained; on 2026-10-13 the operator asked for full parity with the original AHE meta agents and chose: path guard, Docker-sandboxed shell, original debugger budget, non-blocking debugger failures, original temperatures, readable evidence, `nexau-evolution-guide` skill (runbook section 5f) | Implemented and tested offline (`6f9d941`); campaign 5 is the live check |
 | AHE-017 | Change attribution compares Evolve's predicted task IDs (the debugger's per-round `task-<hash>` keys) with the evaluation's task keys, which never match, so every change was marked INEFFECTIVE with 0 hits in campaigns 3, 4 and 5 round 1, and the next Evolve read that wrong feedback | Found after campaign 5 round 1; on 2026-10-13 the operator chose to fix it, redo C1's attribution, then continue round 2 | Branch-local alias map (debugger key, task id, task key → evaluation task key) in `controller.py` and `history.py`; 229 offline tests passed |
 | AHE-018 | Changing the primary metric left the Harvey role supplements describing the old one, so campaigns 4 to 8 gave the Debugger and Evolve conflicting objectives; nothing in AHE checks that they agree | Explained on 2026-10-14; the operator asked to record it and the general rule; fix approved after campaign 8 | Fixed locally on 2026-10-14 after campaign 8: all four supplements now describe `mean_criterion_pass_rate`; applies from campaign 9. Rule for future metric changes recorded in the AHE-018 section |
+| AHE-019 | Long-term memory is always appended to the evaluated agent's system prompt with no separator, even when it only holds a note about the file itself; in campaigns 1 to 8 every evaluated trial's prompt ended `...the work is complete.# Persistent harness memory` followed by a note meant for Evolve | Explained on 2026-10-14; the operator chose to fix it in AHE core | Fixed locally on 2026-10-14 (`6f72430`): empty memory files add nothing and the suffix starts after a blank line; the starting memory files are empty and the note moved to the Evolve supplement. Applies from campaign 9 |
+| AHE-020 | Conformance requires `additionalProperties: false` in every tool schema, and NexAU sends that field to the model, so a harness cannot reproduce a benchmark's own tool schemas exactly | Explained on 2026-10-14; the operator chose an opt-in manifest setting | Fixed locally on 2026-10-14 (`44ea8aa`): `tool_schemas.allow_omitted_additional_properties`, default off; on only in `harness_manifest_lab.yaml` (campaign 9) |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -258,6 +260,30 @@ Add coverage for Python/JavaScript/shell resources, undeclared or unregistered
 folders, malicious paths, and skill-asset changes in candidate attribution.
 This recommendation is deferred; no conformance code or asset policy was
 patched as part of the skills-free baseline decision.
+
+### Campaign 9 update: LAB-exact harness with `workspace_seed/`
+
+On 2026-10-14 the operator asked for a starting harness identical to LAB's:
+its system prompt with the docx, pptx and xlsx manuals included, its seven
+tools, and its skill scripts. The scripts must run inside the sandbox, as in
+LAB, not on the host.
+
+The Harvey adapter now copies any regular files under the harness's
+`workspace_seed/` folder into `/workspace` of each trial's sandbox before the
+agent starts. `harness_lab/workspace_seed/skills/{docx,pptx,xlsx}/scripts/`
+holds LAB's scripts unchanged, so the manuals' paths
+(`skills/docx/scripts/...`) work as in LAB. The manuals are part of
+`systemprompt.md`, as LAB builds its prompt, so no NexAU skill is
+registered and this issue does not arise.
+
+Safeguards in `harvey_ahe.candidate_checks`: host Python and YAML may not
+import or bind anything under `workspace_seed/`; `runpy` is banned; seed
+Python is not scanned as host code because it only runs in the sandbox.
+Symlinks and special files are not copied. Seed files count toward the
+harness hash and size limits.
+
+This is a Harvey-side workaround. The upstream recommendation above still
+applies.
 
 ## LAB-001: make the filename helper's transport explicit
 
@@ -1699,3 +1725,105 @@ Searching these files for the old metric's name and phrasing (here
 1. Document this rule in the adapter guide's role-supplement section.
 2. Optionally have `ahe validate` warn when a role supplement names a primary
    metric other than the adapter's.
+
+## AHE-019: long-term memory leaks into the evaluated prompt without a separator
+
+### Plain-language summary
+
+AHE adds the harness's `LongTermMEMORY.md` to the end of the evaluated
+agent's system prompt. It did this even when the file only described itself,
+and it joined the text with no space or line break. The AHE template and the
+Harvey starting harness (`41757d7`) both shipped such a self-description. So
+in campaigns 1 to 8 every evaluated trial's system prompt ended:
+
+```text
+...Do not keep reading or editing after
+  the work is complete.# Persistent harness memory
+
+## Persistent harness memory: LongTermMEMORY.md
+
+# Long-term memory
+
+This file is attached to the root system prompt at session startup. Record only
+reusable procedures and stable lessons about legal-document work, tool use, and
+deliverable formatting. Never store task identifiers, task-specific facts or
+answers, grading rubric contents, hidden state, credentials, or held-out
+information.
+```
+
+That is 420 extra characters. The note was written for Evolve, not for the
+agent doing the legal task, and it mentions grading rubrics. The Debugger and
+Evolve prompts were not affected. The effect on scores is unknown.
+
+### Evidence
+
+- `src/ahe_runner/runtime.py` `_attach_long_term_memory` always built
+  `"# Persistent harness memory\n\n## Persistent harness memory: <file>\n\n<text>"`
+  and set it as `system_prompt_suffix`.
+- NexAU `prompt_builder` does `rendered += system_prompt_suffix`, with no
+  separator.
+- Campaign 8,
+  `evaluations/C0-train/runtime/022bcc79e3fe5efeafd0dc04a88c9513/attempt-1/model_calls/call-0001/request.json`:
+  the system message ends as quoted above.
+- Evolve edited the memory file in a few checkpoints (6 of 47 copies across
+  campaigns differ from the original). Those checkpoints sent Evolve's text
+  instead, still without a separator.
+- It was missed because the starting-harness parity check compared
+  `systemprompt.md` with LAB's prompt, not the assembled request.
+
+### Approved local repair
+
+Fixed on 2026-10-14 in `6f72430`, as the operator chose:
+
+- memory files that are empty or whitespace add nothing;
+- otherwise the suffix starts with a blank line;
+- `LongTermMEMORY.md` is empty in `harness/`, `harness_lab/` and the AHE
+  project template. Its usage note moved to the Evolve supplement's
+  components table.
+- Tests: `tests/test_harvey_lab_exact.py` checks the full request sent
+  through NexAU (the system message equals LAB's prompt), the empty case and
+  the separator.
+
+Applies from campaign 9. Report campaigns 1 to 8 with this caveat.
+
+### Upstream recommendations
+
+1. Skip empty memory files and always separate the suffix from the prompt.
+2. Keep notes about the memory file out of the file; put them in the Evolve
+   instructions.
+3. Parity checks should compare the assembled request, not the source files.
+
+## AHE-020: tool schemas must set `additionalProperties: false`
+
+### Plain-language summary
+
+AHE conformance rejects any tool schema without `additionalProperties:
+false`. NexAU sends the schema to the model as written. LAB's own tool
+schemas leave the field out, so a harness meant to match LAB exactly would
+show the model seven slightly different schemas.
+
+### Evidence
+
+- `src/ahe_runner/conformance.py` `_validate_tool_schema`.
+- Campaign 8 requests show `"additionalProperties": false` in all 7 tools;
+  LAB's `lab_core/harness/tools.py` has none.
+- `ahe validate` on `harness_lab` failed with seven
+  "additionalProperties must be false" errors.
+
+### Approved local repair
+
+Fixed on 2026-10-14 in `44ea8aa`. The new manifest setting
+`tool_schemas.allow_omitted_additional_properties` defaults to false. When
+true, the field may be left out; any value other than `false` is still
+rejected. Tool bindings still may not take `**kwargs`, so unexpected arguments
+cannot silently reach a tool. `harvey-ahe-project/harness_manifest_lab.yaml`
+turns it on for campaign 9 only. The shared manifest stays strict. The
+manifest is outside the harness, so Evolve cannot change it.
+
+Remaining difference from LAB: LAB ignores an unexpected argument; NexAU
+returns a tool error to the model.
+
+### Upstream recommendations
+
+1. Offer this as a documented manifest option for benchmark-parity
+   harnesses.

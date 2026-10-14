@@ -33,6 +33,7 @@ with the choice the integration made in the meantime.
 | LAB-001 | Defect | The filename helper hard-codes the Anthropic SDK and silently swallows its API failure | Repair authorized on 2026-10-12 | Fixed: LAB hook `86678eba6`, AHE callback `f0e3b0b` |
 | LAB-002 | Defect | Output too large for the judge has no defined score; LAB comparison silently drops such runs | Option A with a 240,000-character limit, chosen 2026-10-12 | Implemented in the Harvey judge wrapper (`harvey_ahe/grading.py`); LAB unchanged |
 | LAB-003 | Discussion | Dual-judge disagreement scores 0.5 in the headline but "not all-pass" in the per-run flag, with no explicit label | Disagreement treated as failing in diagnostics; headline unchanged, chosen 2026-10-12 | Implemented in Harvey adapter metrics; LAB unchanged |
+| LAB-004 | Discussion | The `bash` tool description says the working directory persists and suggests installing packages; each call is a fresh shell in `/workspace` with no network | Recorded 2026-10-14; campaign 9 copies the description unchanged for exactness | Not changed; the Harvey seed harness (`harness/`) already uses an accurate description |
 
 ## LAB-001: filename helper transport (summary)
 
@@ -184,3 +185,32 @@ consumer reads.
    `judges_disagree` flag and a published disagreement rate?
 3. Is per-task inter-judge agreement tracked, to identify rubric criteria
    whose wording judges read differently?
+
+## LAB-004: the `bash` tool description is inaccurate (discussion)
+
+### Plain-language summary
+
+LAB tells the model: "Use for running scripts, installing packages, file
+manipulation, and any shell operation. The working directory persists between
+calls." Neither part holds in LAB's sandbox. Each call starts a new shell in
+`/workspace`, so a `cd` is lost, and the container has no network, so package
+installs fail. A model that trusts the description may waste turns.
+
+### Evidence
+
+- `lab_core/harness/tools.py` lines 40-45: the description.
+- `lab_core/sandbox/sandbox.py`: the container starts with
+  `--network=none` (line 348); `exec` runs
+  `podman exec -w /workspace ... bash -c "timeout ... bash -lc <command>"`
+  for every call (lines 418-432).
+
+### Choice made by the integration
+
+The Harvey seed harness (`harness/`, campaigns 1 to 8) uses an accurate
+description. The LAB-exact harness (`harness_lab/`, campaign 9) copies LAB's
+description unchanged, because the operator asked for an exact copy.
+
+### Suggestion for Harvey
+
+Describe the real behavior: each call is a fresh shell starting in
+`/workspace`, and there is no network.

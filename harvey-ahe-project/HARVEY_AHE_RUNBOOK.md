@@ -1355,6 +1355,21 @@ supplements still described the old all-pass target (AHE-018, section 6).
   `{"status": "error"}` dicts (see `benchmark_public/ADAPTER.md` section 6).
 - Trials that end in `agent_error` are still graded on their output (LAB's
   own runner would not score them).
+- Campaigns 1 to 8: every evaluated trial's system prompt ended with 420
+  characters that were not meant for it. The memory file's self-description
+  (written for Evolve, mentioning grading rubrics) was appended with no
+  separator: `...the work is complete.# Persistent harness memory ...`. Fixed
+  from campaign 9: an empty memory file adds nothing, and the suffix starts
+  after a blank line (AHE-019).
+- Campaign 9 (`harness_lab/`): LAB's own system prompt with the docx, pptx
+  and xlsx manuals, LAB's seven tool schemas and descriptions unchanged, and
+  LAB's skill scripts copied into each sandbox's `/workspace/skills/`. The
+  remaining differences from LAB: the model runs through NexAU, not LAB's
+  loop; an unexpected tool argument returns an error, where LAB ignores it
+  (AHE-020); LAB's `bash` description is kept even though it is inaccurate
+  (LAB-004). Firm-knowledge tasks mount LAB's shared store read-only in
+  place, as LAB does, and the run checks that the store is unchanged after
+  each trial.
 - LAB-002: a judge prompt above 240,000 characters is scored `fail` without a
   model call. LAB-003: judge disagreement scores 0.5 but is a failing
   diagnostic. See `docs/HARVEY_LAB_BENCHMARK_ISSUES.md`.
@@ -1381,5 +1396,5 @@ supplements still described the old all-pass target (AHE-018, section 6).
   (AHE-018).
 - From campaign 4 on, all model calls in a process queue for one of 24 slots
   (AHE-015), and judge calls may use at most 18 of them.
-- Branch-local AHE fixes AHE-001 to AHE-008 are listed in
+- AHE issues AHE-001 to AHE-020 and their branch-local fixes are listed in
   `docs/HARVEY_INTEGRATION_UPSTREAM_RECOMMENDATIONS.md`.
