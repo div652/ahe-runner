@@ -1278,6 +1278,13 @@ and tmux session (`ahe-c8`).
 - From campaign 4 on, the primary metric is the mean criterion pass rate, not
   LAB's dual all-pass rate, which is still reported and breaks ties
   (section 5d).
+- In campaigns 4 to 8, the Debugger and Evolve role supplements
+  (`meta_supplements/`) still described the old target: Evolve's said the
+  dual all-pass rate was the sole target and the criterion pass rate only a
+  tie-breaker. The benchmark context and `ADAPTER.md` described the new
+  metric, so both meta agents received conflicting objectives. The
+  supplements are part of campaign identity and are fixed after campaign 8
+  (AHE-018).
 - From campaign 4 on, all model calls in a process queue for one of 24 slots
   (AHE-015), and judge calls may use at most 18 of them.
 - Branch-local AHE fixes AHE-001 to AHE-008 are listed in

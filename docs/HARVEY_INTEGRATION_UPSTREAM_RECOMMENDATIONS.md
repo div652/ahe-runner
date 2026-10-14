@@ -44,6 +44,7 @@ The assistant announces new permanent files before creating them.
 | AHE-015 | AHE has no endpoint-wide limit on model calls in flight: the evaluated agent, the benchmark judges, and the meta agents each send calls independently, and a burst above the Copilot limit is refused instead of waiting | Explained in plain language; on 2026-10-13 the operator asked that calls above the limit be queued, and approved `transport.max_concurrent_requests: 24` with the Harvey judge cap lowered to 18 | Branch-local `transport.max_concurrent_requests` and a shared queue in `meta/model_client.py`; 199 offline tests passed |
 | AHE-016 | The meta agents' harnesses differ from the original AHE agents: different file tools without binary or line-length protection, no long-output middleware for the Debugger, a context compaction that stops the agent instead of falling back, no shell, an 80-iteration debugger, and a debugger failure blocks the round. In campaign 4 round 2 a debugger read four `.docx` files as text and was stopped | Explained; on 2026-10-13 the operator asked for full parity with the original AHE meta agents and chose: path guard, Docker-sandboxed shell, original debugger budget, non-blocking debugger failures, original temperatures, readable evidence, `nexau-evolution-guide` skill (runbook section 5f) | Implemented and tested offline (`6f9d941`); campaign 5 is the live check |
 | AHE-017 | Change attribution compares Evolve's predicted task IDs (the debugger's per-round `task-<hash>` keys) with the evaluation's task keys, which never match, so every change was marked INEFFECTIVE with 0 hits in campaigns 3, 4 and 5 round 1, and the next Evolve read that wrong feedback | Found after campaign 5 round 1; on 2026-10-13 the operator chose to fix it, redo C1's attribution, then continue round 2 | Branch-local alias map (debugger key, task id, task key → evaluation task key) in `controller.py` and `history.py`; 229 offline tests passed |
+| AHE-018 | Changing the primary metric left the Harvey role supplements describing the old one, so campaigns 4 to 8 gave the Debugger and Evolve conflicting objectives; nothing in AHE checks that they agree | Explained on 2026-10-14; the operator asked to record it and the general rule | Not fixed yet: supplements are in campaign identity; rewrite planned after campaign 8. Rule for future metric changes recorded in the AHE-018 section |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -1623,3 +1624,63 @@ attribution, then launch round 2").
   references. Campaign 5's stored report was left unchanged: the campaign
   identity fingerprints the runner package, so campaign 5 cannot resume
   under the fixed code. Campaign 6 reran the same configuration with the fix.
+
+## AHE-018: a metric change does not flag stale meta-agent guidance
+
+### Plain-language summary
+
+Campaign 4 changed the primary metric from LAB's dual all-pass rate to the
+mean criterion pass rate. The adapter, its benchmark context and
+`benchmark_public/ADAPTER.md` were updated, but the Harvey role supplements
+were not. These supplements are appended to the Debugger and Evolve system
+prompts. Evolve's still said the all-pass rate was the sole target and the
+criterion pass rate only a tie-breaker. So in campaigns 4 to 8 both meta
+agents were told two different objectives. Nothing in AHE checks that the
+supplements agree with the adapter's metric. The effect on results is
+unknown.
+
+### Evidence
+
+- Commit `b7029c3` changed the metric in `harvey_ahe/adapter.py`,
+  `benchmark_public/ADAPTER.md` and `ahe.yaml`, but not
+  `harvey-ahe-project/meta_supplements/`.
+- `meta_supplements/evolve.md` lines 7-9: "The sole optimization target is
+  the dual all-pass rate", with the criterion pass rate a "tie-breaker and
+  diagnostic only"; section 1 says one failed criterion fails the trial.
+- `meta_supplements/debugger.md` lines 5-11 describe the trial score as the
+  mean of the judges' all-pass values (0, 0.5 or 1).
+- `meta_supplements/source.md` line 84 and `web.md` line 21 use milder
+  all-pass framing.
+- The stale text is in the rendered prompts of campaigns 7 and 8, for
+  example `evolve/C1/attempt-0001/runtime/system_prompt.md`.
+
+### Status
+
+Recorded on 2026-10-14 at the operator's request; no repair yet. The
+supplements are hashed into campaign identity (`resolved_meta_inputs`), so
+editing them now would stop campaign 8 from resuming. After campaign 8,
+with approval: rewrite the metric wording in all four supplements to match
+`mean_criterion_pass_rate`, run the offline render check and tests, and use
+the corrected text in later campaigns. Report campaigns 4 to 8 with this
+caveat.
+
+### Rule for future metric or criteria changes
+
+Whenever the primary metric, the pass criteria or their aggregation change,
+review in the same change:
+
+1. the role supplements (`meta.role_supplements`);
+2. `meta_prompt_context()` (`benchmark_objective`, `evidence_description`,
+   `failure_taxonomy`);
+3. the public adapter documents under `meta_agent_source_roots`;
+4. `compare()` and `selection_key()`;
+5. the seed harness prompt and memory, if they state the scoring rule.
+
+Searching these files for the old metric's name and phrasing (here
+"all-pass") is a quick check.
+
+### Upstream recommendations
+
+1. Document this rule in the adapter guide's role-supplement section.
+2. Optionally have `ahe validate` warn when a role supplement names a primary
+   metric other than the adapter's.
