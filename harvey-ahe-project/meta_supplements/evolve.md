@@ -63,8 +63,9 @@ rewording the rule.
 | Tool implementation | `tools/*.py` | Runs on the host; reaches the sandbox only via `handle_for(agent_state)`; must catch every exception | Deliverable checks, paged reading, previewing the judges' view |
 | Middleware | `middleware/*.py` + `agent.yaml` `middlewares:` | Runs on the host; duck-typed hooks; can rewrite messages and tool results | Turn-budget reminders, compacting large tool results |
 | Skill | `skills/<name>/SKILL.md` + `agent.yaml` `skills:` | Text only; its folder is not visible in the sandbox | Reusable how-tos (for example, a `.docx` with tables) |
+| Workspace seed | `workspace_seed/**` | Copied into every trial's `/workspace` before the agent starts (`workspace_seed/skills/docx/scripts/x.py` becomes `/workspace/skills/docx/scripts/x.py`); runs only inside the sandbox through `bash` | Helper scripts that the prompt or a skill tells the agent to run |
 | Sub-agent | `sub_agents/<name>/agent.yaml` + `systemprompt.md` + `agent.yaml` `sub_agents:` | Shares the parent's sandbox; forced onto the evaluated model; `max_iterations` at most 200 | A bounded document reader or reviewer |
-| Long-term memory | `LongTermMEMORY.md` | Appended to the system prompt | Durable procedures, never task facts |
+| Long-term memory | `LongTermMEMORY.md` | Appended verbatim to the end of the evaluated agent's system prompt; an empty file adds nothing | Durable procedures written as instructions to the agent; never notes about the file itself, never task facts |
 | Short-term memory | `ShortTermMEMORY.md` | Runtime-owned | Do not modify |
 
 ## Registering New Components
@@ -96,7 +97,11 @@ editing.
 - **Banned imports and calls.** Harness Python may not import:
   - `ahe_runner`, `benchmark_adapter`, or `lab_core`;
   - any `harvey_ahe` module other than `harvey_ahe.workspace`;
-  - process, network, FFI, or dynamic-import modules.
+  - process, network, FFI, or dynamic-import modules;
+  - anything under `workspace_seed/` (no imports or `binding:` entries).
+
+  Python under `workspace_seed/` is exempt from these bans because it only
+  runs inside the sandbox.
 
   It may not call `eval`, `exec`, `compile`, `__import__`, `os.system`,
   `os.popen`, `os.fork*`, `os.exec*`, or `os.spawn*`.
@@ -118,9 +123,10 @@ editing.
   `/workspace` first. There is no network, and nothing can be installed.
 - **Rejecting `finish`.** Return `{"status": "error", "error": "..."}`. Keep
   a cap on rejections so a run cannot loop.
-- **Skills.** Their folder files cannot be run by `bash`. To run helper
-  code, embed the script in a tool implementation that writes it into the
-  sandbox.
+- **Skills and scripts.** NexAU skill folders are not visible in the
+  sandbox. Put scripts the agent should run with `bash` under
+  `workspace_seed/`; they appear under `/workspace` in every trial and run
+  with the sandbox's own Python, pandoc, and LibreOffice.
 - **Middleware.** Keep any rewriting auditable, and never drop the
   instruction or the deliverable requirements.
 - **What judges read.** Judges read extracted text:

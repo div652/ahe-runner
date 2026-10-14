@@ -170,6 +170,9 @@ def test_runtime_intercepts_protected_actions_and_preserves_sessions(
     config_path = make_example_project(tmp_path)
     config = load_config(config_path)
     manifest = load_harness_manifest(config.harness_manifest_path)
+    (config.harness_dir / "LongTermMEMORY.md").write_text(
+        "Record only reusable procedures.\n", encoding="utf-8"
+    )
     middleware_dir = config.harness_dir / "middleware"
     middleware_dir.mkdir(exist_ok=True)
     (middleware_dir / "force_continue.py").write_text(

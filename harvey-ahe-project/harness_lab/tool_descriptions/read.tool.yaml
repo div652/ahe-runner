@@ -1,0 +1,22 @@
+type: tool
+name: read
+description: Read a file from the input directory or workspace. Handles .docx, .xlsx,
+  .pptx, .pdf, and plain text — extraction is automatic; use this rather than a skill
+  just to read. Use offset and limit for large files.
+input_schema:
+  type: object
+  properties:
+    file_path:
+      type: string
+      description: Relative path (resolved against workspace then input directory)
+        or absolute path
+    offset:
+      type: integer
+      description: Line number to start reading from (0-based). Optional.
+    limit:
+      type: integer
+      description: Maximum number of lines to return. Optional.
+  required:
+  - file_path
+disable_parallel: true
+binding: tools.read:read

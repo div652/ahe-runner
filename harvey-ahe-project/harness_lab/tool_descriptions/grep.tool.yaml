@@ -1,0 +1,28 @@
+type: tool
+name: grep
+description: Search file contents using regex patterns. Defaults to searching the
+  input directory. Returns matching file paths or matching lines with context.
+input_schema:
+  type: object
+  properties:
+    pattern:
+      type: string
+      description: Regex pattern to search for
+    path:
+      type: string
+      description: File or directory to search in. Defaults to the input directory.
+    glob:
+      type: string
+      description: Glob pattern to filter files (e.g., '*.py', '*.docx')
+    output_mode:
+      type: string
+      enum:
+      - content
+      - files_with_matches
+      - count
+      description: 'Output format. ''content'' shows matching lines, ''files_with_matches''
+        shows file paths, ''count'' shows match counts. Default: ''files_with_matches''.'
+  required:
+  - pattern
+disable_parallel: true
+binding: tools.grep:grep

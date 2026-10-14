@@ -1,0 +1,18 @@
+type: tool
+name: glob
+description: Find files matching a glob pattern, sorted by modification time. Defaults
+  to searching the input directory. Prefer this over `bash find` or `bash ls` for
+  file discovery.
+input_schema:
+  type: object
+  properties:
+    pattern:
+      type: string
+      description: Glob pattern to match (e.g., '**/*.docx', 'src/**/*.py')
+    path:
+      type: string
+      description: Directory to search in. Defaults to the input directory.
+  required:
+  - pattern
+disable_parallel: true
+binding: tools.glob:glob

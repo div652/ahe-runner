@@ -6,9 +6,11 @@ parses CLI arguments at import time) and without reading ``LAB_ROOT``.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import shutil
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -36,6 +38,9 @@ class HarveyTask:
     instructions: str
     task_json_sha256: str
     documents_sha256: str
+    # True when task.json's `docs_dir` points at a corpus shared by many tasks
+    # (LAB's firm-knowledge DMS); such documents are mounted, not copied.
+    shared_documents: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,11 +82,18 @@ def load_task(lab_root: Path, task_id: str) -> HarveyTask:
         validate_task_config(config=config, task_path=config_path)
     except ValueError as exc:
         raise ConfigurationError(str(exc)) from exc
-    if config.get("docs_dir"):
-        raise ConfigurationError(
-            f"{task_id}: shared docs_dir tasks are outside this adapter's scope"
-        )
-    documents_dir = task_dir / "documents"
+    shared = bool(config.get("docs_dir"))
+    if shared:
+        # Same resolution as LAB's run.load_task, kept inside tasks/.
+        documents_dir = (task_dir / str(config["docs_dir"])).resolve()
+        try:
+            documents_dir.relative_to((lab_root / "tasks").resolve())
+        except ValueError as exc:
+            raise ConfigurationError(
+                f"{task_id}: docs_dir escapes the LAB tasks folder"
+            ) from exc
+    else:
+        documents_dir = task_dir / "documents"
     if not documents_dir.is_dir():
         raise ConfigurationError(f"documents directory not found: {documents_dir}")
     instructions = config.get("instructions")
@@ -97,8 +109,61 @@ def load_task(lab_root: Path, task_id: str) -> HarveyTask:
         config=config,
         instructions=str(instructions),
         task_json_sha256=sha256_file(config_path),
-        documents_sha256=tree_sha256(documents_dir),
+        documents_sha256=(
+            _shared_tree_sha256(documents_dir) if shared else tree_sha256(documents_dir)
+        ),
+        shared_documents=shared,
     )
+
+
+_SHARED_HASHES: dict[Path, str] = {}
+_SHARED_FINGERPRINTS: dict[Path, str] = {}
+_SHARED_HASHES_LOCK = threading.Lock()
+
+
+def _shared_tree_sha256(directory: Path) -> str:
+    """Hash a shared corpus once per process (250 tasks share one 523 MB DMS).
+
+    Also records the metadata fingerprint that ``verify_shared_documents``
+    re-checks after every trial, because shared corpora are mounted in place
+    rather than copied.
+    """
+    with _SHARED_HASHES_LOCK:
+        if directory not in _SHARED_HASHES:
+            _SHARED_FINGERPRINTS[directory] = documents_fingerprint(directory)
+            _SHARED_HASHES[directory] = tree_sha256(directory)
+        return _SHARED_HASHES[directory]
+
+
+def documents_fingerprint(directory: Path) -> str:
+    """Cheap tamper check: path, type, size, and mtime of every entry."""
+    digest = hashlib.sha256()
+    for path in sorted(directory.rglob("*")):
+        stat = path.lstat()
+        relative = path.relative_to(directory).as_posix()
+        digest.update(
+            f"{relative}\0{stat.st_mode}\0{stat.st_size}\0{stat.st_mtime_ns}\n".encode(
+                "utf-8", "surrogateescape"
+            )
+        )
+    return digest.hexdigest()
+
+
+def verify_shared_documents(task: HarveyTask) -> None:
+    """Fail closed if a trial changed a corpus that is mounted in place.
+
+    The podman mount is read-only, but host-side harness code can reach host
+    paths through ``WorkspaceHandle.to_host``.
+    """
+    if not task.shared_documents:
+        return
+    with _SHARED_HASHES_LOCK:
+        baseline = _SHARED_FINGERPRINTS.get(task.documents_dir)
+    if baseline is None or documents_fingerprint(task.documents_dir) != baseline:
+        raise IntegrityError(
+            f"{task.task_id}: shared documents changed during evaluation: "
+            f"{task.documents_dir}"
+        )
 
 
 def eligibility_errors(task: HarveyTask) -> list[str]:

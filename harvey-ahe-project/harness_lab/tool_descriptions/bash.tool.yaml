@@ -1,0 +1,15 @@
+type: tool
+name: bash
+description: Execute a bash command and return its output. Use for running scripts,
+  installing packages, file manipulation, and any shell operation. The working directory
+  persists between calls.
+input_schema:
+  type: object
+  properties:
+    command:
+      type: string
+      description: The bash command to execute
+  required:
+  - command
+disable_parallel: true
+binding: tools.bash:bash

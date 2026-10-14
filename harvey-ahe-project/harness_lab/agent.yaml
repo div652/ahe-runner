@@ -1,0 +1,39 @@
+type: agent
+name: harvey_lab_agent
+description: >-
+  Harvey LAB legal-work agent. Reads the task documents in its sandbox and
+  produces the requested deliverables in the output directory.
+max_context_tokens: 200000
+system_prompt: ./systemprompt.md
+system_prompt_type: file
+tool_call_mode: openai
+max_iterations: 200
+stop_tools:
+  - finish
+
+llm_config:
+  model: UNCONFIGURED
+  base_url: http://127.0.0.1:1/v1
+  api_key: local-placeholder
+  max_tokens: 64000
+  stream: false
+  api_type: openai_chat_completion
+
+tools:
+  - name: bash
+    yaml_path: ./tool_descriptions/bash.tool.yaml
+  - name: read
+    yaml_path: ./tool_descriptions/read.tool.yaml
+  - name: write
+    yaml_path: ./tool_descriptions/write.tool.yaml
+  - name: edit
+    yaml_path: ./tool_descriptions/edit.tool.yaml
+  - name: glob
+    yaml_path: ./tool_descriptions/glob.tool.yaml
+  - name: grep
+    yaml_path: ./tool_descriptions/grep.tool.yaml
+  - name: finish
+    yaml_path: ./tool_descriptions/finish.tool.yaml
+skills: []
+sub_agents: []
+middlewares: []

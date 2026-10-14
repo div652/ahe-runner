@@ -39,6 +39,7 @@ BANNED_IMPORT_ROOTS = frozenset(
         "multiprocessing",
         "pty",
         "requests",
+        "runpy",
         "smtplib",
         "socket",
         "ssl",
@@ -62,6 +63,11 @@ BANNED_TEXT = (
 )
 MAX_AGENT_ITERATIONS = 200
 REQUIRED_TOOL_NAME = "finish"
+# Copied into each trial's /workspace by the adapter and run only inside the
+# sandbox, so it is exempt from the host import scan but must never be loaded
+# by host-side harness code.
+WORKSPACE_SEED_DIR = "workspace_seed"
+_SEED_REFERENCE = re.compile(rf"(?<![A-Za-z0-9_]){WORKSPACE_SEED_DIR}\s*[.:]")
 _TEXT_SUFFIXES = frozenset({".md", ".txt", ".yaml", ".yml", ".json", ".py"})
 _IMPORT_SUFFIXES = tuple(
     sorted(importlib.machinery.all_suffixes(), key=len, reverse=True)
@@ -117,14 +123,18 @@ def harvey_candidate_errors(
     errors.extend(banned_text_errors(root))
     errors.extend(training_slug_errors(root, training_task_ids))
     errors.extend(agent_config_errors(root))
+    errors.extend(workspace_seed_reference_errors(root))
     return errors
 
 
 def harness_import_errors(harness_dir: Path) -> list[str]:
-    """Reject host-escape imports and calls in harness Python (best effort)."""
+    """Reject host-escape imports and calls in host-side harness Python.
+
+    Best effort. ``workspace_seed/`` is skipped: it only runs in the sandbox.
+    """
     root = harness_dir.resolve()
     errors: list[str] = []
-    for path in _harness_files(root, {".py"}):
+    for path in _harness_files(root, {".py"}, include_seed=False):
         relative = path.relative_to(root).as_posix()
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=relative)
@@ -165,10 +175,36 @@ def banned_text_errors(harness_dir: Path) -> list[str]:
     return errors
 
 
+def workspace_seed_reference_errors(harness_dir: Path) -> list[str]:
+    """Reject host-side imports or bindings that would load sandbox-only code."""
+    root = harness_dir.resolve()
+    errors: list[str] = []
+    for path in _harness_files(root, {".py", ".yaml", ".yml"}, include_seed=False):
+        text = _read_text(path)
+        if text is not None and _SEED_REFERENCE.search(text):
+            errors.append(
+                f"{path.relative_to(root).as_posix()}: host-side code may not "
+                f"import or bind {WORKSPACE_SEED_DIR}/ (sandbox-only files)"
+            )
+    return errors
+
+
+def training_slug(task_id: str) -> str:
+    """Leaf slug, widened to ``parent/leaf`` when the leaf is only digits.
+
+    Numbered tasks (``firm-knowledge/tasks/001``) would otherwise match any
+    ordinary number such as ``max_iterations: 200``.
+    """
+    parts = str(task_id).split("/")
+    if parts[-1].isdigit() and len(parts) > 1:
+        return "/".join(parts[-2:])
+    return parts[-1]
+
+
 def training_slug_errors(harness_dir: Path, task_ids: Iterable[str]) -> list[str]:
     """Reject training task slugs (AHE already rejects complete task IDs)."""
     root = harness_dir.resolve()
-    slugs = sorted({str(task_id).rsplit("/", 1)[-1] for task_id in task_ids})
+    slugs = sorted({training_slug(task_id) for task_id in task_ids})
     errors: list[str] = []
     for path in _harness_files(root, set(_TEXT_SUFFIXES)):
         text = _read_text(path)
@@ -225,10 +261,17 @@ def agent_config_errors(harness_dir: Path) -> list[str]:
     return errors
 
 
-def _harness_files(root: Path, suffixes: set[str]) -> list[Path]:
+def _harness_files(
+    root: Path, suffixes: set[str], *, include_seed: bool = True
+) -> list[Path]:
     files: list[Path] = []
     for current, dirs, names in os.walk(root, followlinks=False):
-        dirs[:] = sorted(name for name in dirs if name != "__pycache__")
+        dirs[:] = sorted(
+            name
+            for name in dirs
+            if name != "__pycache__"
+            and (include_seed or Path(current) != root or name != WORKSPACE_SEED_DIR)
+        )
         for name in sorted(names):
             path = Path(current) / name
             if path.suffix.lower() in suffixes and not path.is_symlink():
@@ -276,6 +319,8 @@ def _banned_import_reason(module: str) -> str | None:
         if ".".join(parts[:2]) in HARNESS_IMPORTABLE_PROTECTED:
             return None
         return "only harvey_ahe.workspace is harness-importable"
+    if root == WORKSPACE_SEED_DIR:
+        return "workspace_seed/ is sandbox-only code"
     if root in BANNED_IMPORT_ROOTS:
         return "host network, process, grader, or dynamic-import access"
     if root == "os" and len(parts) == 2 and BANNED_OS_ATTRIBUTES.match(parts[1]):

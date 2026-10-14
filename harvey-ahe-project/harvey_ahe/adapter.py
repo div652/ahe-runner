@@ -2,7 +2,9 @@
 
 One evaluation unit is one LAB task trial:
 
-1. copy the pinned task documents into a private scratch directory;
+1. copy the pinned task documents into a private scratch directory (a corpus
+   shared through ``docs_dir`` is mounted read-only in place instead), and
+   copy the harness's ``workspace_seed/`` folder into the trial workspace;
 2. start one LAB podman sandbox (``--network=none``) over that directory;
 3. bind the sandbox to the session (AHE-005/006) and run the NexAU session;
 4. stop the sandbox and copy regular output files into the unit directory;
@@ -80,7 +82,7 @@ from ahe_runner.runtime import (
     EvaluatedAgentRuntime,
 )
 
-from .candidate_checks import harvey_candidate_errors
+from .candidate_checks import WORKSPACE_SEED_DIR, harvey_candidate_errors
 from .grading import JUDGE_MAX_TOKENS, dual_summary, grade_with_retries
 from .readable import write_readable_views
 from .tasks import (
@@ -90,6 +92,7 @@ from .tasks import (
     leaf_slug,
     load_pinned_task,
     load_split_file,
+    verify_shared_documents,
 )
 from .workspace import MAX_EXEC_TIMEOUT_SECONDS, RESOURCE_KEY, WorkspaceHandle
 
@@ -127,6 +130,9 @@ class HarveyAdapterSettings(BaseModel):
     judge_max_concurrent_calls: int | None = Field(default=None, ge=1, le=100)
     grading_attempts: int = Field(default=2, ge=1, le=5)
     attribution_min_task_delta: float = Field(default=0.0, ge=0.0, le=1.0)
+    # The pilot selection filter (eligibility_errors) is re-checked for every
+    # split task on load. False admits any LAB task, e.g. firm-knowledge.
+    apply_task_filter: bool = True
 
     @model_validator(mode="after")
     def validate_judges(self) -> HarveyAdapterSettings:
@@ -219,7 +225,8 @@ class HarveyAdapter(BenchmarkAdapterV2):
         for split in self.split_file.splits.values():
             for pinned in split:
                 task = load_pinned_task(self.lab_root, pinned)
-                errors.extend(eligibility_errors(task))
+                if self.config.apply_task_filter:
+                    errors.extend(eligibility_errors(task))
                 self._tasks[task.task_id] = task
         if errors:
             raise ConfigurationError("ineligible Harvey tasks: " + "; ".join(errors))
@@ -649,6 +656,7 @@ class HarveyAdapter(BenchmarkAdapterV2):
                 runtime=runtime,
                 runtime_dir=runtime_dir,
                 environment=environment,
+                harness_dir=request.harness_dir,
             )
             run_dir = attempt_dir / "run"
             output_files, skipped = _copy_outputs(
@@ -755,12 +763,19 @@ class HarveyAdapter(BenchmarkAdapterV2):
         runtime: EvaluatedAgentRuntime,
         runtime_dir: Path,
         environment: _Environment,
+        harness_dir: Path,
     ) -> _AgentRun:
-        copy_documents(task, scratch / "documents")
+        if task.shared_documents:
+            # Mounted read-only by the sandbox; its hash was checked on load.
+            documents_dir = task.documents_dir
+        else:
+            documents_dir = scratch / "documents"
+            copy_documents(task, documents_dir)
         for name in ("workspace", "output", "nexau_cwd"):
             (scratch / name).mkdir()
+        seed_workspace(harness_dir, scratch / "workspace")
         sandbox = Sandbox(
-            documents_dir=scratch / "documents",
+            documents_dir=documents_dir,
             output_dir=scratch / "output",
             workspace_dir=scratch / "workspace",
             image=environment.image_id,
@@ -799,7 +814,10 @@ class HarveyAdapter(BenchmarkAdapterV2):
             )
         finally:
             handle.revoke()
-            sandbox.stop()
+            try:
+                sandbox.stop()
+            finally:
+                verify_shared_documents(task)
 
     # Recomputation from stored artifacts (shared by evaluate and verify)
 
@@ -1107,6 +1125,27 @@ def _tool_counts(messages: Sequence[dict[str, Any]]) -> tuple[dict[str, int], in
             if isinstance(block, dict) and block.get("type") == "tool_use":
                 counts[str(block.get("name"))] += 1
     return dict(sorted(counts.items())), turns
+
+
+def seed_workspace(harness_dir: Path, workspace: Path) -> list[str]:
+    """Copy ``<harness>/workspace_seed/`` into a trial workspace.
+
+    LAB's ``setup_skill_scripts`` equivalent: the files appear under
+    ``/workspace`` inside the sandbox and never run on the host.
+
+    Regular files only (mode bits kept); symlinks and special files are
+    skipped so a candidate cannot pull host files into the sandbox.
+    """
+    seed = harness_dir / WORKSPACE_SEED_DIR
+    if seed.is_symlink() or not seed.is_dir():
+        return []
+    copied: list[str] = []
+    for path, relative in _walk(seed, []):
+        target = workspace / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, target, follow_symlinks=False)
+        copied.append(relative)
+    return copied
 
 
 def _copy_outputs(
