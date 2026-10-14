@@ -1254,6 +1254,82 @@ so the launch wrapper now allows 5 resumes instead of 3. Otherwise it is
 the section 5h command with the campaign 8 log (`c8-run.log`), stage path
 and tmux session (`ahe-c8`).
 
+## 5k. Campaign log: `harvey-lab-campaign-8-evaluated-gpt-5.4` (complete)
+
+Launched at 04:55 UTC on 2026-10-14 from commit `c77deb7`. The run finished
+at 13:15 UTC with exit 0, after 8 h 21 min, including 43 min with the host
+down. The log is `campaign-artifacts/c8-run.log`, and the artifacts take
+9.1 GB.
+
+Interruptions:
+- **Host reboot at 07:26** (kernel update), during `evaluation.C2.train`
+  with 94 of 120 trials done. Six units had failed at 07:15 with `podman
+  info` timeouts just before. The reboot ended the tmux sessions, the
+  wrapper and the model endpoint. Recovery at 08:07-08:09, with the
+  operator's approval:
+  1. restarted the endpoint host and Start Server;
+  2. checked the three models;
+  3. removed 15 stale `lab-sandbox` containers;
+  4. relaunched the wrapper with `ahe resume`.
+
+  The stale attempt was marked abandoned, and attempt 2 ran the remaining
+  26 units in 18.8 min.
+- **300 s endpoint timeouts** on one agent model call each:
+  - `evaluation.C3.train` at 09:35: 119 of 120 units were kept, and resume 1
+    took 9.7 min;
+  - `evaluation.C0.test` at 12:42: 44 of 45 kept, and resume 2 took 6.1 min.
+
+  The wrapper used 2 of its 5 resumes.
+- The many "Finish Tool 'finish' execution failed, will continue." log lines
+  are the evolved `finish` tool rejecting a run, not errors.
+
+| Stage (min) | Round 1 | Round 2 | Round 3 | Round 4 |
+|---|---|---|---|---|
+| debugger (60/60 diagnosed) | 10.5 | 12.4 | 11.9 | 13.7 |
+| evolve | 5.4 | 5.5 | 5.6 | 13.7 |
+| next train eval (120 trials) | 38.3 | 37 + 18.8 after reboot | 47.8 + 9.7 resume | 49.3 |
+
+C0's training evaluation took 29.4 min, and exploration took 10.1 min.
+Validation of each checkpoint (30 trials) took 12-19 min. Test took
+14.1 + 6.1 min for C0 and 22.2 min for C4 (45 trials each).
+
+| Metric (mean criterion pass rate) | C0 | C1 | C2 | C3 | C4 |
+|---|---|---|---|---|---|
+| Train, 60 tasks × 2 | 0.686 | 0.714 | 0.727 | 0.716 | **0.749** |
+| Validation, 15 tasks × 2 | 0.690 | 0.740 | 0.756 | 0.745 | **0.765** |
+| Test, 15 tasks × 3 | 0.684 | - | - | - | **0.754** |
+
+Selected: **C4**. The test confirms the selection.
+- Test, C4 against C0: +0.071, higher on 13 of 15 tasks, paired t 5.0. The
+  two lower tasks dropped by 0.013 and 0.009. The largest gains were
+  corporate governance (+0.154), employment (+0.153) and capital markets
+  (+0.119).
+- Validation, C4 against C0: +0.075, higher on 12 of 15 tasks, paired t 3.7.
+- Train, C4 against C0: +0.063, higher on 49 and lower on 8 of 60 tasks,
+  paired t 6.7.
+- The tie-breaker metric fell. On test, 2 of C0's 45 trials passed every
+  criterion under both judges, and none of C4's did (one passed under one
+  judge).
+- The evolved harness took 3.7 times as many turns: 935 against 251
+  assistant turns on test, and 1,225 against 520 tool calls.
+
+Against campaign 7, which differs only in the evaluated model: gpt-5.4
+starts 0.18 higher (C0 train 0.686 against 0.506). Evolution then helped
+(+0.071 on test), whereas with gpt-5.4-mini it hurt (−0.046).
+
+What Evolve changed (attribution with the 0.08 threshold):
+
+| Round | Changes | Verdicts |
+|---|---|---|
+| 1 | an issue ledger and a final read-through, in the prompt, memory, `finish` description and `finish` code | memory EFFECTIVE 2/2; the other three PARTIALLY_EFFECTIVE; 2 unpredicted regressions |
+| 2 | new skill `ledger-to-deliverable-review`, plus prompt and memory edits | all INEFFECTIVE; 2 unpredicted regressions |
+| 3 | stricter audit: a saved review checklist required by the prompt, memory and skill, with `finish` rejecting runs without one | all INEFFECTIVE; 3 unpredicted regressions; train −0.010 |
+| 4 | rolled back round 3's four files to C2; the `finish` description says a rejection names the specific missing items | prompt rollback INEFFECTIVE; the other four PARTIALLY_EFFECTIVE; no unpredicted regressions; train +0.033 |
+
+The debugger labelled 53-57 of 60 tasks `issue-coverage-gap` in every
+round, as in campaign 7. Throughout, the Debugger and Evolve role
+supplements still described the old all-pass target (AHE-018, section 6).
+
 
 ## 6. Known deviations and limits to report with results
 
