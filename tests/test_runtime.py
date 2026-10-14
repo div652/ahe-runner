@@ -1,33 +1,19 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, ClassVar
 
-import httpx
 import pytest
 import yaml
-from openai import OpenAI
 from openai.types.chat import ChatCompletion
-from pydantic import ValidationError
 
-import ahe_runner.meta.preflight as preflight_module
 import ahe_runner.runtime as runtime_module
-from ahe_runner.adapter import (
-    BenchmarkInterface,
-    BenchmarkToolSpec,
-    EvaluationRequest,
-    SplitDefinition,
-    SplitName,
-)
+from ahe_runner.adapter import BenchmarkInterface, BenchmarkToolSpec
 from ahe_runner.config import load_config
-from ahe_runner.errors import InfrastructureError, IntegrityError
-from ahe_runner.evaluation import evaluation_request_sha256
+from ahe_runner.errors import IntegrityError
 from ahe_runner.harness import load_harness_manifest
-from ahe_runner.io import read_json, sha256_file
 from ahe_runner.runtime import (
     AgentInput,
     AgentInputMessage,
@@ -55,117 +41,9 @@ class FakeRecordedClient:
         return self.responses.pop(0)
 
 
-class _PreflightEndpoint:
-    def __init__(self) -> None:
-        self.requests: list[httpx.Request] = []
-        self.model_ids = ["example-evaluated-model"]
-        self.response_model: str | None = None
-        self.accept_nonexistent = False
-        self.catalog_status = 200
-
-    def handle(self, request: httpx.Request) -> httpx.Response:
-        self.requests.append(request)
-        if request.method == "GET":
-            assert request.url.path.endswith("/models")
-            if self.catalog_status != 200:
-                return httpx.Response(
-                    self.catalog_status,
-                    json={"error": {"message": "catalog temporarily unavailable"}},
-                )
-            return httpx.Response(
-                200,
-                json={
-                    "object": "list",
-                    "data": [
-                        {
-                            "id": model,
-                            "object": "model",
-                            "created": 1,
-                            "owned_by": "offline-test",
-                        }
-                        for model in self.model_ids
-                    ],
-                },
-            )
-        assert request.url.path.endswith("/chat/completions")
-        payload = json.loads(request.content)
-        model = payload["model"]
-        if model.startswith("ahe-negative-control-") and not self.accept_nonexistent:
-            return httpx.Response(
-                404,
-                json={
-                    "error": {
-                        "message": f"Unknown model {model}",
-                        "type": "invalid_request_error",
-                        "code": "model_not_found",
-                    }
-                },
-            )
-        return httpx.Response(
-            200,
-            json=_completion(
-                model=self.response_model or model,
-                content="OK",
-            ).model_dump(mode="json"),
-        )
-
-
-@pytest.fixture
-def preflight_endpoint(
-    monkeypatch: pytest.MonkeyPatch,
-) -> Iterator[_PreflightEndpoint]:
-    endpoint = _PreflightEndpoint()
-    clients: list[OpenAI] = []
-
-    def make_client(**kwargs: Any) -> OpenAI:
-        client = OpenAI(
-            **kwargs,
-            http_client=httpx.Client(transport=httpx.MockTransport(endpoint.handle)),
-        )
-        clients.append(client)
-        return client
-
-    monkeypatch.setattr(preflight_module, "OpenAI", make_client)
-    yield endpoint
-    for client in clients:
-        client.close()
-
-
-@pytest.fixture
-def runtime_factory(
-    tmp_path: Path,
-    preflight_endpoint: _PreflightEndpoint,
-) -> Iterator[Callable[[], EvaluatedAgentRuntime]]:
-    config = load_config(make_example_project(tmp_path))
-    manifest = load_harness_manifest(config.harness_manifest_path)
-    instances: list[EvaluatedAgentRuntime] = []
-
-    def create_runtime() -> EvaluatedAgentRuntime:
-        runtime = EvaluatedAgentRuntime(
-            harness_dir=config.harness_dir,
-            manifest=manifest,
-            benchmark_interface=BenchmarkInterface(description="Preflight fixture."),
-            model=config.document.models.evaluated.model_copy(
-                update={"max_tokens": 128, "reasoning_effort": "high"}
-            ),
-            transport=config.document.transport.model_copy(
-                update={"model_catalog": "required", "negative_control": "required"}
-            ),
-            api_key=config.api_key,
-            artifact_root=tmp_path / "runtime-artifacts",
-        )
-        instances.append(runtime)
-        return runtime
-
-    yield create_runtime
-    for runtime in reversed(instances):
-        runtime.close()
-
-
 def test_runtime_intercepts_protected_actions_and_preserves_sessions(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
-    preflight_endpoint: _PreflightEndpoint,
 ) -> None:
     config_path = make_example_project(tmp_path)
     config = load_config(config_path)
@@ -431,15 +309,11 @@ def test_runtime_intercepts_protected_actions_and_preserves_sessions(
                 )
             )
         mixed_session.close()
-        assert len(preflight_endpoint.requests) == 3
     finally:
         runtime.close()
 
 
-def test_runtime_honors_manifest_root_agent_config(
-    tmp_path: Path,
-    preflight_endpoint: _PreflightEndpoint,
-) -> None:
+def test_runtime_honors_manifest_root_agent_config(tmp_path: Path) -> None:
     config_path = make_example_project(tmp_path)
     config = load_config(config_path)
     original = config.harness_dir / "agent.yaml"
@@ -478,248 +352,6 @@ def test_runtime_honors_manifest_root_agent_config(
         )
         assert session._agent.config.name == "example_agent"
         session.close()
-    finally:
-        runtime.close()
-
-
-def test_evaluated_preflight_is_lazy_and_shared_by_sessions(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    runtime_factory: Callable[[], EvaluatedAgentRuntime],
-    preflight_endpoint: _PreflightEndpoint,
-) -> None:
-    runtime = runtime_factory()
-    artifact_root = tmp_path / "runtime-artifacts"
-    assert preflight_endpoint.requests == []
-    assert not (artifact_root / "model-preflights").exists()
-    FakeRecordedClient.instances = []
-    FakeRecordedClient.scenarios = [[], []]
-    monkeypatch.setattr(runtime_module, "RecordedExactModelClient", FakeRecordedClient)
-
-    for session_id in ("first", "second"):
-        runtime.open_session(
-            AgentSessionRequest(
-                session_id=session_id,
-                artifact_dir=artifact_root / session_id,
-            )
-        )
-
-    assert len(preflight_endpoint.requests) == 3
-    positive = json.loads(preflight_endpoint.requests[1].content)
-    negative = json.loads(preflight_endpoint.requests[2].content)
-    assert positive["model"] == "example-evaluated-model"
-    assert positive["max_tokens"] == 64
-    assert positive["reasoning"] == {"effort": "high"}
-    assert positive["stream"] is False
-    assert negative["model"].startswith("ahe-negative-control-")
-    assert len(FakeRecordedClient.instances) == 2
-    manifests = [
-        read_json(artifact_root / session_id / "runtime_manifest.json")
-        for session_id in ("first", "second")
-    ]
-    assert manifests[0]["model_preflight"] == manifests[1]["model_preflight"]
-    proof = manifests[0]["model_preflight"]
-    proof_path = artifact_root / proof["path"]
-    assert sha256_file(proof_path) == proof["sha256"]
-    report = read_json(proof_path)
-    assert report["status"] == "completed"
-    assert report["requested_model"] == "example-evaluated-model"
-    assert report["positive_probe"]["passed"] is True
-    assert report["negative_control"]["passed"] is True
-    assert "api_key" not in report
-
-
-@pytest.mark.parametrize(
-    ("failure", "error_type", "message"),
-    [
-        ("catalog", IntegrityError, "absent from"),
-        ("positive", IntegrityError, "positive probe returned"),
-        ("negative", IntegrityError, "unexpectedly generated"),
-        ("infrastructure", InfrastructureError, "temporarily unavailable"),
-    ],
-)
-def test_failed_evaluated_preflight_blocks_clients_and_is_not_retried(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    runtime_factory: Callable[[], EvaluatedAgentRuntime],
-    preflight_endpoint: _PreflightEndpoint,
-    failure: str,
-    error_type: type[Exception],
-    message: str,
-) -> None:
-    if failure == "catalog":
-        preflight_endpoint.model_ids = []
-    elif failure == "positive":
-        preflight_endpoint.response_model = "wrong-model"
-    elif failure == "negative":
-        preflight_endpoint.accept_nonexistent = True
-    else:
-        preflight_endpoint.catalog_status = 503
-    runtime = runtime_factory()
-    FakeRecordedClient.instances = []
-    FakeRecordedClient.scenarios = []
-    monkeypatch.setattr(runtime_module, "RecordedExactModelClient", FakeRecordedClient)
-
-    def unexpected_agent(**_kwargs: Any) -> None:
-        pytest.fail("Agent must not be constructed after preflight failure")
-
-    monkeypatch.setattr(runtime_module, "Agent", unexpected_agent)
-    request = AgentSessionRequest(
-        session_id="blocked",
-        artifact_dir=tmp_path / "runtime-artifacts" / "blocked",
-    )
-    with pytest.raises(error_type, match=message) as first:
-        runtime.open_session(request)
-    proofs = list(
-        (tmp_path / "runtime-artifacts").glob(
-            "model-preflights/attempt-*/model-preflight.json"
-        )
-    )
-    assert len(proofs) == 1
-    original_proof = proofs[0].read_bytes()
-    original_requests = len(preflight_endpoint.requests)
-    with pytest.raises(error_type, match=message) as second:
-        runtime.open_session(request)
-    assert second.value is first.value
-    assert len(preflight_endpoint.requests) == original_requests
-    assert proofs[0].read_bytes() == original_proof
-    assert FakeRecordedClient.instances == []
-    assert not (request.artifact_dir / "runtime_manifest.json").exists()
-
-
-def test_session_resources_are_bound_to_their_own_session(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    runtime_factory: Callable[[], EvaluatedAgentRuntime],
-) -> None:
-    runtime = runtime_factory()
-    artifact_root = tmp_path / "runtime-artifacts"
-    FakeRecordedClient.instances = []
-    FakeRecordedClient.scenarios = [[], []]
-    monkeypatch.setattr(runtime_module, "RecordedExactModelClient", FakeRecordedClient)
-    resources = {name: object() for name in ("first", "second")}
-    sessions = {
-        name: runtime.open_session(
-            AgentSessionRequest(
-                session_id=name,
-                artifact_dir=artifact_root / name,
-                session_resources={"trial_workspace": resource},
-            )
-        )
-        for name, resource in resources.items()
-    }
-    try:
-        storages = {}
-        for name, session in sessions.items():
-            agent = session._agent
-            storage = agent.global_storage
-            assert storage.get("trial_workspace") is resources[name]
-            # Sub-agents are created with this same storage object.
-            assert agent.executor.subagent_manager.global_storage is storage
-            storages[name] = storage
-        assert storages["first"] is not storages["second"]
-    finally:
-        for session in sessions.values():
-            session.close()
-
-
-@pytest.mark.parametrize(
-    "key", ["", "_private", "not-an-identifier", "tracer", "skill_registry"]
-)
-def test_session_resources_reject_reserved_or_invalid_keys(
-    tmp_path: Path,
-    key: str,
-) -> None:
-    with pytest.raises(ValidationError, match="session resource"):
-        AgentSessionRequest(
-            session_id="resource-keys",
-            artifact_dir=tmp_path,
-            session_resources={key: object()},
-        )
-
-
-def test_concurrent_sessions_share_one_evaluated_preflight(
-    runtime_factory: Callable[[], EvaluatedAgentRuntime],
-    preflight_endpoint: _PreflightEndpoint,
-) -> None:
-    runtime = runtime_factory()
-    with ThreadPoolExecutor(max_workers=4) as pool:
-        proofs = list(pool.map(lambda _: runtime._ensure_model_preflight(), range(8)))
-    assert len(set(proofs)) == 1
-    assert len(preflight_endpoint.requests) == 3
-
-
-def test_new_evaluation_attempt_preserves_failed_preflight_and_request_identity(
-    tmp_path: Path,
-    runtime_factory: Callable[[], EvaluatedAgentRuntime],
-    preflight_endpoint: _PreflightEndpoint,
-) -> None:
-    config = load_config(tmp_path / "project" / "ahe.yaml")
-    request = EvaluationRequest(
-        checkpoint="C0",
-        harness_dir=config.harness_dir,
-        split=SplitDefinition(
-            name=SplitName.TRAIN,
-            identity="preflight-identity-fixture",
-            task_ids=["one-task"],
-        ),
-        trials=1,
-        root_seed=42,
-        output_dir=tmp_path / "evaluation",
-        model=config.document.models.evaluated.model_copy(
-            update={"max_tokens": 128, "reasoning_effort": "high"}
-        ),
-        transport=config.document.transport.model_copy(
-            update={"model_catalog": "required", "negative_control": "required"}
-        ),
-        api_key=config.api_key,
-        max_concurrency=2,
-    )
-    original_identity = evaluation_request_sha256(request)
-    preflight_endpoint.catalog_status = 503
-    failed = runtime_factory()
-    with pytest.raises(InfrastructureError):
-        failed._ensure_model_preflight()
-    failed.close()
-    preflight_root = tmp_path / "runtime-artifacts" / "model-preflights"
-    failed_proof = next(preflight_root.glob("attempt-*/model-preflight.json"))
-    failed_contents = failed_proof.read_bytes()
-
-    preflight_endpoint.catalog_status = 200
-    successful = runtime_factory()
-    successful_proof = successful._ensure_model_preflight()
-    assert successful_proof != failed_proof
-    assert failed_proof.read_bytes() == failed_contents
-    assert read_json(failed_proof)["status"] == "infrastructure_failed"
-    assert read_json(successful_proof)["status"] == "completed"
-    assert len(list(preflight_root.glob("attempt-*/model-preflight.json"))) == 2
-    assert evaluation_request_sha256(request) == original_identity
-
-
-def test_evaluated_preflight_respects_disabled_controls(
-    tmp_path: Path,
-    preflight_endpoint: _PreflightEndpoint,
-) -> None:
-    config = load_config(make_example_project(tmp_path))
-    runtime = EvaluatedAgentRuntime(
-        harness_dir=config.harness_dir,
-        manifest=load_harness_manifest(config.harness_manifest_path),
-        benchmark_interface=BenchmarkInterface(description="Disabled controls."),
-        model=config.document.models.evaluated,
-        transport=config.document.transport.model_copy(
-            update={"model_catalog": "disabled", "negative_control": "disabled"}
-        ),
-        api_key=config.api_key,
-        artifact_root=tmp_path / "runtime-artifacts",
-    )
-    try:
-        proof = runtime._ensure_model_preflight()
-        assert len(preflight_endpoint.requests) == 1
-        assert preflight_endpoint.requests[0].method == "POST"
-        report = read_json(proof)
-        assert report["advertised_model_ids"] is None
-        assert report["negative_control"] is None
-        assert report["positive_probe"]["passed"] is True
     finally:
         runtime.close()
 

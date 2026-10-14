@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import json
-import tempfile
-import threading
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
 from nexau import Agent
-from nexau.archs.main_sub.agent_context import GlobalStorage
 from nexau.archs.main_sub.config import AgentConfig
 from nexau.archs.main_sub.context_value import ContextValue
 from nexau.archs.main_sub.execution.hooks import (
@@ -32,13 +29,8 @@ from .config import ModelSettings, TransportSettings
 from .errors import ConfigurationError, IntegrityError
 from .harness import HarnessManifest, matched_component_paths
 from .harness_imports import HarnessImportScope
-from .io import atomic_write_json, sha256_file, tree_sha256
+from .io import atomic_write_json, tree_sha256
 from .meta.model_client import RecordedExactModelClient
-from .meta.preflight import run_model_preflight
-
-_NEXAU_RESERVED_STORAGE_KEYS = frozenset(
-    {"tracer", "skill_registry", "parallel_execution_id"}
-)
 
 
 class RuntimeModel(BaseModel):
@@ -53,23 +45,6 @@ class AgentSessionRequest(RuntimeModel):
     working_directory: Path | None = None
     benchmark_tools: tuple[BenchmarkToolSpec, ...] = ()
     context: dict[str, str] = Field(default_factory=dict)
-    # Adapter-owned objects bound to this session only. They are placed in the
-    # session Agent's own NexAU GlobalStorage, which its sub-agents share and no
-    # other session can reach. Unlike `context`, routing never passes through
-    # NexAU's process-wide current-context slot.
-    session_resources: dict[str, Any] = Field(default_factory=dict)
-
-    @field_validator("session_resources")
-    @classmethod
-    def validate_session_resources(cls, value: dict[str, Any]) -> dict[str, Any]:
-        for key in value:
-            if not key.isidentifier() or key.startswith("_"):
-                raise ValueError(
-                    "session resource keys must be public Python identifiers"
-                )
-            if key in _NEXAU_RESERVED_STORAGE_KEYS:
-                raise ValueError(f"session resource key {key!r} is reserved by NexAU")
-        return value
 
     @field_validator("session_id")
     @classmethod
@@ -274,9 +249,6 @@ class EvaluatedAgentRuntime:
         self._artifact_root.mkdir(parents=True, exist_ok=True)
         self._sessions: dict[str, EvaluatedAgentSession] = {}
         self._closed = False
-        self._preflight_lock = threading.Lock()
-        self._preflight_path: Path | None = None
-        self._preflight_error: Exception | None = None
         self._import_scope = HarnessImportScope(self._harness_dir)
         self._import_scope.__enter__()
 
@@ -351,25 +323,13 @@ class EvaluatedAgentRuntime:
             _ProtectedActionCapture(boundary),
         ]
 
-        preflight_path = self._ensure_model_preflight()
         client = RecordedExactModelClient(
             transport=self._transport,
             api_key=self._api_key,
             settings=self._model,
             log_dir=artifact_dir / "model_calls",
         )
-        if request.session_resources:
-            storage = GlobalStorage()
-            storage.update(dict(request.session_resources))
-            agent = Agent(config=config, global_storage=storage)
-            for key, value in request.session_resources.items():
-                if agent.global_storage.get(key) is not value:
-                    raise IntegrityError(
-                        f"session resource {key!r} was replaced while the agent "
-                        "was initialized"
-                    )
-        else:
-            agent = Agent(config=config)
+        agent = Agent(config=config)
         base_context = {
             **request.context,
             "working_directory": str(working_directory),
@@ -402,10 +362,6 @@ class EvaluatedAgentRuntime:
                     tool.model_dump(mode="json") for tool in request.benchmark_tools
                 ],
                 "runtime_overlay": True,
-                "model_preflight": {
-                    "path": preflight_path.relative_to(self._artifact_root).as_posix(),
-                    "sha256": sha256_file(preflight_path),
-                },
             },
         )
         return session
@@ -419,34 +375,6 @@ class EvaluatedAgentRuntime:
                 session.close()
         finally:
             self._import_scope.__exit__(None, None, None)
-
-    def _ensure_model_preflight(self) -> Path:
-        with self._preflight_lock:
-            if self._preflight_error is not None:
-                raise self._preflight_error
-            if self._preflight_path is not None:
-                return self._preflight_path
-            try:
-                preflight_root = self._artifact_root / "model-preflights"
-                preflight_root.mkdir(parents=True, exist_ok=True)
-                if preflight_root.is_symlink():
-                    raise IntegrityError("model preflight directory is a symlink")
-                attempt_dir = Path(
-                    tempfile.mkdtemp(prefix="attempt-", dir=preflight_root)
-                )
-                preflight_path = attempt_dir / "model-preflight.json"
-                run_model_preflight(
-                    transport=self._transport,
-                    api_key=self._api_key,
-                    settings=self._model,
-                    output_path=preflight_path,
-                )
-            except Exception as exc:
-                # Share failures too, so concurrent sessions cannot retry the probe.
-                self._preflight_error = exc
-                raise
-            self._preflight_path = preflight_path
-            return preflight_path
 
     def _validate_benchmark_tools(
         self,

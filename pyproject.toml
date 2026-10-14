@@ -11,8 +11,6 @@ requires-python = ">=3.12"
 license = { text = "MIT" }
 dependencies = [
   "nexau @ git+https://github.com/nex-agi/NexAU.git@v0.3.9",
-  # NexAU 0.3.9 imports ThinkingTextMessageContentEvent, removed in 1.0.
-  "ag-ui-protocol>=0.1.10,<1.0",
   "greenlet>=3.1.1",
   "openai>=1.60",
   "pydantic>=2.8",
@@ -41,7 +39,6 @@ include = [
   "src/ahe_runner/**/*.py",
   "src/ahe_runner/**/*.md",
   "src/ahe_runner/**/*.yaml",
-  "src/ahe_runner/meta/skills/**/*",
 ]
 
 [tool.hatch.metadata]
@@ -50,8 +47,6 @@ allow-direct-references = true
 [tool.ruff]
 line-length = 88
 target-version = "py311"
-# Copied unchanged from the original AHE (MIT); keep it byte-identical.
-extend-exclude = ["src/ahe_runner/meta/skills/nexau-evolution-guide"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

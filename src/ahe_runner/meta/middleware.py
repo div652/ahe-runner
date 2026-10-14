@@ -1,266 +1,248 @@
-"""Meta-agent middleware (AHE-016).
-
-The original AHE wires NexAU's ``LongToolOutputMiddleware`` and
-``ContextCompactionMiddleware`` into its meta agents. The runner uses them
-with two small, documented adjustments, and adds a recorder that turns the
-debugger's file reads into citation coverage.
-"""
+"""Context compaction for long-running meta-agents."""
 
 from __future__ import annotations
 
-import os
-import re
-from collections.abc import Callable
-from pathlib import Path
+import hashlib
+import json
+import logging
 from typing import Any
 
 from nexau.archs.main_sub.execution.hooks import (
-    AfterToolHookInput,
+    BeforeModelHookInput,
     HookResult,
     Middleware,
+    ModelCallFn,
     ModelCallParams,
 )
-from nexau.archs.main_sub.execution.llm_caller import LLMCaller
-from nexau.archs.main_sub.execution.middleware.context_compaction import (
-    ContextCompactionMiddleware,
+from nexau.archs.main_sub.utils.token_counter import TokenCounter
+from nexau.core.messages import Message, Role, ToolResultBlock, ToolUseBlock
+
+from ahe_runner.errors import IntegrityError
+
+logger = logging.getLogger(__name__)
+
+_COMPACTED_TOOL_RESULT = "[older tool result compacted; re-read the source artifact]"
+_COMPACTED_TOOL_ARGUMENTS = (
+    "Older tool arguments were compacted. Re-read the current source artifact "
+    "when exact prior content is needed."
 )
-from nexau.archs.main_sub.execution.middleware.long_tool_output import (
-    LongToolOutputMiddleware,
-)
-from nexau.archs.tool.builtin.file_tools.read_file import MAX_LINE_LENGTH
-from nexau.core.messages import Message
-
-from .guarded_tools import (
-    PathDenied,
-    citable_artifact,
-    resolve_path,
-    search_directory,
-)
-from .tools import _context_value, _record_debugger_access
 
 
-class AheLongToolOutputMiddleware(LongToolOutputMiddleware):
-    """The original long-output middleware, measuring the text itself.
+class MetaContextCompactionMiddleware(Middleware):
+    def __init__(
+        self,
+        *,
+        max_context_tokens: int = 200_000,
+        threshold: float = 0.75,
+        keep_iterations: int = 10,
+    ) -> None:
+        if max_context_tokens < 1:
+            raise ValueError("max_context_tokens must be positive")
+        if not 0 < threshold < 1:
+            raise ValueError("threshold must be between zero and one")
+        if keep_iterations < 1:
+            raise ValueError("keep_iterations must be positive")
+        self.max_context_tokens = max_context_tokens
+        self.threshold = threshold
+        self.keep_iterations = keep_iterations
+        self._token_counter = TokenCounter()
+        self._pending_budget_error: str | None = None
 
-    NexAU measures and saves ``json.dumps(output, indent=2)``. That saved copy
-    holds the tool's text on one line with escaped newlines, so reading it back
-    with ``read_file`` is impractical. When a tool returns a text field, measure
-    and save that text instead.
-    """
+    def before_model(self, hook_input: BeforeModelHookInput) -> HookResult:
+        self._pending_budget_error = None
+        try:
+            token_count = self._token_counter.count_tokens(hook_input.messages)
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+            logger.warning("meta-agent token counting failed: %s", exc)
+            return HookResult.no_changes()
+        target = int(self.max_context_tokens * self.threshold)
+        if token_count < target:
+            return HookResult.no_changes()
+        compacted, changed, compacted_count, retained = _compact_to_budget(
+            hook_input.messages,
+            token_counter=self._token_counter,
+            target_tokens=target,
+            keep_iterations=self.keep_iterations,
+        )
+        if compacted_count > target:
+            self._pending_budget_error = (
+                "meta-agent context remains above the configured compaction target "
+                f"after preserving the latest iteration: {compacted_count} > {target}"
+            )
+            logger.error(self._pending_budget_error)
+        if not changed:
+            logger.warning(
+                "meta-agent context is %d tokens but no older payload can compact",
+                token_count,
+            )
+            return HookResult.no_changes()
+        logger.info(
+            "compacted meta context from %d to %d tokens; retained %d iterations",
+            token_count,
+            compacted_count,
+            retained,
+        )
+        return HookResult.with_modifications(messages=compacted)
 
-    @staticmethod
-    def _serialize(output: object) -> str:
-        if isinstance(output, dict):
-            for key in ("content", "result"):
-                value = output.get(key)
-                if isinstance(value, str):
-                    return value
-        return LongToolOutputMiddleware._serialize(output)
-
-
-class AheContextCompactionMiddleware(ContextCompactionMiddleware):
-    """The original compaction middleware with campaign model settings kept.
-
-    NexAU's emergency summary call forces temperature 0 and its own
-    ``max_tokens``. The runner's model client accepts only the campaign's
-    values, so the summary call keeps them.
-    """
-
-    def _build_emergency_summarize_fn(
+    def wrap_model_call(
         self,
         params: ModelCallParams,
-    ) -> Callable[[list[Message], str, int], str]:
-        if params.llm_config is None:
-            raise RuntimeError(
-                "llm_config is required for emergency compaction summarization"
-            )
-        summary_llm_config = params.llm_config.copy()
-        summary_llm_config.stream = False
-        llm_caller = LLMCaller(
-            params.openai_client,
-            summary_llm_config,
-            retry_attempts=1,
-            middleware_manager=None,
-        )
-
-        def summarize_fn(messages: list[Message], prompt: str, max_tokens: int) -> str:
-            del max_tokens  # the campaign max_tokens applies
-            summary_messages = [*messages, Message.user(prompt)]
-            response = llm_caller.call_llm(
-                summary_messages,
-                max_tokens=None,
-                force_stop_reason=None,
-                agent_state=params.agent_state,
-                tool_call_mode="xml",
-                tools=None,
-                openai_client=params.openai_client,
-                shutdown_event=params.shutdown_event,
-            )
-            text = (response.content or "").strip() if response else ""
-            return text if text else "NONE"
-
-        return summarize_fn
+        call_next: ModelCallFn,
+    ) -> Any:
+        if self._pending_budget_error is not None:
+            message = self._pending_budget_error
+            self._pending_budget_error = None
+            raise IntegrityError(message)
+        return call_next(params)
 
 
-_READ_LINE = re.compile(r"^\s*(\d+)\| ")
-_SEARCH_FILE = re.compile(r"^File: (.+)$")
-_SEARCH_LINE = re.compile(r"^L(\d+): ")
-_OMITTED = re.compile(r"^\.\.\. \[\d+ (lines|chars) omitted\] \.\.\.$")
-# read_file cuts lines longer than MAX_LINE_LENGTH and appends this suffix.
-_LINE_CUT_SUFFIX = "... [truncated]"
-
-
-class DebuggerAccessRecorderMiddleware(Middleware):
-    """Record which evidence lines the debugger actually saw.
-
-    Place it first in the middleware list: ``after_tool`` runs in reverse
-    order, so it sees the output after long-output truncation, exactly as the
-    model does. Only ``read_file`` and ``search_file_content`` results count,
-    and only for files in the citable roots (``evidence``, ``raw_evaluation``).
-    """
-
-    def after_tool(self, hook_input: AfterToolHookInput) -> HookResult:
-        agent_state = hook_input.agent_state
-        if str(_context_value(agent_state, "meta_role")) != "debugger":
-            return HookResult.no_changes()
-        output = hook_input.tool_output
-        if not isinstance(output, dict) or "error" in output:
-            return HookResult.no_changes()
-        content = output.get("content")
-        if not isinstance(content, str):
-            return HookResult.no_changes()
-        tool_input = hook_input.tool_input or {}
-        if hook_input.tool_name == "read_file":
-            hits = _read_file_hits(agent_state, tool_input, content)
-        elif hook_input.tool_name == "search_file_content":
-            hits = _search_hits(agent_state, tool_input, content)
-        else:
-            return HookResult.no_changes()
-        for artifact, numbers in hits.items():
-            for start, end in _ranges(numbers):
-                _record_debugger_access(
-                    agent_state,
-                    artifact=artifact,
-                    mode="lines",
-                    start=start,
-                    end=end,
-                )
-        return HookResult.no_changes()
-
-
-def _read_file_hits(
-    agent_state: Any,
-    tool_input: dict[str, Any],
-    content: str,
-) -> dict[str, set[int]]:
-    try:
-        path, _ = resolve_path(
-            agent_state,
-            str(tool_input.get("file_path", "")),
-            write=False,
-        )
-    except PathDenied:
-        return {}
-    artifact = citable_artifact(agent_state, path)
-    if artifact is None:
-        return {}
-    numbers = {
-        number for _, _, number in _parse_lines(content, _READ_LINE, search=False)
-    }
-    return {artifact: numbers} if numbers else {}
-
-
-def _search_hits(
-    agent_state: Any,
-    tool_input: dict[str, Any],
-    content: str,
-) -> dict[str, set[int]]:
-    dir_path = tool_input.get("dir_path")
-    try:
-        directory = search_directory(
-            agent_state,
-            None if dir_path is None else str(dir_path),
-        )
-    except PathDenied:
-        return {}
-    # Only runner-written, read-only evidence trees are trusted to name files.
-    if citable_artifact(agent_state, directory / "_") is None:
-        return {}
-    hits: dict[str, set[int]] = {}
-    for _, file_name, number in _parse_lines(content, _SEARCH_LINE, search=True):
-        if file_name is None or os.path.isabs(file_name):
-            continue
-        candidate = Path(os.path.realpath(directory / file_name))
-        if not candidate.is_relative_to(directory):
-            continue
-        artifact = citable_artifact(agent_state, candidate)
-        if artifact is not None:
-            hits.setdefault(artifact, set()).add(number)
-    return hits
-
-
-def _parse_lines(
-    content: str,
-    pattern: re.Pattern[str],
+def _compact_to_budget(
+    messages: list[Message],
     *,
-    search: bool,
-) -> list[tuple[int, str | None, int]]:
-    """Return ``(output_line_index, search_file, line_number)`` entries.
+    token_counter: TokenCounter,
+    target_tokens: int,
+    keep_iterations: int,
+) -> tuple[list[Message], bool, int, int]:
+    compacted = messages
+    changed = False
+    count = token_counter.count_tokens(compacted)
+    retained = keep_iterations
+    for retained in range(keep_iterations, 0, -1):
+        compacted, iteration_changed = _compact_old_tool_results(
+            compacted,
+            keep_iterations=retained,
+        )
+        if iteration_changed:
+            changed = True
+            count = token_counter.count_tokens(compacted)
+        if count <= target_tokens:
+            break
+        compacted, argument_changed = _compact_old_tool_arguments(
+            compacted,
+            keep_iterations=retained,
+        )
+        if argument_changed:
+            changed = True
+            count = token_counter.count_tokens(compacted)
+        if count <= target_tokens:
+            break
+    return compacted, changed, count, retained
 
-    Long-output truncation inserts ``... [N lines omitted] ...`` or
-    ``... [N chars omitted] ...``. A chars cut leaves a partial line on each
-    side; neither counts. After any cut, a search loses track of its file.
-    A ``read_file`` line shortened to ``MAX_LINE_LENGTH`` does not count.
-    """
 
-    lines = content.split("\n")
-    entries: list[tuple[int, str | None, int]] = []
-    current_file: str | None = None
-    started = not search
-    skip_index = -1
-    for index, line in enumerate(lines):
-        if not started:
-            started = line == "---"
+def _compact_old_tool_results(
+    messages: list[Message],
+    *,
+    keep_iterations: int,
+) -> tuple[list[Message], bool]:
+    assistant_indices = [
+        index
+        for index, message in enumerate(messages)
+        if message.role == Role.ASSISTANT
+    ]
+    if len(assistant_indices) <= keep_iterations:
+        return messages, False
+    protected_start = assistant_indices[-keep_iterations]
+    changed = False
+    result: list[Message] = []
+    for index, message in enumerate(messages):
+        if message.role != Role.TOOL or index >= protected_start:
+            result.append(message)
             continue
-        marker = _OMITTED.match(line)
-        if marker is not None:
-            current_file = None
-            if marker.group(1) == "chars":
-                entries = [entry for entry in entries if entry[0] != index - 1]
-                skip_index = index + 1
+        blocks = []
+        message_changed = False
+        for block in message.content:
+            if (
+                isinstance(block, ToolResultBlock)
+                and block.content != _COMPACTED_TOOL_RESULT
+                and _payload_size(block.content) > len(_COMPACTED_TOOL_RESULT)
+            ):
+                blocks.append(
+                    block.model_copy(update={"content": _COMPACTED_TOOL_RESULT})
+                )
+                message_changed = True
+            else:
+                blocks.append(block)
+        result.append(
+            message.model_copy(update={"content": blocks})
+            if message_changed
+            else message
+        )
+        changed = changed or message_changed
+    return result, changed
+
+
+def _compact_old_tool_arguments(
+    messages: list[Message],
+    *,
+    keep_iterations: int,
+) -> tuple[list[Message], bool]:
+    assistant_indices = [
+        index
+        for index, message in enumerate(messages)
+        if message.role == Role.ASSISTANT
+    ]
+    if len(assistant_indices) <= keep_iterations:
+        return messages, False
+    protected_start = assistant_indices[-keep_iterations]
+    changed = False
+    result: list[Message] = []
+    for index, message in enumerate(messages):
+        if message.role != Role.ASSISTANT or index >= protected_start:
+            result.append(message)
             continue
-        if index == skip_index:
-            continue
-        if search:
-            file_match = _SEARCH_FILE.match(line)
-            if file_match is not None:
-                current_file = file_match.group(1)
+        blocks = []
+        message_changed = False
+        for block in message.content:
+            if not isinstance(block, ToolUseBlock):
+                blocks.append(block)
                 continue
-            if line == "---":
-                current_file = None
+            compacted_input = _compact_tool_input(block.input)
+            if compacted_input is block.input:
+                blocks.append(block)
                 continue
-            if current_file is None:
-                continue
-        match = pattern.match(line)
-        if match is None:
-            continue
-        text = line[match.end() :]
-        if (
-            not search
-            and text.endswith(_LINE_CUT_SUFFIX)
-            and len(text) == MAX_LINE_LENGTH + len(_LINE_CUT_SUFFIX)
-        ):
-            continue
-        entries.append((index, current_file, int(match.group(1))))
-    return entries
+            blocks.append(
+                block.model_copy(
+                    update={
+                        "input": compacted_input,
+                        "raw_input": None,
+                    }
+                )
+            )
+            message_changed = True
+        result.append(
+            message.model_copy(update={"content": blocks})
+            if message_changed
+            else message
+        )
+        changed = changed or message_changed
+    return result, changed
 
 
-def _ranges(numbers: set[int]) -> list[tuple[int, int]]:
-    ordered = sorted(numbers)
-    ranges: list[tuple[int, int]] = []
-    for number in ordered:
-        if ranges and number == ranges[-1][1] + 1:
-            ranges[-1] = (ranges[-1][0], number)
-        else:
-            ranges.append((number, number))
-    return ranges
+def _compact_tool_input(value: dict[str, Any]) -> dict[str, Any]:
+    serialized = json.dumps(
+        value,
+        sort_keys=True,
+        ensure_ascii=False,
+        default=repr,
+    )
+    payload = {
+        "_ahe_compacted": _COMPACTED_TOOL_ARGUMENTS,
+        "original_bytes": len(serialized.encode("utf-8")),
+        "sha256": hashlib.sha256(serialized.encode("utf-8")).hexdigest(),
+    }
+    if _payload_size(payload) >= len(serialized):
+        return value
+    return payload
+
+
+def _payload_size(value: Any) -> int:
+    if isinstance(value, str):
+        return len(value)
+    return len(
+        json.dumps(
+            value,
+            sort_keys=True,
+            ensure_ascii=False,
+            default=repr,
+        )
+    )

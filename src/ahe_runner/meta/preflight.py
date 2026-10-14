@@ -32,7 +32,6 @@ def run_model_preflight(
         "stream": False,
         "requested_model": settings.model,
         "reasoning_effort": settings.reasoning_effort,
-        "temperature": settings.temperature,
         "advertised_model_ids": None,
         "catalog_error": None,
         "positive_probe": None,
@@ -85,7 +84,6 @@ def run_model_preflight(
         "model": settings.model,
         "messages": [{"role": "user", "content": "Reply with OK only."}],
         "max_tokens": min(settings.max_tokens, 64),
-        "temperature": settings.temperature,
         "stream": False,
     }
     if settings.reasoning_effort is not None:

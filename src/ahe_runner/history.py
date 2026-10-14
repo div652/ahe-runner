@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -75,37 +74,17 @@ def write_transition(
     output_dir: Path,
     transition: TransitionSummary,
     change_manifest: ChangeManifest | dict[str, Any],
-    task_aliases: Mapping[str, str] | None = None,
 ) -> Path:
-    """Write per-change attribution.
-
-    ``task_aliases`` maps every task reference Evolve may cite (debugger task
-    keys, task ids, evaluation task keys) to the evaluation task key used by
-    the transition. References without an alias are matched verbatim.
-    """
     output_dir.mkdir(parents=True, exist_ok=True)
     manifest = ChangeManifest.model_validate(change_manifest)
-    aliases = dict(task_aliases or {})
-    known_keys = set(aliases.values())
-    unresolved: set[str] = set()
-
-    def resolve(references: list[str]) -> set[str]:
-        resolved: set[str] = set()
-        for reference in references:
-            key = aliases.get(reference, reference)
-            if known_keys and key not in known_keys:
-                unresolved.add(reference)
-            resolved.add(key)
-        return resolved
-
     improved = set(transition.improved_task_keys)
     regressed = set(transition.regressed_task_keys)
     all_predicted: set[str] = set()
     all_risks: set[str] = set()
     observations: list[dict[str, Any]] = []
     for change in manifest.changes:
-        predicted = resolve(change.predicted_fixes)
-        risks = resolve(change.risk_tasks)
+        predicted = set(change.predicted_fixes)
+        risks = set(change.risk_tasks)
         all_predicted.update(predicted)
         all_risks.update(risks)
         fixes_observed = predicted & improved
@@ -128,11 +107,9 @@ def write_transition(
                 "component": change.component,
                 "paths": change.paths,
                 "predicted_fixes": change.predicted_fixes,
-                "predicted_fix_task_keys": sorted(predicted),
                 "predicted_fixes_observed": sorted(fixes_observed),
                 "predicted_fixes_missing": sorted(fixes_missing),
                 "risk_tasks": change.risk_tasks,
-                "risk_task_keys": sorted(risks),
                 "risks_observed": sorted(risks_observed),
                 "hit_rate": (
                     f"{len(fixes_observed)}/{len(predicted)}" if predicted else "0/0"
@@ -156,7 +133,6 @@ def write_transition(
         "change_observations": observations,
         "unattributed_improvements": sorted(improved - all_predicted),
         "unanticipated_regressions": sorted(regressed - all_risks),
-        "unresolved_task_references": sorted(unresolved),
         "transition": transition.model_dump(mode="json"),
     }
     path = output_dir / "transition.json"

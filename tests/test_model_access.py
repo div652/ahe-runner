@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import json
-import threading
-import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -12,7 +10,7 @@ import pytest
 from openai import OpenAI
 
 from ahe_runner.config import ModelSettings, TransportSettings
-from ahe_runner.errors import ConfigurationError, InfrastructureError, IntegrityError
+from ahe_runner.errors import InfrastructureError, IntegrityError
 from ahe_runner.meta.model_client import RecordedExactModelClient
 from ahe_runner.meta.preflight import run_model_preflight
 
@@ -280,121 +278,6 @@ def test_recorded_client_fails_closed_on_mismatch_and_timeout(
             messages=[{"role": "user", "content": "hello"}],
         )
     assert (tmp_path / "timeout" / "call-0001" / "error.json").is_file()
-
-
-def _queued_transport(port: int, limit: int | None) -> TransportSettings:
-    return TransportSettings(
-        base_url=f"http://127.0.0.1:{port}/v1",
-        request_timeout_seconds=5,
-        max_concurrent_requests=limit,
-    )
-
-
-def _peak_in_flight(
-    tmp_path: Path, transports: list[TransportSettings], calls_per_client: int
-) -> tuple[int, list[RecordedExactModelClient]]:
-    lock = threading.Lock()
-    state = {"active": 0, "peak": 0}
-
-    def callback(_kwargs):  # type: ignore[no-untyped-def]
-        with lock:
-            state["active"] += 1
-            state["peak"] = max(state["peak"], state["active"])
-        time.sleep(0.02)
-        with lock:
-            state["active"] -= 1
-        return SimpleNamespace(
-            model="exact-model",
-            choices=[SimpleNamespace(message=SimpleNamespace(content="OK"))],
-            model_dump=lambda mode="json": {"model": "exact-model"},
-        )
-
-    clients = []
-    for index, transport in enumerate(transports):
-        client = RecordedExactModelClient(
-            transport=transport,
-            api_key="placeholder",
-            settings=_settings(),
-            log_dir=tmp_path / f"client-{index}",
-        )
-        client._base = _FakeOpenAI(callback)  # type: ignore[attr-defined]
-        clients.append(client)
-
-    def call(client: RecordedExactModelClient) -> None:
-        client.chat.completions.create(
-            model="exact-model", messages=[{"role": "user", "content": "hello"}]
-        )
-
-    threads = [
-        threading.Thread(target=call, args=(client,))
-        for client in clients
-        for _ in range(calls_per_client)
-    ]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join()
-    return state["peak"], clients
-
-
-def test_request_queue_is_shared_by_every_client_for_the_endpoint(
-    tmp_path: Path,
-) -> None:
-    transport = _queued_transport(39101, 2)
-    peak, _clients = _peak_in_flight(tmp_path, [transport, transport, transport], 4)
-
-    assert peak == 2
-    responses = [
-        json.loads(path.read_text("utf-8"))
-        for path in tmp_path.glob("client-*/call-*/response.json")
-    ]
-    assert len(responses) == 12
-    assert all(row["slot_wait_seconds"] >= 0 for row in responses)
-    assert max(row["slot_wait_seconds"] for row in responses) > 0
-
-
-def test_unset_request_queue_keeps_calls_unqueued(tmp_path: Path) -> None:
-    peak, _clients = _peak_in_flight(tmp_path, [_queued_transport(39102, None)], 6)
-
-    assert peak > 2
-    responses = [
-        json.loads(path.read_text("utf-8"))
-        for path in tmp_path.glob("client-*/call-*/response.json")
-    ]
-    assert len(responses) == 6
-    assert all("slot_wait_seconds" not in row for row in responses)
-
-
-def test_request_queue_records_wait_on_errors_and_rejects_conflicts(
-    tmp_path: Path,
-) -> None:
-    client = RecordedExactModelClient(
-        transport=_queued_transport(39103, 3),
-        api_key="placeholder",
-        settings=_settings(),
-        log_dir=tmp_path / "calls",
-    )
-
-    def timeout_callback(_kwargs):  # type: ignore[no-untyped-def]
-        raise TimeoutError("upstream request timed out")
-
-    client._base = _FakeOpenAI(timeout_callback)  # type: ignore[attr-defined]
-    with pytest.raises(InfrastructureError, match="timed out"):
-        client.chat.completions.create(
-            model="exact-model", messages=[{"role": "user", "content": "hello"}]
-        )
-    error = json.loads((tmp_path / "calls" / "call-0001" / "error.json").read_text())
-    assert error["slot_wait_seconds"] >= 0
-
-    with pytest.raises(ConfigurationError, match="already 3"):
-        RecordedExactModelClient(
-            transport=_queued_transport(39103, 4),
-            api_key="placeholder",
-            settings=_settings(),
-            log_dir=tmp_path / "other",
-        )
-    with pytest.raises(ValueError, match="max_concurrent_requests"):
-        _queued_transport(39104, 0)
 
 
 def test_preflight_positive_and_negative_controls(

@@ -1,0 +1,24 @@
+type: tool
+name: search_text
+description: Search text files of any size inside an exposed virtual root, returning bounded matches and explicit skipped/truncation metadata.
+input_schema:
+  type: object
+  properties:
+    root:
+      type: string
+    query:
+      type: string
+    relative_path:
+      type: string
+      default: "."
+    file_glob:
+      type: string
+      default: "**/*"
+    case_sensitive:
+      type: boolean
+      default: false
+    regex:
+      type: boolean
+      default: false
+  required: [root, query]
+  additionalProperties: false

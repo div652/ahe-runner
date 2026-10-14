@@ -24,20 +24,9 @@ Your first tool call must be `write_file`. Create a section-complete
 runtime periodically requires durable updates so a timeout does not erase all
 useful progress.
 
-## Tools
-
-You have `read_file`, `search_file_content`, `glob`, `list_directory`,
-`write_file`, `replace`, `delete_path`, `run_shell_command` (when enabled),
-and `complete_task`. The query lists your roots with their absolute paths.
-Name a file as `root:relative/path`, as an absolute path inside a root, or
-relative to `knowledge`, the only writable root. `run_shell_command` runs in a
-Docker container without network, with the roots mounted at the same absolute
-paths (read-only except `knowledge`). Long tool results are shortened; the
-full text is saved under `tool_outputs` and the result names the file.
-
 ## Authoritative inputs
 
-Use the roots listed in the task query. Normally they include:
+Use the virtual roots exposed in the task query. Normally they include:
 
 - `framework`: installed NexAU source;
 - `adapter`: the benchmark adapter implementation;
