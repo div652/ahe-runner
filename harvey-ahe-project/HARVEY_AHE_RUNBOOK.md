@@ -1333,6 +1333,23 @@ supplements still described the old all-pass target (AHE-018, section 6).
 
 ## 6. Known deviations and limits to report with results
 
+- Task scope (campaigns 1 to 8): only 166 of LAB's 2,010 tasks (8%) are
+  used. The pilot filter in `harvey_ahe/tasks.py` (`eligibility_errors`)
+  keeps tasks with their own `documents/` folder of 1-10 files and at most
+  5 MB, 20-40 rubric criteria, inline instructions and top-level
+  deliverables. It was meant for the pilot but was kept for campaigns 7 and
+  8 without being flagged to the operator. Excluded:
+  - 1,519 tasks with more than 40 criteria (median 57 among tasks with their
+    own documents); for 989 of them this is the only reason;
+  - all 250 firm-knowledge tasks, which share one 9,288-file store through
+    `docs_dir` (`load_task` refuses `docs_dir`, also a pilot-only limit);
+  - 498 contracts tasks without top-level deliverables;
+  - 323 tasks with more than 10 document files (11 of them also over 5 MB).
+
+  Results describe this subset (short rubrics, small document sets), which
+  is probably easier than LAB as a whole; they are not a claim about the
+  full benchmark. Later campaigns should not narrow the task set without
+  telling the operator what it excludes.
 - Seed harness: LAB's tools and prompt on NexAU, without LAB's skill files;
   tool descriptions drop skill references; `finish` rejections are
   `{"status": "error"}` dicts (see `benchmark_public/ADAPTER.md` section 6).
