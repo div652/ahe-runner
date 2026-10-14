@@ -47,6 +47,7 @@ The assistant announces new permanent files before creating them.
 | AHE-018 | Changing the primary metric left the Harvey role supplements describing the old one, so campaigns 4 to 8 gave the Debugger and Evolve conflicting objectives; nothing in AHE checks that they agree | Explained on 2026-10-14; the operator asked to record it and the general rule; fix approved after campaign 8 | Fixed locally on 2026-10-14 after campaign 8: all four supplements now describe `mean_criterion_pass_rate`; applies from campaign 9. Rule for future metric changes recorded in the AHE-018 section |
 | AHE-019 | Long-term memory is always appended to the evaluated agent's system prompt with no separator, even when it only holds a note about the file itself; in campaigns 1 to 8 every evaluated trial's prompt ended `...the work is complete.# Persistent harness memory` followed by a note meant for Evolve | Explained on 2026-10-14; the operator chose to fix it in AHE core | Fixed locally on 2026-10-14 (`6f72430`): empty memory files add nothing and the suffix starts after a blank line; the starting memory files are empty and the note moved to the Evolve supplement. Applies from campaign 9 |
 | AHE-020 | Conformance requires `additionalProperties: false` in every tool schema, and NexAU sends that field to the model, so a harness cannot reproduce a benchmark's own tool schemas exactly | Explained on 2026-10-14; the operator chose an opt-in manifest setting | Fixed locally on 2026-10-14 (`44ea8aa`): `tool_schemas.allow_omitted_additional_properties`, default off; on only in `harness_manifest_lab.yaml` (campaign 9) |
+| AHE-021 | The GH Copilot Server transport silently cut prompts over about 270k tokens from the start and ignored the requested reasoning effort; AHE has no check that the transport honours the configured context and effort | Found on 2026-10-14 while analysing campaign 9's infrastructure errors; the operator stopped campaign 9 and approved a patch | Fixed locally on 2026-10-14 in the host's GH Copilot Server `server.js` (sends `options.configuration`); verified by `scripts/copilot_context_effort_probe.py` |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -1827,3 +1828,48 @@ returns a tool error to the model.
 
 1. Offer this as a documented manifest option for benchmark-parity
    harnesses.
+
+## AHE-021: the model transport silently cut long prompts and ignored the effort
+
+### Plain-language summary
+
+The evaluated agent reaches Copilot models through GH Copilot Server, which
+uses VS Code's language-model API. VS Code adds each model's default
+settings to every request. For gpt-5.4, gpt-5.5 and gpt-5.6-sol that means
+a 272k context size and "medium" effort. Copilot Chat then deleted the
+oldest messages, including the system prompt and the task, until a prompt
+fit about 270k tokens, without any error. It also ignored the effort that
+the request asked for. Nothing in AHE could notice, because the transport
+reports no token usage and no effort.
+
+### Evidence
+
+- Campaign 9 (`HARVEY_AHE_RUNBOOK.md` section 5m): in all 25 Copilot 400
+  "No tool call found" errors, the cut falls exactly at a ~270k-token
+  budget. 15 of 101 graded trials made silent cut calls and scored lower
+  (mean criterion pass 0.429 against 0.522).
+- Code: VS Code `sendChatRequest` merges schema defaults into
+  `configuration`, which Copilot Chat reads as `modelConfiguration`
+  (`contextSize`, `reasoningEffort`). It never reads the effort in
+  `modelOptions`.
+- Probe (gpt-5.4) before the patch: a code in the first message was lost
+  in a 317k-token prompt, and effort "none" and "high" behaved the same.
+  After the patch, both behaved as requested.
+
+### Approved local repair
+
+GH Copilot Server's `out/server.js` (host instance) now sets
+`options.configuration.contextSize` to the model's `maxInputTokens` and,
+when the request has one, `options.configuration.reasoningEffort`. The
+probe script and its before/after results are kept in
+`harvey-ahe-project/scripts/copilot_context_effort_probe.py` and
+`harvey-ahe-project/operator-preflight/2026-10-14/copilot-server-patch/`.
+
+### Upstream recommendations
+
+1. Before a campaign, run a transport probe for each model role: recall of
+   a code placed at the start of a prompt near the configured context
+   limit, and a latency or quality check that the effort is applied.
+   Record the result with the campaign.
+2. Where a transport reports no usage, record the prompt size AHE sent and
+   flag calls above any known transport limit.

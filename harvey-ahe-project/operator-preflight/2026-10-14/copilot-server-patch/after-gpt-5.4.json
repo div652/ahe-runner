@@ -1,0 +1,61 @@
+{
+  "model": "gpt-5.4",
+  "base_url": "http://127.0.0.1:3141/v1",
+  "started": "2026-10-14T20:58:46Z",
+  "effort": [
+    {
+      "ok": true,
+      "seconds": 1.18,
+      "model": "gpt-5.4",
+      "text": "1200",
+      "error": null,
+      "requested_effort": "none"
+    },
+    {
+      "ok": true,
+      "seconds": 12.69,
+      "model": "gpt-5.4",
+      "text": "1477",
+      "error": null,
+      "requested_effort": "high"
+    },
+    {
+      "ok": true,
+      "seconds": 0.94,
+      "model": "gpt-5.4",
+      "text": "1570",
+      "error": null,
+      "requested_effort": "none"
+    },
+    {
+      "ok": true,
+      "seconds": 11.63,
+      "model": "gpt-5.4",
+      "text": "1477",
+      "error": null,
+      "requested_effort": "high"
+    }
+  ],
+  "context": [
+    {
+      "ok": true,
+      "seconds": 1.41,
+      "model": "gpt-5.4",
+      "text": "PELICAN-4821",
+      "error": null,
+      "label": "control_small",
+      "prompt_tokens_o200k": 5331,
+      "secret_recalled": true
+    },
+    {
+      "ok": true,
+      "seconds": 3.7,
+      "model": "gpt-5.4",
+      "text": "PELICAN-4821",
+      "error": null,
+      "label": "over_272k",
+      "prompt_tokens_o200k": 316780,
+      "secret_recalled": true
+    }
+  ]
+}

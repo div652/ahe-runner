@@ -1,0 +1,40 @@
+{
+  "model": "gpt-5.4",
+  "base_url": "http://127.0.0.1:3141/v1",
+  "started": "2026-10-14T20:52:55Z",
+  "effort": [
+    {
+      "ok": true,
+      "seconds": 9.93,
+      "model": "gpt-5.4",
+      "text": "1477",
+      "error": null,
+      "requested_effort": "none"
+    },
+    {
+      "ok": true,
+      "seconds": 12.87,
+      "model": "gpt-5.4",
+      "text": "1477",
+      "error": null,
+      "requested_effort": "high"
+    },
+    {
+      "ok": true,
+      "seconds": 9.59,
+      "model": "gpt-5.4",
+      "text": "1477",
+      "error": null,
+      "requested_effort": "none"
+    },
+    {
+      "ok": true,
+      "seconds": 8.55,
+      "model": "gpt-5.4",
+      "text": "1477",
+      "error": null,
+      "requested_effort": "high"
+    }
+  ],
+  "note": "Context part of this first run is invalid (max_tokens 64 left no room after reasoning; wording ambiguous). See before-context-gpt-5.4.json."
+}

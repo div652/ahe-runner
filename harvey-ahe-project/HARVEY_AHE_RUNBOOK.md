@@ -1397,6 +1397,84 @@ trials were in flight, so it needed SIGTERM. SIGTERM left 17
 `lab-sandbox-*` containers running, which had to be removed by hand
 (`podman rm -f`). Stop the wrapper loop first, or it will resume the run.
 
+## 5m. Campaign log: `harvey-lab-campaign-9-lab-exact-firm-knowledge` (stopped)
+
+Second launch 2026-10-14 19:46 UTC; stopped by the operator at about 20:50
+UTC with 101 graded trials. Results so far: mean criterion pass rate 0.508,
+dual all-pass rate 0.173 (16 of 101 trials passed every criterion with both
+judges). 84 attempts ended in an infrastructure error: 52 model-call
+timeouts, 25 "No tool call found" and 7 "Message exceeds token limit".
+These results are not used: the transport problems below affect them.
+
+### Why it was stopped: the Copilot transport cut long prompts
+
+Three kinds of infrastructure errors appeared that campaigns 7 and 8 never
+had:
+
+- "Model request timed out after 300000 ms": hung calls on small prompts.
+  Not explained yet.
+- "Message exceeds token limit": a single message over the ~270k budget.
+- Copilot 400 "No tool call found for function call output with
+  call_id ...", although each request contained the matching call.
+
+The last two have one cause. VS Code fills in each model's default settings
+for every language-model request, including GH Copilot Server's. For
+gpt-5.4, gpt-5.5 and gpt-5.6-sol the default "Context Size" is 272000
+(922000 is opt-in), even though `/v1/models` advertises 921,793. Copilot
+Chat then deletes the oldest messages until the prompt fits about 270k
+tokens. Evidence:
+
+- Code: VS Code `sendChatRequest` merges the schema defaults into
+  `configuration`. The ext host passes it to Copilot Chat as
+  `modelConfiguration`. Copilot Chat uses `modelConfiguration.contextSize`
+  as the budget, and prompt-tsx removes the earliest content first.
+- In all 25 "No tool call found" requests the cut falls at the budget.
+  Counting from the orphaned assistant message to the end gives ≥269.8k
+  tokens; counting from its surviving tool result gives ≤270.5k. When the
+  cut removes a tool-call message but keeps its result, the request is
+  invalid. When the cut is clean, the call succeeds and the model has
+  silently lost the system prompt and the task.
+- 15 of the 101 graded trials made at least one such silent call (36
+  calls). Their mean criterion pass rate is 0.429 against 0.522 for the
+  rest, and their all-pass rate 0.067 against 0.192.
+- Probe (gpt-5.4): a code placed in the first message is recalled from a
+  5k-token prompt but not from a 317k-token prompt (`UNKNOWN`).
+
+Copilot Chat also takes the reasoning effort from
+`modelConfiguration.reasoningEffort`, whose default is "medium". It ignores
+the `reasoning.effort` that GH Copilot Server forwards in `modelOptions`. In
+the probe, effort "none" and "high" both took 8.5-13 s and both solved a
+counting puzzle.
+
+LAB has no protection against large tool outputs either. Its `bash`, `read`
+and `parse-doc` outputs, `sandbox.exec` and the Copilot adapter all pass
+full output (`lab_core/harness/tools.py` 456-540,
+`lab_core/sandbox/sandbox.py` 436, `adapters/copilot.py` 172). It relies on
+the provider's context window and stops cleanly only on "prompt is too
+long" or "context_length_exceeded" (`agent_loop.py` 73-81). `harness_lab`
+copies this faithfully.
+
+### Repair (AHE-021)
+
+GH Copilot Server's `out/server.js` in the host instance
+(`~/copilot-host/extensions/gh-copilot-server.gh-copilot-server-0.1.0/`) now
+sends `options.configuration` with `contextSize` set to the model's
+`maxInputTokens` and, when the request sets one, `reasoningEffort`. Without
+an effort, Copilot's default ("medium") still applies. The SHA-256 of
+`server.js` changed from `9090e9eb…7a45` to `5dea2428…384d`. The window was
+reloaded and the server restarted.
+
+Probe after the patch (gpt-5.4): effort "none" took 0.9-1.2 s and gave
+wrong answers; "high" took 12 s and was right. The 317k-token prompt
+recalls the code. The judges (claude-sonnet-5, gpt-5.5) still answer, and
+they send no effort and stay under 240k characters, so grading is unchanged.
+The probe script is `scripts/copilot_context_effort_probe.py`; its results
+are in `operator-preflight/2026-10-14/copilot-server-patch/`.
+
+The campaign 9 artifacts stay in place. Model preflights made before the
+patch (for example `operator-preflight/2026-10-14/*.json`) predate the new
+`server.js`, so rerun them before the next launch.
+
 
 ## 6. Known deviations and limits to report with results
 
@@ -1428,6 +1506,12 @@ trials were in flight, so it needed SIGTERM. SIGTERM left 17
   separator: `...the work is complete.# Persistent harness memory ...`. Fixed
   from campaign 9: an empty memory file adds nothing, and the suffix starts
   after a blank line (AHE-019).
+- Campaigns 1 to 9 ran before the GH Copilot Server patch of 2026-10-14
+  (section 5m, AHE-021). Copilot ignored the configured reasoning effort,
+  so "high" in their configs most likely ran as Copilot's default,
+  "medium". Prompts over about 270k tokens were silently cut from the
+  start. Campaigns 1 to 8 stopped at 200k tokens, so only campaign 9 was
+  cut.
 - Campaign 9 (`harness_lab/`): LAB's own system prompt with the docx, pptx
   and xlsx manuals, LAB's seven tool schemas and descriptions unchanged, and
   LAB's skill scripts copied into each sandbox's `/workspace/skills/`. The

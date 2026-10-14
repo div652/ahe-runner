@@ -34,6 +34,7 @@ with the choice the integration made in the meantime.
 | LAB-002 | Defect | Output too large for the judge has no defined score; LAB comparison silently drops such runs | Option A with a 240,000-character limit, chosen 2026-10-12 | Implemented in the Harvey judge wrapper (`harvey_ahe/grading.py`); LAB unchanged |
 | LAB-003 | Discussion | Dual-judge disagreement scores 0.5 in the headline but "not all-pass" in the per-run flag, with no explicit label | Disagreement treated as failing in diagnostics; headline unchanged, chosen 2026-10-12 | Implemented in Harvey adapter metrics; LAB unchanged |
 | LAB-004 | Discussion | The `bash` tool description says the working directory persists and suggests installing packages; each call is a fresh shell in `/workspace` with no network | Recorded 2026-10-14; campaign 9 copies the description unchanged for exactness | Not changed; the Harvey seed harness (`harness/`) already uses an accurate description |
+| LAB-005 | Discussion | Tool outputs have no size limit; LAB relies on the provider to reject an over-long prompt, so a transport that silently cuts the prompt instead (as GH Copilot Server did) goes unnoticed | Recorded 2026-10-14; `harness_lab` keeps LAB's behavior; the transport was fixed instead (AHE-021) | Not changed |
 
 ## LAB-001: filename helper transport (summary)
 
@@ -214,3 +215,41 @@ description unchanged, because the operator asked for an exact copy.
 
 Describe the real behavior: each call is a fresh shell starting in
 `/workspace`, and there is no network.
+
+## LAB-005: no limit on tool output size
+
+### Plain-language summary
+
+LAB passes every tool result to the model in full. A single `bash`, `read`
+or `parse-doc` call on a large firm-knowledge file can return hundreds of
+thousands of tokens. LAB relies on the provider to refuse a prompt that is
+too long: it stops the run cleanly and grades it only when the error says
+"prompt is too long" or "context_length_exceeded"; any other error crashes
+the run. This works only if the provider refuses. In campaign 9 the GH
+Copilot Server transport instead deleted the start of the prompt, including
+the system prompt and the task, and the run continued without them
+(AHE-021, runbook section 5m). This happened in 15 of 101 graded trials,
+and 32 more attempts failed with transport errors caused by the same cut.
+
+### Evidence
+
+- `lab_core/harness/tools.py`: `_bash` (line 456), `_read` (472) and
+  `_parse_in_sandbox` (526) return the full output.
+- `lab_core/sandbox/sandbox.py` line 436: `exec` captures the full output.
+- `lab_core/harness/adapters/copilot.py` line 172: tool results are sent
+  unchanged. This adapter is a local addition on this branch (`d7e56d455`),
+  not part of Harvey's upstream LAB; with the unpatched GH Copilot Server it
+  would be cut in the same way.
+- `lab_core/harness/agent_loop.py` lines 73-81: the only overflow handling.
+
+### Choice made by the integration
+
+`harness_lab/` copies LAB exactly, with no size limit. The transport was
+fixed so that over-long prompts reach the model in full (up to 921,793
+tokens for gpt-5.4). No size limit was added to the tools.
+
+### Suggestion for Harvey
+
+Cap or page large tool outputs (for example, return the first part plus a
+note on how to read the rest), and document that a run depends on the
+provider rejecting over-long prompts.
