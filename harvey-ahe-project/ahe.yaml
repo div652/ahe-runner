@@ -31,13 +31,13 @@
 # as C0 on all 250 firm-knowledge tasks with gpt-5.6-sol, reasoning high
 # (splits-firm-knowledge.json; runbook 5l). Only the C0 training evaluation
 # is run; no meta agents are used. The first run was stopped (runbook 5m);
-# this file now holds a 10-task pilot on the patched GH Copilot Server
-# (splits-firm-knowledge-pilot10.json) before the full rerun.
+# this is the full rerun on the patched GH Copilot Server, after a 10-task
+# pilot (splits-firm-knowledge-pilot10.json; runbook 5n).
 schema_version: 1
 
 campaign:
-  name: harvey-lab-campaign-9-pilot-patched
-  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-9-pilot-patched
+  name: harvey-lab-campaign-9-lab-exact-firm-knowledge
+  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-9-lab-exact-firm-knowledge
   rounds: 0
   root_seed: 42
 
@@ -48,7 +48,7 @@ project:
   adapter_settings:
     # Relative paths resolve against this file's directory.
     lab_root: ../../harvey-labs
-    split_file: ./splits-firm-knowledge-pilot10.json
+    split_file: ./splits-firm-knowledge.json
     # Firm-knowledge tasks fail the pilot filter (shared docs_dir store, more
     # files and criteria); campaign 9 evaluates all of them unfiltered.
     apply_task_filter: false
@@ -93,7 +93,7 @@ project:
   adapter_dependency_paths:
     - ./benchmark_adapter.py
     - ./harvey_ahe
-    - ./splits-firm-knowledge-pilot10.json
+    - ./splits-firm-knowledge.json
     - ./pyproject.toml
     - ./requirements.txt
   meta_agent_source_roots:

@@ -1475,9 +1475,49 @@ they send no effort and stay under 240k characters, so grading is unchanged.
 The probe script is `scripts/copilot_context_effort_probe.py`; its results
 are in `operator-preflight/2026-10-14/copilot-server-patch/`.
 
-The campaign 9 artifacts stay in place. Model preflights made before the
-patch (for example `operator-preflight/2026-10-14/*.json`) predate the new
+The stopped run's artifacts were renamed to
+`campaign-artifacts/harvey-lab-campaign-9-stopped-copilot-272k/`, with its
+run log inside as `c9-run.log`. Model preflights made before the patch (for
+example `operator-preflight/2026-10-14/*.json`) predate the new
 `server.js`, so rerun them before the next launch.
+
+## 5n. Campaign 9 pilot on the patched server, then the full rerun
+
+### Pilot: `harvey-lab-campaign-9-pilot-patched`
+
+Ten tasks (`splits-firm-knowledge-pilot10.json`, drawn with
+`random.Random(9).sample(range(250), 10)`: 002, 036, 048, 069, 087, 096,
+119, 157, 174, 222), same harness and models as 5l, plus
+`transport.hung_call_retries: 2`. Before launch the probe confirmed the
+patch for gpt-5.6-sol (`after-gpt-5.6-sol.json`: effort "none" 0.9-1.5 s
+and wrong, "high" 5-12 s and right; the 317k-token prompt is recalled).
+Run 2026-10-14 21:31-21:48 UTC; log `c9-pilot-run.log` inside the
+artifacts directory.
+
+| Check | Result |
+|---|---|
+| Graded trials | 10 of 10; no infrastructure errors |
+| Hung calls (300 s server timeout) | 7 of about 214 (3%), all on call 4 or 5 of a trial; every one succeeded on its first resend |
+| Successful call time at real "high" | median 5 s, p99 31 s, max 40 s |
+| Calls with prompts over 270k tokens | 60, all answered |
+| Judges (claude-sonnet-5, gpt-5.5) | all 10 graded without errors |
+| Mean criterion pass rate | 0.508 (pilot only, not a result) |
+| Dual all-pass rate | 0.20 (tasks 087 and 096) |
+
+Two trials (tasks 174 and 222) filled the whole 921,793-token context
+through large file reads (LAB-005). NexAU then stopped the agent ("Prompt
+tokens ... exceed max_context_tokens"), as LAB stops on a provider
+"context_length_exceeded". Neither wrote an output file, yet they scored
+0.25 and 0.33: their "Qualifying set — precision" criterion passes when
+nothing is asserted (LAB-006). These are valid trials and are not retried.
+
+### Full rerun: `harvey-lab-campaign-9-lab-exact-firm-knowledge`
+
+`ahe.yaml` is back to the 5l configuration (all 250 tasks,
+`splits-firm-knowledge.json`) with `hung_call_retries: 2` kept. The
+directory name is reused; the stopped run lives under its new name (5m).
+Launch with the C0-only command of 5l, wrapped in the resume loop used for
+5m (log `campaign-artifacts/c9-run.log`).
 
 
 ## 6. Known deviations and limits to report with results

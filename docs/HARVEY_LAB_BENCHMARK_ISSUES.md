@@ -35,6 +35,7 @@ with the choice the integration made in the meantime.
 | LAB-003 | Discussion | Dual-judge disagreement scores 0.5 in the headline but "not all-pass" in the per-run flag, with no explicit label | Disagreement treated as failing in diagnostics; headline unchanged, chosen 2026-10-12 | Implemented in Harvey adapter metrics; LAB unchanged |
 | LAB-004 | Discussion | The `bash` tool description says the working directory persists and suggests installing packages; each call is a fresh shell in `/workspace` with no network | Recorded 2026-10-14; campaign 9 copies the description unchanged for exactness | Not changed; the Harvey seed harness (`harness/`) already uses an accurate description |
 | LAB-005 | Discussion | Tool outputs have no size limit; LAB relies on the provider to reject an over-long prompt, so a transport that silently cuts the prompt instead (as GH Copilot Server did) goes unnoticed | Recorded 2026-10-14; `harness_lab` keeps LAB's behavior; the transport was fixed instead (AHE-021) | Not changed |
+| LAB-006 | Discussion | An empty output passes the "Qualifying set — precision" criterion that 241 of 250 firm-knowledge tasks have, so a run that produces nothing still earns a non-zero criterion pass rate | Recorded 2026-10-14; the integration matches LAB (no zero-score rule for missing output) | Not changed |
 
 ## LAB-001: filename helper transport (summary)
 
@@ -253,3 +254,42 @@ tokens for gpt-5.4). No size limit was added to the tools.
 Cap or page large tool outputs (for example, return the first part plus a
 note on how to read the rest), and document that a run depends on the
 provider rejecting over-long prompts.
+
+## LAB-006: an empty output passes the precision criterion
+
+### Plain-language summary
+
+241 of the 250 firm-knowledge tasks have exactly one criterion titled
+"Qualifying set — precision", worded as "Does not assert any qualifying
+matter outside: ...". A run that writes no output asserts nothing, so the
+judges pass it. LAB has no rule that a missing deliverable scores zero, so
+such a run still gets a non-zero criterion pass rate. The precision
+criterion is on average 19% of a task's criteria (up to 50%; at least 25% in
+90 tasks). The all-pass rate is unaffected because the other criteria fail.
+
+In the campaign 9 pilot (runbook 5n), tasks 174 and 222 filled the model's
+context, stopped without writing `response.md`, and scored 0.25 and 0.33,
+with both judges agreeing.
+
+### Evidence
+
+- `tasks/firm-knowledge/tasks/*/task.json`: 241 tasks have one criterion
+  whose title contains "precision"; for task 174 it reads "Does not assert
+  any qualifying matter outside: 1041-00003 ...".
+- `lab_core/evaluation/scoring.py` line 541: a missing deliverable is sent
+  to the judge as "(File not found: ...)" and scored like any other output.
+- `lab_core/harness/tools.py` lines 252-259: after the finish gate gives up,
+  "the judge scores the missing file as "(File not found)"".
+- Pilot judge reasoning for the passed criterion: "no matters outside the
+  allowed set were asserted".
+
+### Choice made by the integration
+
+The Harvey judge wrapper matches LAB: missing output is graded as LAB grades
+it, with no zero-score rule. Report criterion pass rates with this floor in
+mind, and prefer the all-pass rate when comparing failed or truncated runs.
+
+### Suggestion for Harvey
+
+Score a criterion as failed when its deliverable is missing, or make the
+precision criterion conditional on at least one asserted item.
