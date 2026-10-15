@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import multiprocessing
 import os
 import sys
 import time
@@ -87,7 +88,9 @@ def _runtime_probe(
 def _runtime_slot_probe(
     _payload: Any,
     runtime: EvaluatedAgentRuntime,
+    ready: Any,
 ) -> dict[str, float]:
+    ready.set()
     with model_request_slot(runtime._transport) as timing:
         return timing
 
@@ -209,6 +212,7 @@ def test_evaluated_child_reuses_preflight_project_root_and_request_slots(
         }
         assert len(preflight_calls) == 1
 
+        ready = multiprocessing.get_context("spawn").Event()
         with ThreadPoolExecutor(max_workers=1) as pool:
             with model_request_slot(transport):
                 future = pool.submit(
@@ -217,7 +221,9 @@ def test_evaluated_child_reuses_preflight_project_root_and_request_slots(
                     None,
                     runtime=runtime,
                     import_paths=(REPOSITORY_ROOT,),
+                    inherited=(ready,),
                 )
+                assert ready.wait(timeout=10)
                 time.sleep(0.2)
                 assert not future.done()
             timing = future.result(timeout=10)
