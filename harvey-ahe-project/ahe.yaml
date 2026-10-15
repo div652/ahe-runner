@@ -46,14 +46,14 @@
 # (AHE-025); the restart runs each trial in its own process (runbook 5r).
 # The restart was stopped in round 4 by operator choice and deleted (runbook
 # 5s). This eleventh campaign is campaign 10 with gpt-5.6-sol at high
-# reasoning as the evaluated model and for every meta agent, and 3 rounds,
-# sized to finish in about 12 hours (runbook 5s).
+# reasoning as the evaluated model and for every meta agent, and 5 rounds
+# (operator's choice; estimated about 15.5 hours; runbook 5s).
 schema_version: 1
 
 campaign:
   name: harvey-lab-campaign-11-gpt-5.6-sol-high-60-15-15
   artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-11-gpt-5.6-sol-high-60-15-15
-  rounds: 3
+  rounds: 5
   root_seed: 42
 
 project:

@@ -1887,10 +1887,10 @@ minutes before the automatic resume.
 |---|---|
 | Evaluated model | `gpt-5.6-sol`, reasoning high, `max_tokens` 64000 (as in 9b) |
 | Meta model | `gpt-5.6-sol`, reasoning high, `max_tokens` 32000. It is used by every meta agent: Debugger, Evolve and the Explore agents. Per-role settings are unchanged. |
-| Rounds | 3, so that the whole campaign finishes in about 12 hours |
+| Rounds | 5. The operator first asked for a campaign that finishes in about 12 hours; the estimate below gave 3 rounds, and the operator chose 5 anyway |
 | Everything else | as campaign 10 (sections 5q and 5r): split, 2/2/3 trials, judges, helper, concurrency, no noise floor, `trial_processes: true` |
 
-How 3 rounds was chosen:
+How the time was estimated:
 
 - gpt-5.6-sol's model time per trial was taken from 9b's call timestamps:
   4.8 min on average, against 2.4 min for gpt-5.4 in campaign 10. Tool time
@@ -1906,11 +1906,11 @@ How 3 rounds was chosen:
   - Validation: about 30 min for C0 and about 45 min for each evolved
     checkpoint, one after another.
   - Final test: about 1 h.
-- Total: about 10.5 h for 3 rounds (9.5 to 11.5 h) and about 13 h for 4.
-  If the campaign runs well ahead of plan, `ahe extend-rounds` can add a
-  round. The campaign must be stopped, extended and resumed before round
-  3's training evaluation ends, because `evolution.close` starts right after
-  it (`docs/AHE_RUNNER_GUIDE.md` section 2.6).
+- Total: about 10.5 h for 3 rounds (9.5 to 11.5 h), about 13 h for 4 and
+  about 15.5 h for 5 (12 to 17 h). If needed, `ahe extend-rounds` can add
+  rounds. The campaign must be stopped, extended and resumed before the last
+  round's training evaluation ends, because `evolution.close` starts right
+  after it (`docs/AHE_RUNNER_GUIDE.md` section 2.6).
 
 Changes since campaign 10: `ahe extend-rounds` was added
 (`docs/AHE_RUNNER_GUIDE.md` sections 2.2 and 2.6). Without a recorded
