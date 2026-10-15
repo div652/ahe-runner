@@ -10,8 +10,10 @@ import json
 import shutil
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
 import yaml
 from harvey_ahe import adapter as adapter_module
@@ -26,6 +28,8 @@ from harvey_ahe.adapter import (
 from harvey_ahe.grading import JUDGE_MAX_TOKENS, dual_summary
 from harvey_ahe.tasks import PinnedTask, leaf_slug, load_pinned_task
 from harvey_ahe.workspace import RESOURCE_KEY, WorkspaceHandle
+from lab_core.sandbox.sandbox import PodmanError
+from openai import APITimeoutError
 
 from ahe_runner.adapter import (
     CandidateValidationRequest,
@@ -37,6 +41,7 @@ from ahe_runner.adapter import (
     TaskState,
     VerificationRequest,
 )
+from ahe_runner.child_process import portable_exception
 from ahe_runner.config import ModelSettings, TransportSettings
 from ahe_runner.errors import ConfigurationError, InfrastructureError, IntegrityError
 from ahe_runner.evaluation import verify_evaluation_output
@@ -782,3 +787,102 @@ def test_evidence_refuses_non_training_split(
                 output_dir=tmp_path / "evidence",
             )
         )
+
+
+# Trial processes (AHE-025)
+
+
+def _isolated_adapter(scratch_root: Path) -> HarveyAdapter:
+    return HarveyAdapter(
+        project_root=PROJECT_ROOT,
+        settings=_settings(scratch_root, trial_processes=True),
+    )
+
+
+def test_trial_processes_enter_semantic_inputs_only_when_set(
+    adapter: HarveyAdapter, scratch_root: Path, tmp_path: Path
+) -> None:
+    isolated = _isolated_adapter(scratch_root)
+    request = EvaluationRequest(
+        checkpoint="C0",
+        harness_dir=HARNESS_DIR,
+        split=adapter.split(SplitName.TRAIN),
+        trials=1,
+        root_seed=7,
+        output_dir=tmp_path / "evaluation",
+        model=ModelSettings(model="evaluated-model", max_tokens=64000),
+        transport=TransportSettings(base_url="http://127.0.0.1:9/v1"),
+        api_key="offline-key",
+        max_concurrency=1,
+    )
+    environment = adapter_module._Environment(
+        image_id=FAKE_IMAGE_ID, pandoc_version="3.6"
+    )
+    plain = adapter._semantic_inputs(request, environment)["adapter_settings"]
+    assert "trial_processes" not in plain
+    settings = isolated._semantic_inputs(request, environment)["adapter_settings"]
+    assert settings == {**plain, "trial_processes": True}
+
+
+def test_trial_processes_need_the_ahe_runtime(
+    scratch_root: Path, tmp_path: Path
+) -> None:
+    isolated = _isolated_adapter(scratch_root)
+    task = isolated._tasks[isolated.split(SplitName.TRAIN).task_ids[0]]
+    with pytest.raises(ConfigurationError, match="trial_processes"):
+        isolated._run_agent(
+            scratch=tmp_path,
+            task=task,
+            unit=None,  # type: ignore[arg-type]
+            attempt=1,
+            runtime=object(),  # type: ignore[arg-type]
+            runtime_dir=tmp_path / "runtime",
+            environment=adapter_module._Environment("img", "p"),
+            harness_dir=HARNESS_DIR,
+        )
+
+
+def _chained(outer: BaseException, inner: BaseException) -> BaseException:
+    outer.__cause__ = inner
+    return outer
+
+
+_REQUEST = httpx.Request("POST", "http://127.0.0.1:9/v1/chat/completions")
+
+
+@pytest.mark.parametrize(
+    ("raised", "expected", "match"),
+    [
+        (
+            _chained(RuntimeError("tool wrapper"), APITimeoutError(request=_REQUEST)),
+            InfrastructureError,
+            "RuntimeError: tool wrapper",
+        ),
+        (
+            _chained(RuntimeError("wrapper"), IntegrityError("corpus changed")),
+            IntegrityError,
+            "corpus changed",
+        ),
+        (PodmanError("podman run failed"), PodmanError, "podman run failed"),
+        (ValueError("harness bug"), ValueError, "harness bug"),
+    ],
+)
+def test_trial_process_errors_are_classified_before_pickling(
+    monkeypatch: pytest.MonkeyPatch,
+    raised: BaseException,
+    expected: type[BaseException],
+    match: str,
+) -> None:
+    def fail(_spec: Any) -> None:
+        raise raised
+
+    monkeypatch.setattr(adapter_module.EvaluatedAgentRuntime, "from_process_spec", fail)
+    payload = SimpleNamespace(
+        runtime_spec=SimpleNamespace(
+            transport=TransportSettings(base_url="http://127.0.0.1:9/v1")
+        )
+    )
+    with pytest.raises(expected, match=match) as caught:
+        adapter_module._trial_process_entry(payload, None)  # type: ignore[arg-type]
+    # What crosses the process boundary must survive pickling as itself.
+    assert type(portable_exception(caught.value)) is expected

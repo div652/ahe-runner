@@ -56,6 +56,7 @@ from ahe_runner.adapter import (
     ValidationResult,
     VerificationRequest,
 )
+from ahe_runner.child_process import run_in_child
 from ahe_runner.config import ModelSettings
 from ahe_runner.errors import (
     CandidateValidationError,
@@ -73,13 +74,18 @@ from ahe_runner.io import (
     tree_hashes,
     tree_sha256,
 )
-from ahe_runner.meta.model_client import is_infrastructure_exception
+from ahe_runner.meta.model_client import (
+    adopt_shared_request_slots,
+    is_infrastructure_exception,
+    shared_request_slots,
+)
 from ahe_runner.runtime import (
     AgentInput,
     AgentInputMessage,
     AgentOutput,
     AgentSessionRequest,
     EvaluatedAgentRuntime,
+    RuntimeProcessSpec,
 )
 
 from .candidate_checks import WORKSPACE_SEED_DIR, harvey_candidate_errors, training_slug
@@ -96,6 +102,7 @@ from .tasks import (
 from .workspace import MAX_EXEC_TIMEOUT_SECONDS, RESOURCE_KEY, WorkspaceHandle
 
 ADAPTER_VERSION = "2"
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RESULT_SCHEMA_VERSION = 1
 PRIMARY_METRIC = "mean_criterion_pass_rate"
 ALL_PASS_METRIC = "mean_dual_all_pass_rate"
@@ -140,6 +147,10 @@ class HarveyAdapterSettings(BaseModel):
     # The pilot selection filter (eligibility_errors) is re-checked for every
     # split task on load. False admits any LAB task, e.g. firm-knowledge.
     apply_task_filter: bool = True
+    # Run each trial's agent in its own process, as LAB does (AHE-025), so
+    # host-side harness tools of concurrent trials do not queue on one
+    # interpreter. Grading stays in this process.
+    trial_processes: bool = False
 
     @model_validator(mode="after")
     def validate_judges(self) -> HarveyAdapterSettings:
@@ -541,6 +552,9 @@ class HarveyAdapter(BenchmarkAdapterV2):
                 "shell_timeout",
             },
         )
+        if self.config.trial_processes:
+            # Added only when set, so earlier evaluations keep their inputs.
+            settings["trial_processes"] = True
         return {
             "adapter": self.identity().model_dump(mode="json"),
             "adapter_settings": settings,
@@ -656,7 +670,7 @@ class HarveyAdapter(BenchmarkAdapterV2):
             runtime_dir = (
                 request.output_dir / "runtime" / unit.unit_id / f"attempt-{attempt}"
             )
-            run = self._run_in_sandbox(
+            run = self._run_agent(
                 scratch=scratch,
                 task=task,
                 unit=unit,
@@ -761,6 +775,61 @@ class HarveyAdapter(BenchmarkAdapterV2):
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
 
+    def _run_agent(
+        self,
+        *,
+        scratch: Path,
+        task: HarveyTask,
+        unit: EvaluationUnit,
+        attempt: int,
+        runtime: EvaluatedAgentRuntime,
+        runtime_dir: Path,
+        environment: _Environment,
+        harness_dir: Path,
+    ) -> _AgentRun:
+        if not self.config.trial_processes:
+            return self._run_in_sandbox(
+                scratch=scratch,
+                task=task,
+                unit=unit,
+                attempt=attempt,
+                runtime=runtime,
+                runtime_dir=runtime_dir,
+                environment=environment,
+                harness_dir=harness_dir,
+            )
+        if not isinstance(runtime, EvaluatedAgentRuntime):
+            raise ConfigurationError(
+                "trial_processes requires the AHE evaluated-agent runtime"
+            )
+        spec = runtime.process_spec()
+        payload = _TrialPayload(
+            runtime_spec=spec,
+            shell_timeout=self.config.shell_timeout,
+            scratch=scratch,
+            task=task,
+            unit=unit,
+            attempt=attempt,
+            runtime_dir=runtime_dir,
+            environment=environment,
+            harness_dir=harness_dir,
+        )
+        try:
+            run = run_in_child(
+                f"{__name__}:_trial_process_entry",
+                payload,
+                import_paths=(_PROJECT_ROOT,),
+                inherited=(shared_request_slots(spec.transport),),
+                name=f"harvey-trial-{unit.unit_id}-{attempt}",
+            )
+        finally:
+            # The baseline lives in this process; check here, as the thread
+            # path does after every run.
+            verify_shared_documents(task)
+        if not isinstance(run, _AgentRun):
+            raise IntegrityError("trial process returned an unexpected result")
+        return run
+
     def _run_in_sandbox(
         self,
         *,
@@ -773,60 +842,20 @@ class HarveyAdapter(BenchmarkAdapterV2):
         environment: _Environment,
         harness_dir: Path,
     ) -> _AgentRun:
-        if task.shared_documents:
-            # Mounted read-only by the sandbox; its hash was checked on load.
-            documents_dir = task.documents_dir
-        else:
-            documents_dir = scratch / "documents"
-            copy_documents(task, documents_dir)
-        for name in ("workspace", "output", "nexau_cwd"):
-            (scratch / name).mkdir()
-        seed_workspace(harness_dir, scratch / "workspace")
-        sandbox = Sandbox(
-            documents_dir=documents_dir,
-            output_dir=scratch / "output",
-            workspace_dir=scratch / "workspace",
-            image=environment.image_id,
-            default_timeout=self.config.shell_timeout,
-        )
-        handle = WorkspaceHandle(sandbox, shell_timeout=self.config.shell_timeout)
         try:
-            try:
-                sandbox.start()
-            except PodmanError as exc:
-                raise InfrastructureError(
-                    f"LAB sandbox failed to start: {exc}"
-                ) from exc
-            started = time.monotonic()
-            output, error, overflow = _run_session(
+            return _run_trial_agent(
+                shell_timeout=self.config.shell_timeout,
+                scratch=scratch,
+                task=task,
+                unit=unit,
+                attempt=attempt,
                 runtime=runtime,
-                session_id=f"{unit.unit_id}-{attempt}",
-                artifact_dir=runtime_dir,
-                working_directory=scratch / "nexau_cwd",
-                handle=handle,
-                instructions=task.instructions,
-            )
-            elapsed = time.monotonic() - started
-            health = sandbox.exec("true", timeout=HEALTH_CHECK_TIMEOUT_SECONDS)
-            if health.returncode != 0:
-                raise InfrastructureError(
-                    "LAB sandbox was unhealthy after the agent run "
-                    f"(exit {health.returncode}): {health.stderr.strip()[:500]}"
-                )
-            return _AgentRun(
-                output=output,
-                error=error,
-                context_overflow=overflow,
-                finished=handle.finished,
-                finish_summary=handle.finish_summary,
-                wall_clock_seconds=elapsed,
+                runtime_dir=runtime_dir,
+                environment=environment,
+                harness_dir=harness_dir,
             )
         finally:
-            handle.revoke()
-            try:
-                sandbox.stop()
-            finally:
-                verify_shared_documents(task)
+            verify_shared_documents(task)
 
     # Recomputation from stored artifacts (shared by evaluate and verify)
 
@@ -903,6 +932,114 @@ class HarveyAdapter(BenchmarkAdapterV2):
         order = {task_id: index for index, task_id in enumerate(task_ids)}
         trials.sort(key=lambda trial: (order[trial.task_id], trial.trial))
         return trials
+
+
+def _run_trial_agent(
+    *,
+    shell_timeout: int,
+    scratch: Path,
+    task: HarveyTask,
+    unit: EvaluationUnit,
+    attempt: int,
+    runtime: EvaluatedAgentRuntime,
+    runtime_dir: Path,
+    environment: _Environment,
+    harness_dir: Path,
+) -> _AgentRun:
+    if task.shared_documents:
+        # Mounted read-only by the sandbox; its hash was checked on load.
+        documents_dir = task.documents_dir
+    else:
+        documents_dir = scratch / "documents"
+        copy_documents(task, documents_dir)
+    for name in ("workspace", "output", "nexau_cwd"):
+        (scratch / name).mkdir()
+    seed_workspace(harness_dir, scratch / "workspace")
+    sandbox = Sandbox(
+        documents_dir=documents_dir,
+        output_dir=scratch / "output",
+        workspace_dir=scratch / "workspace",
+        image=environment.image_id,
+        default_timeout=shell_timeout,
+    )
+    handle = WorkspaceHandle(sandbox, shell_timeout=shell_timeout)
+    try:
+        try:
+            sandbox.start()
+        except PodmanError as exc:
+            raise InfrastructureError(f"LAB sandbox failed to start: {exc}") from exc
+        started = time.monotonic()
+        output, error, overflow = _run_session(
+            runtime=runtime,
+            session_id=f"{unit.unit_id}-{attempt}",
+            artifact_dir=runtime_dir,
+            working_directory=scratch / "nexau_cwd",
+            handle=handle,
+            instructions=task.instructions,
+        )
+        elapsed = time.monotonic() - started
+        health = sandbox.exec("true", timeout=HEALTH_CHECK_TIMEOUT_SECONDS)
+        if health.returncode != 0:
+            raise InfrastructureError(
+                "LAB sandbox was unhealthy after the agent run "
+                f"(exit {health.returncode}): {health.stderr.strip()[:500]}"
+            )
+        return _AgentRun(
+            output=output,
+            error=error,
+            context_overflow=overflow,
+            finished=handle.finished,
+            finish_summary=handle.finish_summary,
+            wall_clock_seconds=elapsed,
+        )
+    finally:
+        handle.revoke()
+        sandbox.stop()
+
+
+@dataclass(frozen=True, slots=True)
+class _TrialPayload:
+    runtime_spec: RuntimeProcessSpec
+    shell_timeout: int
+    scratch: Path
+    task: HarveyTask
+    unit: EvaluationUnit
+    attempt: int
+    runtime_dir: Path
+    environment: _Environment
+    harness_dir: Path
+
+
+def _trial_process_entry(payload: _TrialPayload, request_slots: Any) -> _AgentRun:
+    """Run one trial's sandbox and agent session inside a trial process."""
+    spec = payload.runtime_spec
+    try:
+        adopt_shared_request_slots(spec.transport, request_slots)
+        runtime = EvaluatedAgentRuntime.from_process_spec(spec)
+        try:
+            return _run_trial_agent(
+                shell_timeout=payload.shell_timeout,
+                scratch=payload.scratch,
+                task=payload.task,
+                unit=payload.unit,
+                attempt=payload.attempt,
+                runtime=runtime,
+                runtime_dir=payload.runtime_dir,
+                environment=payload.environment,
+                harness_dir=payload.harness_dir,
+            )
+        finally:
+            runtime.close()
+    except BaseException as exc:
+        # Pickling drops cause chains, so classify here, where they exist.
+        for item in _cause_chain(exc):
+            if isinstance(item, _FATAL_ERRORS):
+                raise item  # noqa: B904
+        if _is_infrastructure(exc) and not isinstance(
+            exc, (InfrastructureError, PodmanError)
+        ):
+            raise InfrastructureError(f"{type(exc).__name__}: {exc}") from exc
+        raise
 
 
 def _run_session(

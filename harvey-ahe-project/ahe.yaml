@@ -42,7 +42,8 @@
 # built by scripts/make_splits_firm_knowledge_c10.py), with gpt-5.4 at
 # provider-default reasoning as the evaluated model, gpt-5.4 at high for the
 # meta agents, 2/2/3 trials, and no noise floor for change attribution
-# (runbook 5q).
+# (runbook 5q). Its first run was stopped on host-side grep contention
+# (AHE-025); the restart runs each trial in its own process (runbook 5r).
 schema_version: 1
 
 campaign:
@@ -101,6 +102,10 @@ project:
     # the unchanged seed harness (campaigns 4-6); 0.0 counts any change.
     # Campaign 10 uses 0.0: no noise floor.
     attribution_min_task_delta: 0.0
+    # Run each trial's agent in its own Python process, as LAB does, instead
+    # of a thread of this process. Host-side tools (grep reads the shared
+    # document store) otherwise queue on one GIL (AHE-025).
+    trial_processes: true
   adapter_dependency_paths:
     - ./benchmark_adapter.py
     - ./harvey_ahe

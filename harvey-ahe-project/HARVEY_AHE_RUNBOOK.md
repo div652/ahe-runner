@@ -1828,6 +1828,26 @@ Launch with the section 5h command (`ahe run`, then up to 5 `ahe resume`
 attempts), with the log at `campaign-artifacts/c10-run.log`, the campaign 10
 stage path, and tmux session `ahe-c10`.
 
+## 5r. Campaign 10: first run stopped, restarted with one process per trial
+
+The first run started at 09:22 UTC on 2026-10-15. By 10:35 UTC, 50 of the
+120 C0 training trials had finished, and trials took about twice as long as
+in 9b: the 20 trials ran as threads of one Python process, so their
+host-side `grep` calls waited for each other (AHE-025). The operator chose
+to stop, fix and restart from scratch.
+
+- The stopped run is kept as
+  `campaign-artifacts/harvey-lab-campaign-10-stopped-grep-contention/`, with
+  its log `campaign-artifacts/c10-stopped-grep-contention-run.log`. Its
+  results are not used.
+- The fix is the adapter setting `trial_processes: true` in `ahe.yaml`: each
+  trial's agent runs in its own Python process, as in LAB. Grading stays in
+  the `ahe` process. Details and limits are in AHE-025.
+- Check without model calls: 20 searches of the shared store at once took
+  241 s each as threads and 10.5 s each as separate processes.
+- Everything else in section 5q is unchanged. The restart uses the same
+  campaign name and artifact folder, which the rename freed.
+
 ## 6. Known deviations and limits to report with results
 
 - Task scope (campaigns 1 to 8): only 166 of LAB's 2,010 tasks (8%) are
@@ -1902,5 +1922,11 @@ stage path, and tmux session `ahe-c10`.
   (AHE-018).
 - From campaign 4 on, all model calls in a process queue for one of 24 slots
   (AHE-015), and judge calls may use at most 18 of them.
+- Campaigns 1 to 9b ran all trials as threads of one Python process, so
+  host-side tools of concurrent trials waited for each other (AHE-025).
+  Scores were not affected, but trials took longer than in LAB; 9b lost
+  about 11% of trial time this way. From the campaign 10 restart on, each
+  trial runs in its own process, and the 24 model-call slots are shared
+  across these processes.
 - AHE issues AHE-001 to AHE-020 and their branch-local fixes are listed in
   `docs/HARVEY_INTEGRATION_UPSTREAM_RECOMMENDATIONS.md`.

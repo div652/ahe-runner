@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import pickle
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -650,6 +651,35 @@ def test_concurrent_sessions_share_one_evaluated_preflight(
         proofs = list(pool.map(lambda _: runtime._ensure_model_preflight(), range(8)))
     assert len(set(proofs)) == 1
     assert len(preflight_endpoint.requests) == 3
+
+
+def test_process_spec_lets_a_child_runtime_reuse_the_parent_preflight(
+    tmp_path: Path,
+    runtime_factory: Callable[[], EvaluatedAgentRuntime],
+    preflight_endpoint: _PreflightEndpoint,
+) -> None:
+    parent = runtime_factory()
+    spec = pickle.loads(pickle.dumps(parent.process_spec()))
+    assert len(preflight_endpoint.requests) == 3
+    assert "api_key=" not in repr(spec)
+    child = EvaluatedAgentRuntime.from_process_spec(spec)
+    try:
+        assert child._ensure_model_preflight() == spec.model_preflight_path
+    finally:
+        child.close()
+    assert len(preflight_endpoint.requests) == 3
+
+    outside = tmp_path / "elsewhere.json"
+    outside.write_text("{}", "utf-8")
+    with pytest.raises(IntegrityError, match="outside this evaluation"):
+        EvaluatedAgentRuntime.from_process_spec(
+            spec.model_copy(update={"model_preflight_path": outside})
+        )
+    missing = spec.model_preflight_path.with_name("missing.json")
+    with pytest.raises(IntegrityError, match="missing"):
+        EvaluatedAgentRuntime.from_process_spec(
+            spec.model_copy(update={"model_preflight_path": missing})
+        )
 
 
 def test_new_evaluation_attempt_preserves_failed_preflight_and_request_identity(

@@ -250,6 +250,21 @@ class EvaluatedAgentSession:
         return result
 
 
+class RuntimeProcessSpec(BaseModel):
+    """Picklable recipe for rebuilding a runtime inside a trial process."""
+
+    model_config = ConfigDict(frozen=True)
+
+    harness_dir: Path
+    manifest: HarnessManifest
+    benchmark_interface: BenchmarkInterface
+    model: ModelSettings
+    transport: TransportSettings
+    api_key: str = Field(repr=False)
+    artifact_root: Path
+    model_preflight_path: Path
+
+
 class EvaluatedAgentRuntime:
     """Factory for isolated evaluated-agent sessions from one harness checkpoint."""
 
@@ -263,6 +278,7 @@ class EvaluatedAgentRuntime:
         transport: TransportSettings,
         api_key: str,
         artifact_root: Path,
+        model_preflight_path: Path | None = None,
     ) -> None:
         self._harness_dir = harness_dir.resolve()
         self._manifest = manifest
@@ -277,8 +293,52 @@ class EvaluatedAgentRuntime:
         self._preflight_lock = threading.Lock()
         self._preflight_path: Path | None = None
         self._preflight_error: Exception | None = None
+        if model_preflight_path is not None:
+            # A parent runtime already ran the probe for this evaluation.
+            path = model_preflight_path.resolve()
+            try:
+                path.relative_to(self._artifact_root / "model-preflights")
+            except ValueError as exc:
+                raise IntegrityError(
+                    f"model preflight is outside this evaluation: {path}"
+                ) from exc
+            if not path.is_file():
+                raise IntegrityError(f"model preflight is missing: {path}")
+            self._preflight_path = path
         self._import_scope = HarnessImportScope(self._harness_dir)
         self._import_scope.__enter__()
+
+    @classmethod
+    def from_process_spec(cls, spec: RuntimeProcessSpec) -> EvaluatedAgentRuntime:
+        return cls(
+            harness_dir=spec.harness_dir,
+            manifest=spec.manifest,
+            benchmark_interface=spec.benchmark_interface,
+            model=spec.model,
+            transport=spec.transport,
+            api_key=spec.api_key,
+            artifact_root=spec.artifact_root,
+            model_preflight_path=spec.model_preflight_path,
+        )
+
+    def process_spec(self) -> RuntimeProcessSpec:
+        """Run the model preflight once here and describe this runtime for a child."""
+        if self._closed:
+            raise RuntimeError("evaluated-agent runtime is closed")
+        return RuntimeProcessSpec(
+            harness_dir=self._harness_dir,
+            manifest=self._manifest,
+            benchmark_interface=self._benchmark_interface,
+            model=self._model,
+            transport=self._transport,
+            api_key=self._api_key,
+            artifact_root=self._artifact_root,
+            model_preflight_path=self._ensure_model_preflight(),
+        )
+
+    @property
+    def transport(self) -> TransportSettings:
+        return self._transport
 
     def open_session(self, request: AgentSessionRequest) -> EvaluatedAgentSession:
         if self._closed:

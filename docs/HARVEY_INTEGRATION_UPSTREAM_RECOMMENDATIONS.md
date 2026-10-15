@@ -51,7 +51,7 @@ The assistant announces new permanent files before creating them.
 | AHE-022 | A model call that hangs until the request timeout fails its whole trial; the unit is rerun from the start, which wastes work and favours shorter trials | Found on 2026-10-14 in campaign 9 (52 gpt-5.6-sol hangs); the operator chose per-call resending | Fixed locally on 2026-10-14: `transport.hung_call_retries` (default 0), every attempt recorded |
 | AHE-023 | NexAU checks the context limit with a characters-÷-4 estimate and stops the agent before sending; LAB has no such check, and a provider "too long" error became an infrastructure error that was rerun | Explained on 2026-10-15 after campaign 9's rerun; the operator chose to keep those results with a caveat, fix it, and evaluate all 250 tasks again | Fixed locally; campaign 9b re-evaluates |
 | AHE-024 | The exact token counter of AHE-023 uses o200k_base for every model; Claude's tokenizer turns the same Harvey text into 1.65-1.68 times as many tokens, so `max_context_tokens` means a different amount of text per model | Explained on 2026-10-15 while preparing campaign 9c (claude-opus-4.8); the operator chose to keep the harness unchanged and let Anthropic's rejection end Opus runs, as LAB does, and approved recording; 9c was then dropped | No patch; only GPT models (o200k_base) are evaluated so far |
-| AHE-025 | All concurrent trials run as threads in one Python process, so host-side harness tools such as `grep` queue behind each other; LAB runs every task in its own process | Found on 2026-10-15 during campaign 10's C0 evaluation; the operator approved recording it | Not fixed yet; campaign 10 runs with it |
+| AHE-025 | All concurrent trials run as threads in one Python process, so host-side harness tools such as `grep` queue behind each other; LAB runs every task in its own process | Found on 2026-10-15 during campaign 10's C0 evaluation; the operator approved recording it | Fixed locally: the adapter setting `trial_processes` runs each trial's agent in its own process; campaign 10 was stopped and restarted with it |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -2086,11 +2086,37 @@ with how often the tasks search.
 
 ### Local decision or repair
 
-Not fixed yet. Campaign 10 was already running when this was found and
-runs with it. The candidate fix is to run each trial's agent session in
-its own child process, as LAB does, and keep grading in the parent; the
-shared limit on concurrent model requests (AHE-015) must then work across
-processes.
+Campaign 10 was stopped on 2026-10-15 after 50 of its 120 C0 training
+trials and restarted from scratch with a fix (runbook 5r).
+
+The new adapter setting `trial_processes` (default off; on for campaign 10)
+runs each trial's agent session in its own Python process, as LAB does:
+
+- `src/ahe_runner/child_process.py` starts a fresh (spawned) child, sends it
+  the trial over a pipe and returns its result or error. The child stops if
+  the `ahe` process dies.
+- The runtime's model settings and its already-passed model preflight are
+  handed to the child (`RuntimeProcessSpec`), so the preflight is not
+  repeated per trial.
+- The shared limit on concurrent model requests (AHE-015, 24 slots) is now a
+  semaphore that works across processes and is passed to every child.
+- Grading, the check that the shared document store is unchanged, and all
+  bookkeeping stay in the parent process.
+- Errors are sorted into fatal, infrastructure or ordinary in the child,
+  because Python loses an exception's cause when it is sent between
+  processes.
+
+Measured without model calls: 20 searches of the shared store at once took
+241 s each as threads of one process and 10.5 s each as separate processes.
+
+Known limits:
+
+- A child that is killed while it holds a model-request slot does not give
+  the slot back, so the limit drops by one for the rest of the run. A
+  killed child also leaves its sandbox container behind.
+- Harness module state is now per trial; before, trials running at the same
+  time shared it.
+- Each child adds about 230 MB of memory and 2-3 s of start-up.
 
 ### Upstream recommendations
 
