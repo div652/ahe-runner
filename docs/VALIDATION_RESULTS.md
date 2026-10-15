@@ -1,5 +1,73 @@
 # Validation Results
 
+## AHE-025 trial isolation and tool timing
+
+Validated at `2026-10-15T19:46:23Z` from source commit
+`aa420cd9ea020ee6bfc4335ff817f13f2545e357`. The implementation commit was
+`1bc1861`, followed by the deterministic process-slot test synchronization in
+`aa420cd`:
+
+```text
+Focused process/runtime contracts:           59 passed in 88.34s
+Complete suite:                              142 passed in 156.90s
+ruff check .:                                all checks passed
+ruff format --check .:                       108 files already formatted
+python -m compileall -q src tests:            exit 0
+git diff --check:                             exit 0
+uv build:                                     exit 0
+```
+
+Validation environment:
+
+```text
+Python:            3.14.7
+ahe-runner:        0.6.0
+NexAU:             0.3.9
+ag-ui-protocol:    0.1.22
+OpenAI Python:     3.29.0
+Pydantic:          2.14.1
+PyYAML:            6.0.3
+Pytest:            9.1.1
+Ruff:              0.17.0
+```
+
+Clean release artifacts:
+
+```text
+ahe_runner-0.6.0-py3-none-any.whl
+sha256: 05286f7214bfaa30675521307fb0d65a8bf2eeaea3d595f4c49c6aa5ffed0478
+
+ahe_runner-0.6.0.tar.gz
+sha256: 90dfd86828a53a9313de11ba554c5a29544d4ebc43d696bbde7b4495ae57c604
+```
+
+The wheel was installed with the `web` extra into an isolated Python 3.14
+environment outside the source checkout. Using only that installation:
+
+- wheel metadata and `ahe_runner.__version__` both reported `0.6.0`;
+- the imported package resolved from the isolated environment's
+  `site-packages`;
+- the public spawned-trial helper rebuilt an evaluated runtime in a fresh
+  process and reused a parent-created model-preflight artifact;
+- the child runtime manifest recorded `execution_process.mode:
+  spawned_child`, its own PID, and the parent runtime PID;
+- `RuntimeProcessSpec.model_dump()` excluded the resolved API key;
+- the child created the protected empty `tool_timings.json` artifact and its
+  runtime manifest declared the timing schema and path;
+- the focused regression proved that parent and child model calls share the
+  configured endpoint request slot;
+- generated retry/context-accounting defaults and empty long-term memory
+  remained intact;
+- offline `ahe conformance` returned `valid: true` with no warnings;
+- offline `ahe validate` passed and retained the expected warning that
+  host-imported candidate middleware is not isolated by an operating-system
+  sandbox.
+
+No live model endpoint was contacted. NexAU emitted its expected optional
+`E2B SDK not installed` import message. The Harvey-local `trial_processes`
+setting, document corpus, sandbox policy, and worker count were not imported;
+the upstream seam remains adapter-selected and benchmark-independent.
+
 ## AHE-021 through AHE-024 transport and context hardening
 
 Validated at `2026-10-15T09:49:43Z` from source commit
