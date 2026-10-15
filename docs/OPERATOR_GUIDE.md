@@ -115,6 +115,9 @@ Also declare:
 - `protected_agent_fields`: exact `agent.yaml` values Evolve cannot alter;
 - optional `tool_schemas.allow_omitted_additional_properties: true` only when
   exact parity with an external benchmark schema requires omission;
+- `context_accounting`: the protected `max_context_tokens`, optional NexAU
+  `token_counter` import, human-readable counting unit, and optional provider
+  input limit shared by every evaluated agent and sub-agent config;
 - file and total-tree size limits.
 
 Conformance checks that every matched file is actually registered at runtime.
@@ -126,6 +129,24 @@ sub-agents recursively load, and the installed NexAU version must match.
 Keep a seed `LongTermMEMORY.md` empty unless it already contains a real
 reusable lesson. Its nonempty contents are appended to the evaluated system
 prompt, so explanatory notes about the file belong in Evolve guidance instead.
+
+For a live benchmark, replace NexAU's fallback character estimate with a
+counter calibrated for the evaluated model whenever long prompts are possible:
+
+```yaml
+context_accounting:
+  max_context_tokens: 911793
+  token_counter: my_benchmark.token_count:count_prompt_tokens
+  counting_unit: o200k_base tokens
+  provider_max_input_tokens: 921793
+```
+
+Put the counter implementation in protected adapter/project code, not inside
+the evolvable harness, and include its source in `adapter_dependency_paths` so
+campaign provenance hashes it. Express `provider_max_input_tokens` in the same
+declared counting unit. Apply the same `max_context_tokens` and `token_counter`
+to every agent config. Recalibrate both when the evaluated model changes;
+token counts from one model family are not portable to another.
 
 The exact per-file schemas and Python signatures are in `HARNESS_ABI.md`.
 
@@ -207,11 +228,15 @@ transport:
   model_catalog: required
   negative_control: required
   max_concurrent_requests: 4
+  hung_call_retries: 0
 
 meta:
   backend: nexau
   max_concurrent_model_calls: 2
   max_context_tokens: 200000
+  token_counter: null
+  context_counting_unit: NexAU fallback estimate (serialized characters divided by four)
+  provider_max_input_tokens: null
   max_running_subagents: 5
   evolve_max_iterations: 500
   explore_max_iterations: 200
@@ -244,6 +269,18 @@ model calls to that endpoint. Adapter-owned provider calls participate only
 when wrapped with `ahe_runner.model_requests.model_request_slot`; see the
 adapter guide.
 
+`transport.hung_call_retries` controls extra attempts for a request that
+timed out before any response. It defaults to `0` and is capped at `5`. The
+runner resends the identical request only for timeout-class hangs, preserves
+each failed attempt in the model-call folder, and reports aggregate resend
+counts through `ahe status`. Overload, validation, context-length, and other
+errors are not resent.
+
+The `meta` context fields describe the unit used by the meta-agent
+`max_context_tokens` check. A custom NexAU `token_counter` should live in
+protected project code. If `provider_max_input_tokens` is set, configuration
+loading rejects a larger `max_context_tokens` value.
+
 Optional per-role token/temperature overrides and the protected meta-agent
 shell are configured under:
 
@@ -273,15 +310,27 @@ Before a live run, explicitly confirm:
 2. the exact model ID currently returned by `GET /v1/models`;
 3. reasoning effort, including an intentional provider default;
 4. `chat_completions` and non-streaming mode;
-5. task/attempt scope and model-call concurrency.
+5. task/attempt scope and model-call concurrency;
+6. start-of-prompt recall near the configured input limit;
+7. a comparative probe showing that requested reasoning effort changes
+   observable behavior or latency.
 
 Keep the unauthenticated extension on loopback. The runner performs a fresh
 positive probe and nonexistent-model negative control for every model-backed
 stage attempt, then verifies the observable response label on every call.
 
+The standard API cannot prove that a proxy retained the beginning of a long
+prompt or honored a reasoning setting. Run those two behavioral probes for
+every distinct model/role transport contract and preserve the inputs, outputs,
+server version, and result with the campaign. Do not start a live campaign
+when the near-limit sentinel is lost or effort settings are observationally
+identical without an endpoint-specific explanation.
+
 That label may be synthesized by a proxy from its selected model object.
 Without independent upstream telemetry, transparent upstream substitution
-cannot be ruled out.
+cannot be ruled out. Recorded model-call artifacts include deterministic
+request byte and message/tool character counts so a missing-usage transport
+can be audited later; those counts are not substitutes for model tokens.
 
 ## 7. Validate before spending model calls
 

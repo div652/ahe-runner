@@ -19,7 +19,8 @@ It:
 - records every request, response, error, requested model, and returned model;
 - fails closed on a missing or mismatched observable model label;
 - classifies timeouts, connectivity failures, rate limits, and server-side
-  failures as resumable infrastructure errors.
+  failures as resumable infrastructure errors;
+- optionally resends timeout-class hangs only, with every attempt recorded.
 
 Every model-backed stage attempt receives a fresh preflight. It records model
 catalog evidence when available, an exact-model positive probe, and a random
@@ -32,11 +33,13 @@ The preflight and call logs explicitly state the observable-identity
 limitation: a proxy that synthesizes `response.model` may not expose
 transparent upstream substitution.
 
-The runner disables retries in its OpenAI client. A configured endpoint can
-still perform its own internal retries; for example, a particular proxy
-implementation may retry the same selected model before returning one HTTP
-response. That endpoint behavior must be inspected and reported separately.
-When configured, all recorded clients share
+The runner disables OpenAI SDK retries. `transport.hung_call_retries` may add a
+bounded, explicit application-level resend only when a request timed out before
+any response; it defaults to zero and never retries other failures. A
+configured endpoint can still perform its own internal retries; for example, a
+particular proxy implementation may retry the same selected model before
+returning one HTTP response. That endpoint behavior must be inspected and
+reported separately. When configured, all recorded clients share
 `transport.max_concurrent_requests` for that endpoint. Adapter-owned model
 clients participate only when they use the public `model_request_slot()` seam.
 
@@ -90,7 +93,8 @@ training artifacts. The output contract identifies evidence coverage, paired
 pass/fail analysis when available, earliest failure, root cause,
 recurrent-pattern key, confidence, falsifier, and bounded component-level
 recommendations. A failed diagnosis submission returns NexAU's repairable
-error shape; transport calls themselves have no hidden retries.
+error shape; any timeout resend is explicit in the campaign configuration and
+call artifacts.
 
 Task results resume independently. A result is reused only when its internal
 request hash matches the current prompt, evidence, model settings, checkpoint,

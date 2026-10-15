@@ -30,6 +30,12 @@ def test_full_deterministic_campaign_and_idempotent_resume(tmp_path: Path) -> No
     assert status["checkpoints"] == ["C0", "C1", "C2"]
     assert status["blocked_stages"] == []
     assert status["interrupted_stages"] == []
+    assert status["model_call_retries"] == {
+        "configured_extra_attempts": 0,
+        "hung_attempt_count": 0,
+        "calls_resent": 0,
+        "calls_failed_after_resends": 0,
+    }
     assert status["selection"]["selected_checkpoint"] in {"C1", "C2"}
     assert status["final_test"]["no_post_test_evolution"] is True
 

@@ -54,6 +54,9 @@ class TransportSettings(StrictModel):
     # Model calls in flight at once across every recorded client in the
     # process for this endpoint; extra calls wait for a slot. None: no queue.
     max_concurrent_requests: int | None = Field(default=None, ge=1)
+    # Extra attempts for a model call that timed out before any response.
+    # Every failed attempt remains in the call trace. 0 preserves fail-fast.
+    hung_call_retries: int = Field(default=0, ge=0, le=5)
 
     @field_validator("base_url")
     @classmethod
@@ -176,9 +179,42 @@ class MetaSettings(StrictModel):
     deprecated_metric_terms: list[str] = Field(default_factory=list)
     max_concurrent_model_calls: int = Field(default=2, gt=0)
     max_context_tokens: int = Field(default=200_000, gt=0)
+    token_counter: str | None = None
+    context_counting_unit: str = (
+        "NexAU fallback estimate (serialized characters divided by four)"
+    )
+    provider_max_input_tokens: int | None = Field(default=None, gt=0)
     max_running_subagents: int = Field(default=5, gt=0)
     evolve_max_iterations: int = Field(default=500, gt=0)
     explore_max_iterations: int = Field(default=200, gt=0)
+
+    @field_validator("token_counter")
+    @classmethod
+    def validate_token_counter(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        module, separator, attribute = normalized.partition(":")
+        if not separator or not module or not attribute:
+            raise ValueError("meta.token_counter must use 'module.path:callable_name'")
+        return normalized
+
+    @field_validator("context_counting_unit")
+    @classmethod
+    def validate_context_counting_unit(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("meta.context_counting_unit must be non-empty")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_context_limit(self) -> MetaSettings:
+        provider_limit = self.provider_max_input_tokens
+        if provider_limit is not None and self.max_context_tokens > provider_limit:
+            raise ValueError(
+                "meta.max_context_tokens cannot exceed meta.provider_max_input_tokens"
+            )
+        return self
 
     @field_validator("deprecated_metric_terms")
     @classmethod

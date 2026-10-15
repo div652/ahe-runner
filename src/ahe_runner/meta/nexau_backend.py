@@ -41,6 +41,7 @@ from ahe_runner.io import (
     sha256_json,
     tree_hashes,
 )
+from ahe_runner.loading import load_symbol
 from ahe_runner.workspace import git_output
 
 from .base import MetaBackend, MetaBackendContext
@@ -774,6 +775,11 @@ class NexAUMetaBackend(MetaBackend):
             "max_context_tokens": (
                 self.context.config.document.meta.max_context_tokens
             ),
+            **(
+                {"token_counter": (self.context.config.document.meta.token_counter)}
+                if self.context.config.document.meta.token_counter is not None
+                else {}
+            ),
             "max_running_subagents": (
                 self.context.config.document.meta.max_running_subagents
             ),
@@ -818,6 +824,16 @@ class NexAUMetaBackend(MetaBackend):
             yaml.safe_dump(payload, sort_keys=False),
             encoding="utf-8",
         )
+        token_counter = self.context.config.document.meta.token_counter
+        if token_counter is not None:
+            counter = load_symbol(
+                token_counter,
+                project_root=self.context.config.project_root,
+            )
+            if not callable(counter):
+                raise ConfigurationError(
+                    "meta.token_counter must resolve to a callable"
+                )
         config = AgentConfig.from_yaml(config_path)
         # NexAU renders both file and string prompts as Jinja. The suffix is
         # appended after rendering, so use it to preserve protected prompts

@@ -37,10 +37,17 @@ required_files:
   - ShortTermMEMORY.md
 
 protected_agent_fields:
+  max_context_tokens: 200000
   tool_call_mode: openai
   llm_config.model: UNCONFIGURED
   llm_config.stream: false
   llm_config.api_type: openai_chat_completion
+
+context_accounting:
+  max_context_tokens: 200000
+  token_counter: null
+  counting_unit: NexAU fallback estimate (serialized characters divided by four)
+  provider_max_input_tokens: null
 
 limits:
   maximum_file_bytes: 1000000

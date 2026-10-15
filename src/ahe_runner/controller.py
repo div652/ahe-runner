@@ -42,6 +42,7 @@ from .io import (
 )
 from .loading import load_adapter
 from .meta import MetaBackendContext, create_meta_backend
+from .meta.model_client import summarize_model_call_retries
 from .runtime import EvaluatedAgentRuntime
 from .state import StageContext, StageResult, StageStore
 from .workspace import (
@@ -294,6 +295,10 @@ class CampaignController:
                 {"name": row["name"], "last_error": row.get("last_error")}
                 for row in interrupted
             ],
+            "model_call_retries": summarize_model_call_retries(
+                self.config.campaign_dir,
+                configured_retries=(self.config.document.transport.hung_call_retries),
+            ),
             "selection": read_json(selection_path)
             if selection_path.is_file()
             else None,
@@ -365,6 +370,7 @@ class CampaignController:
                     transport=request.transport,
                     api_key=request.api_key,
                     artifact_root=output_dir / "runtime",
+                    project_root=self.config.project_root,
                 )
                 try:
                     result = self.adapter.evaluate(request, runtime)

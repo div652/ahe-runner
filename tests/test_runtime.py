@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -176,6 +177,72 @@ def test_long_term_memory_attachment_skips_empty_files(tmp_path: Path) -> None:
     )
 
     assert agent_config.system_prompt_suffix is None
+
+
+def test_protected_project_token_counter_loads_for_checkpoint_harness(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = make_example_project(tmp_path)
+    project = config_path.parent
+    (project / "benchmark_tokens.py").write_text(
+        "def count_prompt_tokens(messages, tools=None):\n    return 1\n",
+        encoding="utf-8",
+    )
+    for relative in ("agent.yaml", "sub_agents/reviewer/agent.yaml"):
+        path = project / "harness" / relative
+        value = yaml.safe_load(path.read_text(encoding="utf-8"))
+        value["token_counter"] = "benchmark_tokens:count_prompt_tokens"
+        path.write_text(
+            yaml.safe_dump(value, sort_keys=False),
+            encoding="utf-8",
+        )
+    manifest_path = project / "harness_manifest.yaml"
+    manifest_value = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest_value["context_accounting"] = {
+        "max_context_tokens": 200_000,
+        "token_counter": "benchmark_tokens:count_prompt_tokens",
+        "counting_unit": "provider-model tokens",
+        "provider_max_input_tokens": 220_000,
+    }
+    manifest_path.write_text(
+        yaml.safe_dump(manifest_value, sort_keys=False),
+        encoding="utf-8",
+    )
+    checkpoint_harness = tmp_path / "campaign" / "checkpoints" / "C0" / "harness"
+    checkpoint_harness.parent.mkdir(parents=True)
+    shutil.copytree(project / "harness", checkpoint_harness)
+
+    def fake_preflight(*, output_path: Path, **_kwargs: Any) -> dict[str, Any]:
+        report = {"status": "completed"}
+        output_path.write_text(json.dumps(report), encoding="utf-8")
+        return report
+
+    monkeypatch.setattr(runtime_module, "run_model_preflight", fake_preflight)
+    monkeypatch.setattr(runtime_module, "RecordedExactModelClient", FakeRecordedClient)
+    FakeRecordedClient.scenarios = [[]]
+    FakeRecordedClient.instances = []
+    config = load_config(config_path)
+    runtime = EvaluatedAgentRuntime(
+        harness_dir=checkpoint_harness,
+        manifest=load_harness_manifest(manifest_path),
+        benchmark_interface=BenchmarkInterface(description="Counter import fixture."),
+        model=config.document.models.evaluated,
+        transport=config.document.transport,
+        api_key=config.api_key,
+        artifact_root=tmp_path / "campaign" / "runtime",
+        project_root=project,
+    )
+    try:
+        session = runtime.open_session(
+            AgentSessionRequest(
+                session_id="counter",
+                artifact_dir=tmp_path / "campaign" / "runtime" / "counter",
+            )
+        )
+        session.close()
+    finally:
+        runtime.close()
 
 
 def test_runtime_intercepts_protected_actions_and_preserves_sessions(
@@ -552,6 +619,16 @@ def test_evaluated_preflight_is_lazy_and_shared_by_sessions(
         for session_id in ("first", "second")
     ]
     assert manifests[0]["model_preflight"] == manifests[1]["model_preflight"]
+    assert manifests[0]["transport"] == {
+        "api_mode": "chat_completions",
+        "stream": False,
+        "request_timeout_seconds": 300.0,
+        "max_concurrent_requests": None,
+        "hung_call_retries": 0,
+        "observable_model_policy": "exact",
+    }
+    assert manifests[0]["context_accounting"]["max_context_tokens"] == 200_000
+    assert manifests[0]["context_accounting"]["token_counter"] is None
     proof = manifests[0]["model_preflight"]
     proof_path = artifact_root / proof["path"]
     assert sha256_file(proof_path) == proof["sha256"]
@@ -560,6 +637,7 @@ def test_evaluated_preflight_is_lazy_and_shared_by_sessions(
     assert report["requested_model"] == "example-evaluated-model"
     assert report["positive_probe"]["passed"] is True
     assert report["negative_control"]["passed"] is True
+    assert "near-limit prompts" in report["transport_fidelity_scope"]
     assert "api_key" not in report
 
 

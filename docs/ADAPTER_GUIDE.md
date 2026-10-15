@@ -513,6 +513,30 @@ for example:
 - corrupted external runtime;
 - server-side transient error.
 
+A provider rejection caused by the agent exhausting its context window is not
+transient infrastructure and must not receive a fresh trial automatically.
+Classify it as a benchmark-native graded termination when the benchmark does
+the same:
+
+```python
+from ahe_runner.model_requests import context_overflow_message
+
+try:
+    output = session.run(agent_input)
+except Exception as exc:
+    overflow = context_overflow_message(exc)
+    if overflow is None:
+        raise
+    return record_graded_context_overflow(overflow)
+```
+
+The helper recognizes conservative provider markers such as
+`context_length_exceeded`, `prompt is too long`, and
+`Message exceeds token limit`, including when a proxy incorrectly wraps the
+rejection in HTTP 500. The runner excludes those errors from generic
+infrastructure classification; the adapter still owns the benchmark-specific
+outcome text, trace, and score.
+
 Do not raise it for:
 
 - valid zero reward;

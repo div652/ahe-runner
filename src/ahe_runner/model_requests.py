@@ -1,5 +1,13 @@
-"""Public endpoint request-budget seam for benchmark adapters."""
+"""Public model-request seams for benchmark adapters."""
 
-from .meta.model_client import model_request_slot
+from .meta.model_client import (
+    context_overflow_message,
+    is_context_overflow_exception,
+    model_request_slot,
+)
 
-__all__ = ["model_request_slot"]
+__all__ = [
+    "context_overflow_message",
+    "is_context_overflow_exception",
+    "model_request_slot",
+]

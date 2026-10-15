@@ -78,6 +78,13 @@ def validate_v2_conformance(
         label = record["label"]
         if config.get("tool_call_mode", "openai") != "openai":
             errors.append(f"{label}.tool_call_mode must be 'openai' for ABI V2")
+        _validate_context_accounting(
+            root=root,
+            config=config,
+            label=label,
+            policy=manifest.context_accounting,
+            errors=errors,
+        )
         _collect_system_prompt(
             root=root,
             config_path=config_path,
@@ -138,12 +145,52 @@ def validate_v2_conformance(
         "attachment_mode": attachment_mode,
         "errors": errors,
         "warnings": warnings,
+        "context_accounting": (
+            manifest.context_accounting.model_dump(mode="json")
+            if manifest.context_accounting is not None
+            else None
+        ),
         "registrations": {name: sorted(paths) for name, paths in registrations.items()},
         "tool_contracts": tool_contracts,
         "agent_configs": [
             record["path"].relative_to(root).as_posix() for record in records
         ],
     }
+
+
+def _validate_context_accounting(
+    *,
+    root: Path,
+    config: dict[str, Any],
+    label: str,
+    policy: Any,
+    errors: list[str],
+) -> None:
+    if policy is None:
+        return
+    actual_limit = config.get("max_context_tokens")
+    if actual_limit != policy.max_context_tokens:
+        errors.append(
+            f"{label}.max_context_tokens must be "
+            f"{policy.max_context_tokens!r}; received {actual_limit!r}"
+        )
+    actual_counter = config.get("token_counter")
+    if actual_counter != policy.token_counter:
+        errors.append(
+            f"{label}.token_counter must be {policy.token_counter!r}; "
+            f"received {actual_counter!r}"
+        )
+    if policy.token_counter is not None:
+        module_name = policy.token_counter.split(":", 1)[0]
+        module_path = root.joinpath(*module_name.split("."))
+        if (
+            module_path.with_suffix(".py").is_file()
+            or (module_path / "__init__.py").is_file()
+        ):
+            errors.append(
+                "context_accounting.token_counter must resolve outside the "
+                f"evolvable harness: {policy.token_counter!r}"
+            )
 
 
 def _collect_agent_tree(

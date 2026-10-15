@@ -1,13 +1,13 @@
 # Harvey Integration Upstream Disposition
 
-This document records the upstream review of AHE-001 through AHE-020 from
+This document records the upstream review of AHE-001 through AHE-024 from
 `HARVEY_INTEGRATION_UPSTREAM_RECOMMENDATIONS.md`. The findings were checked
 against the generic runner rather than accepted as Harvey-specific
 requirements.
 
 The resulting changes intentionally contain no Harvey task data, prompts,
 metrics, adapter code, campaign artifacts, or benchmark-specific policy. They
-form the AHE Runner 0.4.x hardening boundary.
+form the AHE Runner 0.5.0 hardening boundary.
 
 ## Summary
 
@@ -33,6 +33,10 @@ form the AHE Runner 0.4.x hardening boundary.
 | AHE-018 | Metric-guidance drift | Fixed as an explicit process and warning contract: the adapter guide defines the full metric-change checklist and local checks warn on configured deprecated metric terms in role supplements. Arbitrary prose is not claimed to be semantically verified. |
 | AHE-019 | Prompt-assembly bug | Fixed: empty memory files add nothing, nonempty memory is separated from the rendered system prompt, and the generated memory starts empty instead of containing instructions meant for Evolve. |
 | AHE-020 | Benchmark-parity limitation | Fixed as a protected opt-in: strict schemas remain the default, while a manifest may allow omission of `additionalProperties`; explicit open schemas and `**kwargs` bindings remain invalid. |
+| AHE-021 | Transport-fidelity gap | Accepted with an explicit boundary: the standard API preflight cannot prove long-prompt retention or reasoning-effort application. Recorded requests now include deterministic size accounting, and operators must preserve independent near-limit and effort probes. The external GH Copilot Server patch is not part of this repository. |
+| AHE-022 | Retry-bias and recovery gap | Fixed as a bounded opt-in: timeout-class hangs may resend the identical call, every attempt is immutable, unrelated errors are never resent, preflights follow the same policy, and campaign status reports resend counts. The default remains zero retries. |
+| AHE-023 | Context-accounting and classification bug | Fixed generically: provider context rejections are excluded from infrastructure retry classification, adapters receive a public classifier for benchmark-native graded outcomes, and manifests can protect the evaluated agent tree's counter and limit. Harvey's tokenizer and scoring text remain local. |
+| AHE-024 | Cross-model tokenizer assumption | Fixed as explicit protected policy rather than a universal tokenizer: manifests and meta config state the counter import, counting unit, limit, and optional provider maximum. Operators must recalibrate when the model or transport changes. |
 
 ## Important design decisions
 
@@ -125,9 +129,40 @@ schema. `tool_schemas.allow_omitted_additional_properties` permits omission
 only, is frozen outside the evolvable harness, and never permits an explicit
 open schema or a catch-all Python binding.
 
+### Transport fidelity and hung calls
+
+Catalog membership, a small positive completion, a negative control, and the
+observable response label are API-visible checks. They cannot prove that an
+intermediary retained the oldest messages in a near-limit prompt or applied a
+reasoning-effort setting. The runner now states that limitation in every
+preflight artifact and records request bytes plus message/tool character
+counts for later audit. A live campaign still requires independent
+model-specific behavioral probes retained as operator evidence.
+
+`transport.hung_call_retries` is strict-default-off and capped. It retries only
+when a request timeout fired before any response, reacquires the shared
+endpoint slot for each attempt, and records every failure before resending the
+identical payload. A timeout may still fail after all configured attempts;
+overload, model mismatch, policy errors, and context rejection never enter this
+loop.
+
+### Context accounting
+
+NexAU's fallback character estimate is not presented as a model tokenizer.
+`context_accounting` in the protected harness manifest freezes the evaluated
+agent tree's `max_context_tokens`, optional token-counter import,
+human-readable unit, and optional provider input maximum. Equivalent protected
+settings exist for meta agents. Counter code belongs outside the evolvable
+harness.
+
+Known provider context rejections are not infrastructure failures even when a
+proxy reports them as HTTP 500. The generic helper identifies the rejection;
+the benchmark adapter remains responsible for its native final text,
+termination reason, trace policy, and grade.
+
 ## Generic regression coverage
 
-The 0.4.x hardening changes add or extend coverage for:
+The 0.5.0 hardening changes add or extend coverage for:
 
 - evaluated-model preflight caching, proofs, and failures;
 - per-session resources and isolation;
@@ -141,7 +176,12 @@ The 0.4.x hardening changes add or extend coverage for:
 - deprecated metric-term warnings;
 - readable evidence artifacts and imported branch campaign behavior;
 - separator-safe, empty-aware long-term-memory attachment;
-- strict-by-default benchmark tool-schema parity mode.
+- strict-by-default benchmark tool-schema parity mode;
+- transport-preflight scope disclosure and deterministic request-size
+  accounting;
+- bounded immutable hung-call resends and aggregate status counts;
+- provider context-rejection classification;
+- protected evaluated/meta context-counter units and limits.
 
 Validation results are recorded separately after the implementation commit so
 the tested source identity remains explicit.

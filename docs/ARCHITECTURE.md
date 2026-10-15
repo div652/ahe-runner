@@ -213,6 +213,8 @@ transport:
   stream: false
   request_timeout_seconds: 300
   observable_model_policy: exact
+  max_concurrent_requests: 4
+  hung_call_retries: 0
 
 evaluation:
   train_trials: 2
@@ -232,6 +234,9 @@ meta:
   backend: nexau
   max_concurrent_model_calls: 2
   max_context_tokens: 200000
+  token_counter: null
+  context_counting_unit: NexAU fallback estimate (serialized characters divided by four)
+  provider_max_input_tokens: null
   max_running_subagents: 5
   evolve_max_iterations: 500
   explore_max_iterations: 200
@@ -559,6 +564,7 @@ For every model-calling role, the runner records:
 - requested exact model ID;
 - reasoning setting;
 - request hash;
+- serialized request bytes and message/tool string-character counts;
 - returned observable model label;
 - response or error;
 - timeout and retry classification.
@@ -571,14 +577,24 @@ in each evaluation stage attempt, a fresh preflight checks:
 3. a positive exact-model completion;
 4. a nonexistent-model negative control when supported.
 
+This API-visible preflight cannot prove that an intermediary preserved the
+start of a near-limit prompt or honored requested reasoning effort. Operators
+must run and retain endpoint-specific behavioral probes for those properties.
+The preflight artifact states this limitation rather than claiming stronger
+transport fidelity.
+
 Fresh preflight timestamps and random negative-control IDs are attempt
 evidence, not semantic campaign inputs. This prevents fresh preflights from
 changing checkpoint or evaluation identities.
 
 The recorded client disables OpenAI SDK retries, and runner-created NexAU
-agents use one native request attempt. Infrastructure recovery remains in the
-explicit outer stage-attempt policy, so model identity and policy failures are
-not multiplied by an inner retry loop.
+agents use one native request attempt by default. An operator may set
+`transport.hung_call_retries` to resend only calls whose request timeout fired
+before any response. The option is bounded, strict-default-off, and records
+every failed attempt plus campaign-level resend counts. Model identity,
+overload, validation, provider context rejection, and other failures are never
+multiplied by this inner loop. Outer stage recovery remains responsible for
+genuine infrastructure failures after the configured attempts are exhausted.
 
 Evaluated sessions use the same recorded exact-model client and native NexAU
 loop. Exact model ID, reasoning policy, temperature, output limit, non-streaming
@@ -592,6 +608,17 @@ When configured, `transport.max_concurrent_requests` provides one
 process-wide semaphore per endpoint for recorded clients. Adapter-owned
 provider calls join that same budget only through the public
 `model_request_slot()` seam.
+
+Evaluated harness manifests may also declare protected
+`context_accounting`: the exact pre-send limit, optional NexAU counter import,
+counting unit, and provider input limit. Conformance applies the same policy to
+the root and every sub-agent. Meta agents expose the equivalent protected
+settings under `meta`. This makes cross-model tokenizer assumptions explicit;
+it does not pretend that one tokenizer or calibration factor fits every model.
+
+Known provider context-length rejections are excluded from infrastructure
+classification. The adapter must translate them into the benchmark's native
+graded termination semantics instead of granting a fresh rollout.
 
 ## Evaluation recovery contract
 
@@ -708,7 +735,7 @@ adaptation:
 | Explore guides mounted as plain files | package Explore outputs as genuine read-only skills |
 | concurrent rollouts shared mutable skill state | require per-rollout runtime roots and stable unit isolation |
 | recalled sub-agents bypassed exact-model routing | bind and verify one model-client policy for all descendants |
-| client timeout left upstream model work alive | use explicit request deadlines/cancellation where supported and no nested retries |
+| client timeout left upstream model work alive | use explicit deadlines/cancellation where supported and only bounded, configured, fully recorded timeout resends |
 | fresh preflights changed resume identity | treat preflights as attempt evidence, not semantic run inputs |
 | resumed evaluation generated a new run ID | derive unit IDs from the persisted semantic run identity |
 | attempt numbering restarted at one | preserve contiguous absolute attempt histories |

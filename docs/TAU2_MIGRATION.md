@@ -71,8 +71,9 @@ Fail closed on the observable exact model label for:
 - any helper, summarizer, validator, or sub-agent that calls a model.
 
 If the host extension internally retries one selected model object, document
-that endpoint behavior separately. The runner itself uses zero SDK retries for
-meta calls.
+that endpoint behavior separately. The runner uses zero SDK retries.
+`transport.hung_call_retries` is a separate strict-default-off application
+policy for timeout-class hangs, with every attempt preserved.
 
 ## Evidence conversion
 

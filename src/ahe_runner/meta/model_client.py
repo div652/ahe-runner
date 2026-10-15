@@ -36,6 +36,13 @@ _PROTECTED_EXTRA_BODY_FIELDS = frozenset(
         "reasoning_effort",
     }
 )
+_CONTEXT_OVERFLOW_MARKERS = (
+    "context_length_exceeded",
+    "maximum context length",
+    "message exceeds token limit",
+    "model_max_prompt_tokens_exceeded",
+    "prompt is too long",
+)
 
 _REQUEST_SLOTS: dict[str, tuple[int, threading.BoundedSemaphore]] = {}
 _REQUEST_SLOTS_LOCK = threading.Lock()
@@ -184,6 +191,7 @@ class RecordedExactModelClient:
 
         call_dir = self._next_call_dir()
         request_payload = _json_safe(kwargs)
+        prompt_accounting = _prompt_accounting(request_payload)
         atomic_write_json(
             call_dir / "request.json",
             {
@@ -191,18 +199,39 @@ class RecordedExactModelClient:
                 "args": _json_safe(args),
                 "kwargs": request_payload,
                 "request_sha256": sha256_json(request_payload),
+                "prompt_accounting": prompt_accounting,
             },
         )
-        waited: dict[str, float] = {}
-        try:
-            with _request_slot(self._request_slots, waited):
-                response = self._base.chat.completions.create(*args, **kwargs)
-        except Exception as exc:
-            error = {**_error_payload(exc), **waited}
-            atomic_write_json(call_dir / "error.json", error)
-            if is_infrastructure_exception(exc):
-                raise InfrastructureError(error["message"]) from exc
-            raise
+        hung_attempts: list[dict[str, Any]] = []
+        while True:
+            waited: dict[str, float] = {}
+            try:
+                with _request_slot(self._request_slots, waited):
+                    response = self._base.chat.completions.create(*args, **kwargs)
+                break
+            except Exception as exc:
+                error = {
+                    **_error_payload(exc),
+                    **waited,
+                    "attempt": len(hung_attempts) + 1,
+                }
+                if (
+                    is_hung_call_exception(exc)
+                    and len(hung_attempts) < self._transport.hung_call_retries
+                ):
+                    error["will_retry"] = True
+                    hung_attempts.append(error)
+                    atomic_write_json(
+                        call_dir / f"hung-attempt-{len(hung_attempts)}.json",
+                        error,
+                    )
+                    continue
+                if hung_attempts:
+                    error["hung_attempts"] = hung_attempts
+                atomic_write_json(call_dir / "error.json", error)
+                if is_infrastructure_exception(exc):
+                    raise InfrastructureError(error["message"]) from exc
+                raise
         returned_model = getattr(response, "model", None)
         if returned_model != self._settings.model:
             error = {
@@ -211,6 +240,8 @@ class RecordedExactModelClient:
                     f"response returned {returned_model!r}; "
                     f"expected {self._settings.model!r}"
                 ),
+                "attempt_count": len(hung_attempts) + 1,
+                **({"hung_attempts": hung_attempts} if hung_attempts else {}),
             }
             atomic_write_json(call_dir / "error.json", error)
             raise IntegrityError(error["message"])
@@ -222,7 +253,10 @@ class RecordedExactModelClient:
                 "requested_model": requested_model,
                 "returned_model": returned_model,
                 "response": response_payload,
+                "attempt_count": len(hung_attempts) + 1,
+                "prompt_accounting": prompt_accounting,
                 **waited,
+                **({"hung_attempts": hung_attempts} if hung_attempts else {}),
             },
         )
         return response
@@ -310,11 +344,24 @@ def parse_json_object(text: str) -> dict[str, Any]:
     return value
 
 
+def context_overflow_message(exc: BaseException) -> str | None:
+    """Return the provider context rejection from an exception chain."""
+
+    for current in _cause_chain(exc):
+        text = str(current)
+        if any(marker in text.casefold() for marker in _CONTEXT_OVERFLOW_MARKERS):
+            return text
+    return None
+
+
+def is_context_overflow_exception(exc: BaseException) -> bool:
+    return context_overflow_message(exc) is not None
+
+
 def is_infrastructure_exception(exc: BaseException) -> bool:
-    current: BaseException | None = exc
-    seen: set[int] = set()
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
+    if is_context_overflow_exception(exc):
+        return False
+    for current in _cause_chain(exc):
         if isinstance(
             current,
             (
@@ -343,8 +390,53 @@ def is_infrastructure_exception(exc: BaseException) -> bool:
             )
         ):
             return True
-        current = current.__cause__ or current.__context__
     return False
+
+
+def is_hung_call_exception(exc: BaseException) -> bool:
+    """A request timeout (client or endpoint) fired before any response."""
+
+    for current in _cause_chain(exc):
+        if isinstance(current, (APITimeoutError, TimeoutError)):
+            return True
+        if "timed out" in str(current).casefold():
+            return True
+    return False
+
+
+def summarize_model_call_retries(
+    root: Path,
+    *,
+    configured_retries: int,
+) -> dict[str, int]:
+    """Summarize immutable hung-call attempt artifacts under a campaign."""
+
+    if configured_retries == 0:
+        return {
+            "configured_extra_attempts": 0,
+            "hung_attempt_count": 0,
+            "calls_resent": 0,
+            "calls_failed_after_resends": 0,
+        }
+    attempts = tuple(root.rglob("hung-attempt-*.json"))
+    call_dirs = {path.parent for path in attempts}
+    return {
+        "configured_extra_attempts": configured_retries,
+        "hung_attempt_count": len(attempts),
+        "calls_resent": len(call_dirs),
+        "calls_failed_after_resends": sum(
+            (call_dir / "error.json").is_file() for call_dir in call_dirs
+        ),
+    }
+
+
+def _cause_chain(exc: BaseException) -> Iterator[BaseException]:
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        current = current.__cause__ or current.__context__
 
 
 def raise_classified_model_error(exc: BaseException) -> None:
@@ -361,6 +453,7 @@ def _error_payload(exc: BaseException) -> dict[str, Any]:
         "message": str(exc),
         "status_code": status,
         "infrastructure": is_infrastructure_exception(exc),
+        "context_overflow": is_context_overflow_exception(exc),
     }
 
 
@@ -368,6 +461,34 @@ def _model_dump(value: Any) -> Any:
     if hasattr(value, "model_dump"):
         return value.model_dump(mode="json")
     return _json_safe(value)
+
+
+def _prompt_accounting(payload: dict[str, Any]) -> dict[str, int]:
+    messages = payload.get("messages")
+    tools = payload.get("tools")
+    serialized = json.dumps(
+        payload,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return {
+        "request_utf8_bytes": len(serialized),
+        "message_count": len(messages) if isinstance(messages, list) else 0,
+        "message_string_characters": _string_characters(messages),
+        "tool_count": len(tools) if isinstance(tools, list) else 0,
+        "tool_string_characters": _string_characters(tools),
+    }
+
+
+def _string_characters(value: Any) -> int:
+    if isinstance(value, str):
+        return len(value)
+    if isinstance(value, Mapping):
+        return sum(_string_characters(item) for item in value.values())
+    if isinstance(value, (list, tuple)):
+        return sum(_string_characters(item) for item in value)
+    return 0
 
 
 def _json_safe(value: Any) -> Any:

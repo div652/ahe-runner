@@ -38,6 +38,7 @@ transport:
   model_catalog: required
   negative_control: required
   max_concurrent_requests: 4
+  hung_call_retries: 0
 
 evaluation:
   train_trials: 1
@@ -69,6 +70,9 @@ meta:
   deprecated_metric_terms: []
   max_concurrent_model_calls: 2
   max_context_tokens: 200000
+  token_counter: null
+  context_counting_unit: NexAU fallback estimate (serialized characters divided by four)
+  provider_max_input_tokens: null
   max_running_subagents: 5
   evolve_max_iterations: 500
   explore_max_iterations: 200

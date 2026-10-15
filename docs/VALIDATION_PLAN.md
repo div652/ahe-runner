@@ -58,8 +58,11 @@ The installed package must:
   schema;
 - reject a missing web extra for `meta.backend: nexau`;
 - preserve the configured exact model, endpoint, reasoning, non-streaming
-  setting, and client retry count.
+  setting, bounded hung-call retry policy, and context-accounting policy;
+- reject provider context overflow as infrastructure and preserve every
+  timeout resend artifact.
 
 A live model-backed campaign is intentionally separate because it requires the
 operator to confirm the current endpoint instance, advertised exact model,
-reasoning effort, API mode, attempt scope, and concurrency before any call.
+reasoning effort, API mode, attempt scope, concurrency, near-limit prompt
+retention, and model-specific token-counting unit before any call.

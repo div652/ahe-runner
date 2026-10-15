@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from ahe_runner.errors import CandidateValidationError
+from ahe_runner.errors import CandidateValidationError, ConfigurationError
 from ahe_runner.harness import load_harness_manifest, validate_harness
 from ahe_runner.harness_imports import HarnessImportScope
 
@@ -31,6 +31,14 @@ def test_harness_validation_rejects_symlinks_and_task_memorization(
     )
     assert report["valid"] is True
     assert report["conformance"]["abi_version"] == "ahe.harness/v2"
+    assert report["conformance"]["context_accounting"] == {
+        "max_context_tokens": 200000,
+        "token_counter": None,
+        "counting_unit": (
+            "NexAU fallback estimate (serialized characters divided by four)"
+        ),
+        "provider_max_input_tokens": None,
+    }
     assert report["conformance"]["registrations"]["tool_implementations"] == [
         "tools/record_note.py"
     ]
@@ -126,6 +134,114 @@ def test_harness_validation_preserves_protected_and_runtime_owned_fields(
             run_nexau_smoke=False,
         )
     assert "runtime-owned harness files changed" in str(runtime_error.value)
+
+
+def test_context_accounting_is_protected_across_the_agent_tree(
+    tmp_path: Path,
+) -> None:
+    config_path = make_example_project(tmp_path)
+    project = config_path.parent
+    manifest_path = project / "harness_manifest.yaml"
+    manifest = load_harness_manifest(manifest_path)
+    harness = project / "harness"
+
+    root_changed = tmp_path / "root-context"
+    shutil.copytree(harness, root_changed)
+    root_config_path = root_changed / "agent.yaml"
+    root_config = yaml.safe_load(root_config_path.read_text(encoding="utf-8"))
+    root_config["max_context_tokens"] = 199_999
+    root_config_path.write_text(
+        yaml.safe_dump(root_config, sort_keys=False),
+        encoding="utf-8",
+    )
+    with pytest.raises(CandidateValidationError, match="max_context_tokens"):
+        validate_harness(
+            root_changed,
+            manifest,
+            project_root=project,
+            run_nexau_smoke=False,
+        )
+
+    sub_agent_changed = tmp_path / "sub-agent-context"
+    shutil.copytree(harness, sub_agent_changed)
+    reviewer_path = sub_agent_changed / "sub_agents" / "reviewer" / "agent.yaml"
+    reviewer = yaml.safe_load(reviewer_path.read_text(encoding="utf-8"))
+    reviewer["max_context_tokens"] = 199_999
+    reviewer_path.write_text(
+        yaml.safe_dump(reviewer, sort_keys=False),
+        encoding="utf-8",
+    )
+    with pytest.raises(CandidateValidationError, match="max_context_tokens"):
+        validate_harness(
+            sub_agent_changed,
+            manifest,
+            project_root=project,
+            run_nexau_smoke=False,
+        )
+
+    manifest_value = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    manifest_value["context_accounting"] = {
+        "max_context_tokens": 200_000,
+        "token_counter": "benchmark_tokens:count_prompt_tokens",
+        "counting_unit": "provider-model tokens",
+        "provider_max_input_tokens": 220_000,
+    }
+    custom_manifest_path = project / "harness_manifest.context.yaml"
+    custom_manifest_path.write_text(
+        yaml.safe_dump(manifest_value, sort_keys=False),
+        encoding="utf-8",
+    )
+    custom_manifest = load_harness_manifest(custom_manifest_path)
+    with pytest.raises(CandidateValidationError, match="token_counter"):
+        validate_harness(
+            harness,
+            custom_manifest,
+            project_root=project,
+            run_nexau_smoke=False,
+        )
+
+    local_counter = tmp_path / "local-counter"
+    shutil.copytree(harness, local_counter)
+    (local_counter / "token_count.py").write_text(
+        "def count_prompt_tokens(messages, tools=None):\n    return 1\n",
+        encoding="utf-8",
+    )
+    for relative in ("agent.yaml", "sub_agents/reviewer/agent.yaml"):
+        path = local_counter / relative
+        value = yaml.safe_load(path.read_text(encoding="utf-8"))
+        value["token_counter"] = "token_count:count_prompt_tokens"
+        path.write_text(
+            yaml.safe_dump(value, sort_keys=False),
+            encoding="utf-8",
+        )
+    local_manifest_value = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    local_manifest_value["context_accounting"] = {
+        "max_context_tokens": 200_000,
+        "token_counter": "token_count:count_prompt_tokens",
+        "counting_unit": "candidate-defined tokens",
+        "provider_max_input_tokens": 220_000,
+    }
+    local_manifest_path = project / "harness_manifest.local-context.yaml"
+    local_manifest_path.write_text(
+        yaml.safe_dump(local_manifest_value, sort_keys=False),
+        encoding="utf-8",
+    )
+    with pytest.raises(CandidateValidationError, match="outside the evolvable"):
+        validate_harness(
+            local_counter,
+            load_harness_manifest(local_manifest_path),
+            project_root=project,
+            run_nexau_smoke=False,
+        )
+
+    manifest_value["context_accounting"]["provider_max_input_tokens"] = 199_999
+    invalid_manifest_path = project / "harness_manifest.invalid-context.yaml"
+    invalid_manifest_path.write_text(
+        yaml.safe_dump(manifest_value, sort_keys=False),
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigurationError, match="provider_max_input_tokens"):
+        load_harness_manifest(invalid_manifest_path)
 
 
 def test_v2_conformance_rejects_inactive_and_mismatched_tools(

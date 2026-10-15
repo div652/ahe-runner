@@ -58,7 +58,11 @@ Edit `my-ahe-project/ahe.runtime.yaml`:
    budgets;
 4. confirm `meta.backend: nexau` and
    `meta.explore.web_search_backend: ddgs`;
-5. review the public source roots, role supplements, and research seed URLs.
+5. review the public source roots, role supplements, and research seed URLs;
+6. for long-context live work, configure model-specific context counters and
+   limits in the harness manifest and `meta` settings;
+7. retain independent near-limit prompt-recall and reasoning-effort transport
+   probes before spending on a campaign.
 
 Then run:
 

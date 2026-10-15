@@ -144,10 +144,13 @@ transport:
   base_url: http://127.0.0.1:3141/v1
   api_key_env: null
   max_concurrent_requests: 4
+  hung_call_retries: 0
 ```
 
 - Use exact, unprefixed model IDs advertised by the endpoint.
 - Point `base_url` to the running OpenAI-compatible server.
+- Keep `hung_call_retries: 0` for fail-fast reproducibility, or explicitly
+  enable bounded per-call timeout resends after reviewing the trace semantics.
 - If authentication is required, put only the environment-variable name in
   YAML and export the secret:
 

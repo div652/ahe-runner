@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .errors import CandidateValidationError, ConfigurationError
 from .io import sha256_file, sha256_json
@@ -52,6 +52,44 @@ class ToolSchemaPolicy(HarnessModel):
     allow_omitted_additional_properties: bool = False
 
 
+class HarnessContextAccounting(HarnessModel):
+    max_context_tokens: int = Field(gt=0)
+    token_counter: str | None = None
+    counting_unit: str
+    provider_max_input_tokens: int | None = Field(default=None, gt=0)
+
+    @field_validator("token_counter")
+    @classmethod
+    def validate_token_counter(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        module, separator, attribute = normalized.partition(":")
+        if not separator or not module or not attribute:
+            raise ValueError(
+                "context_accounting.token_counter must use 'module.path:callable_name'"
+            )
+        return normalized
+
+    @field_validator("counting_unit")
+    @classmethod
+    def validate_counting_unit(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("context_accounting.counting_unit must be non-empty")
+        return normalized
+
+    @model_validator(mode="after")
+    def validate_context_limit(self) -> HarnessContextAccounting:
+        provider_limit = self.provider_max_input_tokens
+        if provider_limit is not None and self.max_context_tokens > provider_limit:
+            raise ValueError(
+                "context_accounting.max_context_tokens cannot exceed "
+                "context_accounting.provider_max_input_tokens"
+            )
+        return self
+
+
 class HarnessManifest(HarnessModel):
     schema_version: int
     abi_version: str | None = None
@@ -64,6 +102,7 @@ class HarnessManifest(HarnessModel):
     protected_agent_fields: dict[str, Any] = Field(default_factory=dict)
     limits: HarnessLimits = Field(default_factory=HarnessLimits)
     tool_schemas: ToolSchemaPolicy = Field(default_factory=ToolSchemaPolicy)
+    context_accounting: HarnessContextAccounting | None = None
 
 
 def load_harness_manifest(path: Path) -> HarnessManifest:

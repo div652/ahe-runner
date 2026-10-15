@@ -46,6 +46,34 @@ sub_agents:
 
 The `name` must equal the nested config's `name`.
 
+## Context accounting
+
+NexAU checks `max_context_tokens` before each model call. Its default counter
+is only a character-based estimate, so a protected manifest can freeze the
+counter and counting unit used by the evaluated harness:
+
+```yaml
+context_accounting:
+  max_context_tokens: 911793
+  token_counter: benchmark_support.token_count:count_prompt_tokens
+  counting_unit: o200k_base tokens
+  provider_max_input_tokens: 921793
+```
+
+When this block is present, every root and sub-agent config must declare the
+same `max_context_tokens` and `token_counter`. A `null` counter means the field
+must be absent and NexAU's fallback estimate is used. If a provider limit is
+declared, the configured stop threshold cannot exceed it.
+
+The manifest is outside the evolvable harness. Keep a custom counter in
+protected project or adapter code so Evolve cannot change resource accounting;
+conformance rejects a counter module inside `harness/`. Include the protected
+source in `adapter_dependency_paths` so campaign provenance hashes it.
+`provider_max_input_tokens` uses the declared counting unit. The runner does
+not claim that one tokenizer is valid for every model: update the counter,
+unit, limit, and safety margin whenever the evaluated model or transport
+changes.
+
 ## System prompts
 
 Prompt files are Markdown or Jinja text and need no Python signature. They are

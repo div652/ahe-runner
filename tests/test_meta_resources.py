@@ -308,6 +308,13 @@ def test_run_agent_wires_the_original_middleware_and_roots(
         tmp_path,
         monkeypatch,
         shell={"backend": "docker", "image": "ahe-meta-shell:test"},
+        token_counter="benchmark_tokens:count_prompt_tokens",
+        context_counting_unit="provider-model tokens",
+        provider_max_input_tokens=220_000,
+    )
+    (controller.config.project_root / "benchmark_tokens.py").write_text(
+        "def count_prompt_tokens(messages, tools=None):\n    return 1\n",
+        encoding="utf-8",
     )
     monkeypatch.setattr(backend_module, "Agent", _RecordingAgent)
     seen = _RecordingAgent.seen
@@ -345,6 +352,7 @@ def test_run_agent_wires_the_original_middleware_and_roots(
         "AheContextCompactionMiddleware",
     ]
     agent_yaml = yaml.safe_load((runtime_dir / "agent.yaml").read_text("utf-8"))
+    assert agent_yaml["token_counter"] == "benchmark_tokens:count_prompt_tokens"
     assert agent_yaml["middlewares"][0]["params"] == {
         "max_output_chars": 10_000,
         "head_lines": 50,

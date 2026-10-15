@@ -33,6 +33,7 @@ from .errors import ConfigurationError, IntegrityError
 from .harness import HarnessManifest, matched_component_paths
 from .harness_imports import HarnessImportScope
 from .io import atomic_write_json, sha256_file, tree_sha256
+from .loading import load_symbol
 from .meta.model_client import RecordedExactModelClient
 from .meta.preflight import run_model_preflight
 
@@ -263,6 +264,7 @@ class EvaluatedAgentRuntime:
         transport: TransportSettings,
         api_key: str,
         artifact_root: Path,
+        project_root: Path | None = None,
     ) -> None:
         self._harness_dir = harness_dir.resolve()
         self._manifest = manifest
@@ -271,6 +273,11 @@ class EvaluatedAgentRuntime:
         self._transport = transport
         self._api_key = api_key
         self._artifact_root = artifact_root.resolve()
+        self._project_root = (
+            project_root.resolve()
+            if project_root is not None
+            else self._harness_dir.parent
+        )
         self._artifact_root.mkdir(parents=True, exist_ok=True)
         self._sessions: dict[str, EvaluatedAgentSession] = {}
         self._closed = False
@@ -301,6 +308,16 @@ class EvaluatedAgentRuntime:
         )
         self._validate_benchmark_tools(request.benchmark_tools)
 
+        context_policy = self._manifest.context_accounting
+        if context_policy is not None and context_policy.token_counter is not None:
+            token_counter = load_symbol(
+                context_policy.token_counter,
+                project_root=self._project_root,
+            )
+            if not callable(token_counter):
+                raise ConfigurationError(
+                    "context_accounting.token_counter must resolve to a callable"
+                )
         config = AgentConfig.from_yaml(self._harness_dir / self._manifest.agent_config)
         _override_model_settings(
             config,
@@ -394,10 +411,22 @@ class EvaluatedAgentRuntime:
                 "transport": {
                     "api_mode": self._transport.api_mode,
                     "stream": self._transport.stream,
+                    "request_timeout_seconds": (
+                        self._transport.request_timeout_seconds
+                    ),
+                    "max_concurrent_requests": (
+                        self._transport.max_concurrent_requests
+                    ),
+                    "hung_call_retries": self._transport.hung_call_retries,
                     "observable_model_policy": (
                         self._transport.observable_model_policy
                     ),
                 },
+                "context_accounting": (
+                    self._manifest.context_accounting.model_dump(mode="json")
+                    if self._manifest.context_accounting is not None
+                    else None
+                ),
                 "benchmark_tools": [
                     tool.model_dump(mode="json") for tool in request.benchmark_tools
                 ],
