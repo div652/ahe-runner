@@ -1,0 +1,32 @@
+{
+  "purpose": "Campaign 11: gpt-5.6-sol accepts max_tokens 128000 at reasoning high through GH Copilot Server",
+  "started_at": "2026-10-15T17:00:46.291641+00:00",
+  "elapsed_seconds": 3.28,
+  "request": {
+    "model": "gpt-5.6-sol",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Reply with OK only."
+      }
+    ],
+    "reasoning": {
+      "effort": "high"
+    },
+    "max_tokens": 128000,
+    "stream": false
+  },
+  "http_status": 200,
+  "returned_model": "gpt-5.6-sol",
+  "finish_reason": "stop",
+  "content": "OK",
+  "copilot_metadata_2026_10_15": {
+    "vendor": "copilot",
+    "id": "gpt-5.6-sol",
+    "maxInputTokens": 921793,
+    "maxOutputTokens": 128000,
+    "maxContextWindowTokens": 1050000,
+    "source": "~/copilot-host/user-data/User/globalStorage/state.vscdb (Copilot Chat model cache)"
+  },
+  "passed": true
+}

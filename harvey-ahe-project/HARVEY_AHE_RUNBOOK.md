@@ -1885,7 +1885,7 @@ minutes before the automatic resume.
 
 | Setting | Value |
 |---|---|
-| Evaluated model | `gpt-5.6-sol`, reasoning high, `max_tokens` 64000 (as in 9b) |
+| Evaluated model | `gpt-5.6-sol`, reasoning high, `max_tokens` 128000 (section 5t; 9b used 64000) |
 | Meta model | `gpt-5.6-sol`, reasoning high, `max_tokens` 32000. It is used by every meta agent: Debugger, Evolve and the Explore agents. Per-role settings are unchanged. |
 | Rounds | 5. The operator first asked for a campaign that finishes in about 12 hours; the estimate below gave 3 rounds, and the operator chose 5 anyway |
 | Everything else | as campaign 10 (sections 5q and 5r): split, 2/2/3 trials, judges, helper, concurrency, no noise floor, `trial_processes: true` |
@@ -1925,6 +1925,84 @@ validate` and `ahe conformance` passed, and 280 tests pass.
 Launch with the section 5h command (`ahe run`, then up to 15 `ahe resume`
 attempts), with the log at `campaign-artifacts/c11-run.log`, the campaign 11
 stage path, and tmux session `ahe-c11`.
+
+## 5t. Campaign 11: restarted with `max_tokens` 128000
+
+The first start (16:48 UTC on 2026-10-15) used `max_tokens` 64000 for the
+evaluated model. The operator stopped it after 9 minutes (16 of 120 C0
+trials done) and restarted it with 128000. The stopped run's folder was
+deleted. Its log is kept as
+`campaign-artifacts/c11-stopped-max-tokens-64000-run.log`.
+
+What `max_tokens` is: the largest number of tokens the model may write in one
+reply. For GPT-5.x, hidden reasoning tokens count toward it. It does not
+limit the prompt.
+
+Why 128000:
+
+- **Official LAB** sets no single value; each provider adapter has a
+  default, and `lab run` never overrides it:
+  - OpenAI models, including gpt-5.6-sol: 128000
+    (`lab_core/harness/adapters/openai.py`: "GPT-5.x: reasoning tokens share
+    this budget");
+  - Claude: 128000, or 64000 for Sonnet 4.5/4.6, Haiku 4.5 and Opus 4.5;
+  - Gemini: 65536;
+  - judges: 64000.
+- **Where the old 64000 came from:** the default of our own Copilot adapter
+  (`lab_core/harness/adapters/copilot.py`, branch commit `d7e56d455`; not in
+  LAB `main`). Campaigns 9, 9b and 10 used it.
+- **Copilot's own limits** for `copilot/gpt-5.6-sol` (Copilot Chat's model
+  cache, `~/copilot-host/user-data/User/globalStorage/state.vscdb`):
+  - `maxInputTokens` 921,793;
+  - `maxOutputTokens` 128,000;
+  - `maxContextWindowTokens` 1,050,000.
+
+  Input limit plus output cap is 1,049,793, inside the window. So Copilot's
+  prompt limit already leaves room for a full 128,000-token reply. When a
+  request sends no `max_tokens`, Copilot Chat uses 128,000.
+
+Context limits are unaffected:
+
+- NexAU's AHE-023 stop compares only the prompt's token count with
+  `max_context_tokens` (911,793). It does not add `max_tokens`
+  (`nexau/archs/main_sub/execution/executor.py`, the check before each model
+  call).
+- Copilot's prompt limit (AHE-021) is the model's `maxInputTokens`, which is
+  independent of the request's `max_tokens`.
+- The worst case, a 911,793-token prompt plus a 128,000-token reply, totals
+  1,039,793, under the 1,050,000 window.
+- `ahe.yaml` `models.evaluated.max_tokens` overrides the harness's
+  `llm_config.max_tokens` (still 64000 in `harness_lab/agent.yaml`, unused)
+  for every evaluated call (`_override_model_settings` in
+  `src/ahe_runner/runtime.py`). The meta agents keep 32000 and the judges
+  64000.
+
+Was 64000 ever reached? When a reply hits the cap, Copilot Chat returns
+the partial text with a warning ("truncated because it hit the length
+limit"); the proxy gives no sign of it.
+- In the Copilot Chat logs from 2026-10-14 08:07 to 2026-10-15 16:57, which
+  cover all of 9b, gpt-5.6-sol has 12,958 successful calls and no cut-off
+  reply.
+- The only three cut-off replies were gpt-5.4 calls that ended after 2-3
+  seconds, so they did not hit 64000.
+- Expected effect of the change on scores: none. A difference in C0 would
+  more likely come from run-to-run noise. The other change since 9b is one
+  process per trial (AHE-025).
+
+Probe on 2026-10-15: gpt-5.6-sol at high with `max_tokens` 128000 returned
+HTTP 200, labelled `gpt-5.6-sol`. The GH Copilot Server log shows
+`max_tokens=128000` forwarded
+(`operator-preflight/2026-10-15/c11-gpt-5.6-sol-high-max-tokens-128000.json`).
+
+Check after C0 (operator's request): compare C0's training scores with 9b on
+the same 60 tasks, paired by task, with a 95% bootstrap interval. 9b on these
+60 tasks scored:
+- criterion pass 0.734;
+- dual all-pass 0.342, the mean of the two judges' all-pass. On all 250
+  tasks this is 0.224;
+- both-judge all-pass 0.317.
+
+If C0 differs clearly, the operator may rerun all 250 tasks with 128000.
 
 ## 6. Known deviations and limits to report with results
 
