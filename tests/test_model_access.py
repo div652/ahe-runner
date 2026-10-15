@@ -77,7 +77,7 @@ def test_meta_context_accounting_validates_unit_and_provider_limit() -> None:
             context_counting_unit="provider tokens",
             provider_max_input_tokens=120,
         )
-    with pytest.raises(ValueError, match="module.path:callable_name"):
+    with pytest.raises(ValueError, match=r"module\.path:callable_name"):
         MetaSettings(token_counter="missing_separator")
 
 
