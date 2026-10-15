@@ -148,6 +148,31 @@ declared counting unit. Apply the same `max_context_tokens` and `token_counter`
 to every agent config. Recalibrate both when the evaluated model changes;
 token counts from one model family are not portable to another.
 
+The import must resolve to a callable with NexAU's request-counter shape:
+
+```python
+# my_benchmark/token_count.py
+from collections.abc import Sequence
+from typing import Any
+
+from nexau.core.messages import Message
+
+from my_benchmark.provider_counter import count_nexau_request
+
+
+def count_prompt_tokens(
+    messages: Sequence[Message],
+    tools: list[dict[str, Any]] | None = None,
+) -> int:
+    return count_nexau_request(messages=messages, tools=tools)
+```
+
+Configure that function as
+`my_benchmark.token_count:count_prompt_tokens`. The delegated implementation
+must count the exact message/tool representation and model-specific unit
+declared in the manifest; this interface example is not a universal tokenizer.
+The callable receives NexAU `Message` objects, not legacy message dictionaries.
+
 The exact per-file schemas and Python signatures are in `HARNESS_ABI.md`.
 
 An omitted component pattern is not an invitation to edit protected code.
@@ -385,6 +410,25 @@ adapter dependency paths, role supplements, and research seeds. Use a new
 campaign artifacts directory whenever a frozen protected input changes.
 
 See `RUNTIME_BACKED_EXAMPLE.md` for the complete Route B walkthrough.
+
+### Common validation and import messages
+
+`E2B SDK not installed. Install it with: pip install e2b` is an optional NexAU
+import notice. The generated AHE routes use a local sandbox for evaluated
+sessions and either a disabled or Docker-backed meta shell, so this message
+does not block those routes. Install E2B only if your own project explicitly
+selects an E2B integration.
+
+The warning that host-imported candidate middleware is not isolated by an
+operating-system sandbox is also non-blocking: conformance may still be valid
+and the campaign can run. It means static validation is the protection
+boundary for imported middleware. Use only trusted middleware code; enabling
+the Docker meta shell does not sandbox Python imported by the evaluated
+harness.
+
+Warnings do not replace the `valid` field or command exit status. Read the
+specific warning, decide whether its stated boundary is acceptable for the
+experiment, and fix it before spending model calls when it is not.
 
 ## 8. Run or resume
 

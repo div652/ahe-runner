@@ -60,6 +60,27 @@ context_accounting:
   provider_max_input_tokens: 921793
 ```
 
+The imported counter has this callable contract:
+
+```python
+from collections.abc import Sequence
+from typing import Any
+
+from nexau.core.messages import Message
+
+
+def count_prompt_tokens(
+    messages: Sequence[Message],
+    tools: list[dict[str, Any]] | None = None,
+) -> int: ...
+```
+
+It receives NexAU `Message` objects plus the structured tool definitions for
+the pending request and returns an integer in the declared counting unit. It
+must account for the exact message blocks, tool payloads, and overhead expected
+by the selected model transport; the signature alone does not make a counter
+model-accurate.
+
 When this block is present, every root and sub-agent config must declare the
 same `max_context_tokens` and `token_counter`. A `null` counter means the field
 must be absent and NexAU's fallback estimate is used. If a provider limit is

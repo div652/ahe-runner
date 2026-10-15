@@ -179,6 +179,13 @@ ahe run --config ./my-ahe-project/ahe.runtime.yaml
 The first two commands remain local. `run` performs live model preflights,
 opens NexAU sessions, executes the toy benchmark, and runs the AHE meta-agents.
 
+The preflights verify API-visible connectivity and model identity. They cannot
+prove that an intermediary retained the start of a near-limit prompt or
+honored the requested reasoning effort. The short toy tasks do not exercise
+those limits; run the behavioral probes in the
+[Operator Guide](docs/OPERATOR_GUIDE.md#gh-copilot-server) before a real
+campaign.
+
 ## 4. Stage 3: integrate your benchmark
 
 After both samples succeed:
@@ -200,6 +207,24 @@ After both samples succeed:
 Keep adapter dependencies in the same environment as the runner, but do not
 make an adapter package install a second or unconstrained copy of
 `ahe-runner`/NexAU. The exact compatibility rules are in the adapter guide.
+
+Before the first research spend:
+
+- preserve near-limit prompt-recall and reasoning-effort probe evidence for
+  each model/role transport contract;
+- decide whether timeout hangs should fail fast or use bounded
+  `hung_call_retries`;
+- replace NexAU's character estimate with protected, model-specific context
+  accounting when long prompts are possible, for both evaluated and meta
+  agents;
+- handle provider context rejection as a benchmark-native outcome when that
+  matches the benchmark, rather than as retriable infrastructure;
+- review the
+  [common warning guidance](docs/OPERATOR_GUIDE.md#common-validation-and-import-messages).
+
+See [Harness ABI - Context accounting](docs/HARNESS_ABI.md#context-accounting)
+and
+[Adapter Guide - Infrastructure classification](docs/ADAPTER_GUIDE.md#infrastructure-classification).
 
 When protected structured tools exist, both tool classes are model-visible but
 have different execution owners:
