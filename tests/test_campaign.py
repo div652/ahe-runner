@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
 import yaml
 
 from ahe_runner.adapter import EvaluationResult
+from ahe_runner.cli import main as cli_main
 from ahe_runner.config import load_config
 from ahe_runner.controller import CampaignController
-from ahe_runner.errors import InfrastructureError, IntegrityError, StageInterruptedError
-from ahe_runner.io import atomic_write_json, read_json
+from ahe_runner.errors import (
+    ConfigurationError,
+    InfrastructureError,
+    IntegrityError,
+    StageInterruptedError,
+)
+from ahe_runner.io import atomic_write_json, read_json, sha256_json
 from ahe_runner.meta.scripted import ScriptedMetaBackend
 from ahe_runner.workspace import git_output
 
@@ -206,3 +213,193 @@ def test_evolve_resume_uses_last_commit_and_archives_dirty_state(
         / "unstaged.patch"
     ).read_text(encoding="utf-8")
     assert "uncommitted-interrupted-edit" in recovery_patch
+
+
+def _set_campaign(config_path: Path, **values: object) -> None:
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["campaign"].update(values)
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+
+def _extend(config_path: Path, **kwargs: object) -> dict:
+    return CampaignController(load_config(config_path)).extend_rounds(
+        reason="operator asked for more rounds", **kwargs
+    )
+
+
+def test_extend_rounds_continues_the_same_campaign(tmp_path: Path) -> None:
+    config_path = make_example_project(tmp_path, rounds=2)
+    controller = CampaignController(load_config(config_path))
+    controller.run_round(1)
+    controller.run_round(2)
+    campaign_dir = controller.config.campaign_dir
+    ledger = campaign_dir / "campaign_amendments.json"
+    manifest_bytes = (campaign_dir / "campaign_manifest.json").read_bytes()
+    stages_before = {
+        path: path.read_bytes()
+        for path in (campaign_dir / "stages").glob("*/stage.json")
+    }
+    assert "evolution.close" not in {path.parent.name for path in stages_before}
+
+    _set_campaign(config_path, rounds=3)
+    with pytest.raises(IntegrityError, match="ahe extend-rounds"):
+        CampaignController(load_config(config_path)).resume()
+
+    dry_run = _extend(config_path)
+    assert dry_run["status"] == "dry_run"
+    assert dry_run["changes"] == [
+        "config.config_sha256",
+        "config.document.campaign.rounds",
+    ]
+    assert (dry_run["from_rounds"], dry_run["to_rounds"]) == (2, 3)
+    assert dry_run["runner_package_changes"] == []
+    assert not ledger.exists()
+
+    assert _extend(config_path, apply=True)["status"] == "applied"
+    _set_campaign(config_path, rounds=4)
+    with pytest.raises(IntegrityError, match="since the last campaign amendment"):
+        CampaignController(load_config(config_path)).prepare()
+    second = _extend(config_path, apply=True)
+    assert (second["from_rounds"], second["to_rounds"]) == (3, 4)
+    amendments = read_json(ledger)["amendments"]
+    assert [row["to_rounds"] for row in amendments] == [3, 4]
+    assert (
+        amendments[1]["previous_identity_sha256"] == (amendments[0]["identity_sha256"])
+    )
+
+    status = CampaignController(load_config(config_path)).resume()
+    assert status["checkpoints"] == ["C0", "C1", "C2", "C3", "C4"]
+    assert status["blocked_stages"] == []
+    assert status["interrupted_stages"] == []
+    assert status["final_test"]["no_post_test_evolution"] is True
+    completed = {
+        row["name"] for row in status["stages"] if row["status"] == "completed"
+    }
+    assert {f"evaluation.C{index}.validation" for index in range(5)} <= completed
+    assert {"round.4.evolve", "evaluation.C4.train", "evolution.close"} <= completed
+
+    # Nothing recorded before the extension was rewritten, before or after resume.
+    assert (campaign_dir / "campaign_manifest.json").read_bytes() == manifest_bytes
+    for path, content in stages_before.items():
+        assert path.read_bytes() == content
+
+    attempts = {row["name"]: len(row["attempts"]) for row in status["stages"]}
+    resumed = CampaignController(load_config(config_path)).resume()
+    assert {row["name"]: len(row["attempts"]) for row in resumed["stages"]} == attempts
+
+    _set_campaign(config_path, rounds=5)
+    with pytest.raises(IntegrityError, match="after evolution has closed"):
+        _extend(config_path, apply=True)
+    assert len(read_json(ledger)["amendments"]) == 2
+
+
+def test_extend_rounds_refuses_lower_rounds_and_other_changes(tmp_path: Path) -> None:
+    config_path = make_example_project(tmp_path, rounds=2)
+    controller = CampaignController(load_config(config_path))
+    controller.prepare()
+    ledger = controller.config.campaign_dir / "campaign_amendments.json"
+    seed = yaml.safe_load(config_path.read_text(encoding="utf-8"))["campaign"][
+        "root_seed"
+    ]
+
+    with pytest.raises(ConfigurationError, match="nothing to amend"):
+        _extend(config_path, apply=True)
+    _set_campaign(config_path, rounds=1)
+    with pytest.raises(ConfigurationError, match="only increases"):
+        _extend(config_path, apply=True)
+    _set_campaign(config_path, rounds=3, root_seed=seed + 1)
+    with pytest.raises(
+        IntegrityError, match=re.escape("config.document.campaign.root_seed")
+    ):
+        _extend(config_path, apply=True, allow_runner_change=True)
+    _set_campaign(config_path, root_seed=seed)
+    adapter = config_path.parent / "benchmark_adapter.py"
+    adapter.write_text(adapter.read_text(encoding="utf-8") + "\n# drift\n")
+    with pytest.raises(IntegrityError, match="adapter_dependencies"):
+        _extend(config_path, apply=True, allow_runner_change=True)
+    with pytest.raises(ConfigurationError, match="reason"):
+        CampaignController(load_config(config_path)).extend_rounds(reason=" ")
+    assert not ledger.exists()
+
+
+def test_extend_rounds_needs_permission_for_runner_code_changes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_path = make_example_project(tmp_path, rounds=1)
+    CampaignController(load_config(config_path)).prepare()
+    original = CampaignController._campaign_identity
+
+    def changed(resource: str, name: str):  # type: ignore[no-untyped-def]
+        def identity(self: CampaignController) -> dict:
+            value = original(self)
+            entry = value["protected_runner_resources"][resource]
+            entry["files"] = {**entry["files"], name: "0" * 64}
+            entry["sha256"] = sha256_json(entry["files"])
+            return value
+
+        return identity
+
+    _set_campaign(config_path, rounds=2)
+    monkeypatch.setattr(
+        CampaignController, "_campaign_identity", changed("core_prompts", "x.md")
+    )
+    with pytest.raises(IntegrityError, match="core_prompts"):
+        _extend(config_path, apply=True, allow_runner_change=True)
+
+    monkeypatch.setattr(
+        CampaignController, "_campaign_identity", changed("package", "controller.py")
+    )
+    with pytest.raises(IntegrityError, match="--allow-runner-code-change"):
+        _extend(config_path, apply=True)
+    report = _extend(config_path, apply=True, allow_runner_change=True)
+    assert report["runner_package_changes"] == [
+        "protected_runner_resources.package.files.controller.py",
+        "protected_runner_resources.package.sha256",
+    ]
+    CampaignController(load_config(config_path)).prepare()
+
+    monkeypatch.undo()
+    with pytest.raises(IntegrityError, match="since the last campaign amendment"):
+        CampaignController(load_config(config_path)).prepare()
+
+
+def test_tampered_campaign_amendments_are_rejected(tmp_path: Path) -> None:
+    config_path = make_example_project(tmp_path, rounds=1)
+    CampaignController(load_config(config_path)).prepare()
+    _set_campaign(config_path, rounds=2)
+    _extend(config_path, apply=True)
+    ledger_path = load_config(config_path).campaign_dir / "campaign_amendments.json"
+    original = read_json(ledger_path)
+
+    tampered = read_json(ledger_path)
+    tampered["amendments"][0]["identity"]["config"]["document"]["campaign"][
+        "rounds"
+    ] = 9
+    atomic_write_json(ledger_path, tampered)
+    with pytest.raises(IntegrityError, match="does not match its identity hash"):
+        CampaignController(load_config(config_path)).prepare()
+
+    tampered = {**original, "base_identity_sha256": "0" * 64}
+    atomic_write_json(ledger_path, tampered)
+    with pytest.raises(IntegrityError, match="do not belong to this campaign"):
+        CampaignController(load_config(config_path)).prepare()
+
+    atomic_write_json(ledger_path, original)
+    CampaignController(load_config(config_path)).prepare()
+
+
+def test_extend_rounds_cli_defaults_to_a_dry_run(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_path = make_example_project(tmp_path, rounds=1)
+    CampaignController(load_config(config_path)).prepare()
+    _set_campaign(config_path, rounds=2)
+
+    args = ["extend-rounds", "--config", str(config_path), "--reason", "more"]
+    assert cli_main(args) == 0
+    assert '"status": "dry_run"' in capsys.readouterr().out
+    assert cli_main([*args, "--apply"]) == 0
+    assert '"status": "applied"' in capsys.readouterr().out
+    assert cli_main(["status", "--config", str(config_path)]) == 0

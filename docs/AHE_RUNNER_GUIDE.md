@@ -183,6 +183,7 @@ code 2 (`cli.py`, `main`). Other Python errors print a normal traceback.
 | `ahe run-validation --config C` | Close evolution, evaluate C0..CN on validation, run `selection` |
 | `ahe run-final-test --config C` | Validation and selection if needed, then the final test and export |
 | `ahe status --config C` | Write and print `campaign_state.json` |
+| `ahe extend-rounds --config C --reason R [--apply] [--allow-runner-code-change]` | After raising `campaign.rounds` in the config, accept the new value for an existing campaign (section 2.6). A dry run unless `--apply` |
 
 Neither `conformance` nor `validate` checks the model endpoint or the Docker
 shell image. The endpoint is checked by preflights at the start of each model
@@ -275,6 +276,37 @@ changed in protected inputs [...]; use a new artifacts directory`.
 So any edit to runner code, prompts, supplements, `ahe.yaml` or adapter files
 needs a new `campaign.artifacts_dir` (and usually a new `campaign.name`). The
 same applies after a stage is blocked.
+
+The check runs again at the start of every round inside a running `ahe run`
+or `ahe resume`, because the hashes are taken from the files on disk. Editing
+any of these files while a campaign runs therefore stops it at the next round.
+Make such edits in a separate git worktree, or after stopping the campaign.
+
+**One exception: more rounds.** To give a campaign more rounds than it was
+started with:
+
+1. Stop the campaign process, then raise `campaign.rounds` in the config.
+2. Run `ahe extend-rounds --config C --reason "..."`. This dry run lists every
+   changed identity path. Only `config.config_sha256` and
+   `config.document.campaign.rounds` are accepted. With
+   `--allow-runner-code-change`, changed runner package files are accepted
+   too, and listed. Prompts, tool descriptions, tool code, the method
+   reference, adapter files, the harness and every other config value must
+   be unchanged.
+3. Run it again with `--apply`, then `ahe resume`.
+
+Rules (`extend_rounds` in `controller.py`):
+
+- The round count can only go up.
+- It is refused once `evolution.close`, `selection` or `final.complete`
+  exists.
+- `--apply` appends an entry to `campaign_amendments.json`: the reason, the
+  old and new round counts, the changed paths and the new identity with its
+  hash. `campaign_manifest.json` and all stage records are not changed, so
+  every finished stage stays valid.
+- From then on, commands accept only the identity of the last amendment.
+  Amendments must chain from the manifest's hash and match their own hashes;
+  an edited ledger stops every command.
 
 ### 2.7 The model endpoint
 
@@ -455,6 +487,7 @@ All paths are under `campaign.artifacts_dir`. For Harvey that is
 
 ```text
 campaign_manifest.json        campaign identity hashes (section 2.6)
+campaign_amendments.json      round-count extensions, if any (section 2.6)
 campaign_state.json           written by every command and by `ahe status`
 stages/<stage name>/
   stage.json                  status, semantic inputs, attempts, output hashes

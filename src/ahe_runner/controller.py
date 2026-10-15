@@ -52,6 +52,8 @@ from .workspace import (
     verify_checkpoint,
 )
 
+_RUNNER_PACKAGE_IDENTITY = "protected_runner_resources.package"
+
 
 class CampaignController:
     def __init__(self, config: ResolvedConfig) -> None:
@@ -861,7 +863,203 @@ class CampaignController:
         atomic_write_json(path, payload)
         return StageResult(outputs=(path, selected_harness), data=payload)
 
+    def extend_rounds(
+        self,
+        *,
+        reason: str,
+        apply: bool = False,
+        allow_runner_change: bool = False,
+    ) -> dict[str, Any]:
+        """Accept a larger ``campaign.rounds`` for an existing campaign.
+
+        The operator first raises ``campaign.rounds`` in the configuration file.
+        This records the new campaign identity in ``campaign_amendments.json``;
+        the original campaign manifest and every stage record stay unchanged.
+        """
+        if not reason.strip():
+            raise ConfigurationError("extend-rounds needs a non-empty --reason")
+        manifest_path = self._campaign_manifest_path()
+        if not manifest_path.is_file():
+            raise ConfigurationError("campaign does not exist; use run first")
+        manifest = read_json(manifest_path)
+        accepted = self._accepted_campaign_identity(manifest)
+        identity = self._campaign_identity()
+        old_rounds = accepted["identity"]["config"]["document"]["campaign"]["rounds"]
+        new_rounds = self.config.document.campaign.rounds
+        if identity == accepted["identity"]:
+            raise ConfigurationError(
+                f"nothing to amend: the configuration already matches the "
+                f"accepted campaign identity ({old_rounds} rounds)"
+            )
+        if new_rounds <= old_rounds:
+            raise ConfigurationError(
+                f"extend-rounds only increases campaign.rounds; the accepted value "
+                f"is {old_rounds} and the configuration says {new_rounds}"
+            )
+        changes = _identity_differences(accepted["identity"], identity)
+        allowed = {"config.config_sha256", "config.document.campaign.rounds"}
+        runner_changes = [
+            change
+            for change in changes
+            if change == _RUNNER_PACKAGE_IDENTITY
+            or change.startswith(f"{_RUNNER_PACKAGE_IDENTITY}.")
+        ]
+        refused = [
+            change
+            for change in changes
+            if change not in allowed
+            and not (allow_runner_change and change in runner_changes)
+        ]
+        if refused:
+            raise IntegrityError(
+                "extend-rounds only changes campaign.rounds, but other protected "
+                f"inputs changed: {refused}"
+                + (
+                    "; pass --allow-runner-code-change to accept changed runner "
+                    "package files"
+                    if set(refused) <= set(runner_changes)
+                    else ""
+                )
+            )
+        closing_stages = sorted(
+            row["name"]
+            for row in self.stage_store.status()
+            if row["name"] in {"evolution.close", "selection", "final.complete"}
+        )
+        if closing_stages:
+            raise IntegrityError(
+                "rounds cannot be extended after evolution has closed; "
+                f"existing stages: {closing_stages}"
+            )
+        identity_sha = sha256_json(identity)
+        amendment = {
+            "kind": "extend_rounds",
+            "created_at": datetime.now(UTC).isoformat(),
+            "reason": reason.strip(),
+            "from_rounds": old_rounds,
+            "to_rounds": new_rounds,
+            "changes": changes,
+            "previous_identity_sha256": accepted["identity_sha256"],
+            "identity_sha256": identity_sha,
+            "identity": identity,
+        }
+        report = {
+            "status": "applied" if apply else "dry_run",
+            "campaign_dir": str(self.config.campaign_dir),
+            "from_rounds": old_rounds,
+            "to_rounds": new_rounds,
+            "changes": changes,
+            "runner_package_changes": runner_changes,
+            "previous_identity_sha256": accepted["identity_sha256"],
+            "identity_sha256": identity_sha,
+            "ledger": str(self._campaign_amendments_path()),
+        }
+        if not apply:
+            return report
+        ledger_path = self._campaign_amendments_path()
+        ledger = (
+            read_json(ledger_path)
+            if ledger_path.is_file()
+            else {
+                "schema_version": 1,
+                "base_identity_sha256": manifest["identity_sha256"],
+                "amendments": [],
+            }
+        )
+        ledger["amendments"] = [*ledger["amendments"], amendment]
+        atomic_write_json(ledger_path, ledger)
+        self._write_state()
+        return report
+
+    def _accepted_campaign_identity(self, manifest: dict[str, Any]) -> dict[str, Any]:
+        """Return the identity a resume must match: manifest or last amendment."""
+        base = {
+            key: value
+            for key, value in manifest.items()
+            if key not in {"created_at", "identity_sha256"}
+        }
+        if sha256_json(base) != manifest.get("identity_sha256"):
+            raise IntegrityError("campaign manifest does not match its identity hash")
+        accepted = {"identity": base, "identity_sha256": manifest["identity_sha256"]}
+        ledger_path = self._campaign_amendments_path()
+        if not ledger_path.is_file():
+            return accepted
+        ledger = read_json(ledger_path)
+        if ledger.get("base_identity_sha256") != manifest["identity_sha256"]:
+            raise IntegrityError(
+                "campaign amendments do not belong to this campaign manifest"
+            )
+        amendments = ledger.get("amendments")
+        if not isinstance(amendments, list) or not amendments:
+            raise IntegrityError("campaign amendments file has no amendments")
+        for index, amendment in enumerate(amendments, start=1):
+            if amendment.get("previous_identity_sha256") != accepted["identity_sha256"]:
+                raise IntegrityError(
+                    f"campaign amendment {index} does not follow the previous identity"
+                )
+            identity = amendment.get("identity")
+            if not isinstance(identity, dict) or sha256_json(identity) != amendment.get(
+                "identity_sha256"
+            ):
+                raise IntegrityError(
+                    f"campaign amendment {index} does not match its identity hash"
+                )
+            accepted = {
+                "identity": identity,
+                "identity_sha256": amendment["identity_sha256"],
+            }
+        return accepted
+
+    def _campaign_amendments_path(self) -> Path:
+        return self.config.campaign_dir / "campaign_amendments.json"
+
     def _ensure_campaign_manifest(self) -> dict[str, Any]:
+        identity = self._campaign_identity()
+        identity_sha = sha256_json(identity)
+        payload = {
+            **identity,
+            "identity_sha256": identity_sha,
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+        path = self._campaign_manifest_path()
+        if path.is_file() and self._campaign_amendments_path().is_file():
+            existing = read_json(path)
+            accepted = self._accepted_campaign_identity(existing)
+            if identity != accepted["identity"]:
+                changed = sorted(
+                    key
+                    for key in set(accepted["identity"]) | set(identity)
+                    if accepted["identity"].get(key) != identity.get(key)
+                )
+                raise IntegrityError(
+                    "campaign identity changed in protected inputs "
+                    f"{changed} since the last campaign amendment; "
+                    "use a new artifacts directory"
+                )
+            return existing
+        if path.is_file():
+            existing = read_json(path)
+            comparable = dict(existing)
+            comparable.pop("created_at", None)
+            expected = dict(payload)
+            expected.pop("created_at", None)
+            if comparable != expected:
+                changed = sorted(
+                    key
+                    for key in set(comparable) | set(expected)
+                    if key not in {"created_at", "identity_sha256"}
+                    and comparable.get(key) != expected.get(key)
+                )
+                raise IntegrityError(
+                    "campaign identity changed in protected inputs "
+                    f"{changed}; use a new artifacts directory "
+                    "(or `ahe extend-rounds` if only campaign.rounds was raised)"
+                )
+            return existing
+        atomic_write_json(path, payload)
+        return payload
+
+    def _campaign_identity(self) -> dict[str, Any]:
         adapter_source = inspect.getsourcefile(type(self.adapter))
         adapter_dependencies = [
             Path(adapter_source).resolve() if adapter_source else None,
@@ -921,33 +1119,7 @@ class CampaignController:
                 for name, split in self.splits.items()
             },
         }
-        identity_sha = sha256_json(identity)
-        payload = {
-            **identity,
-            "identity_sha256": identity_sha,
-            "created_at": datetime.now(UTC).isoformat(),
-        }
-        path = self._campaign_manifest_path()
-        if path.is_file():
-            existing = read_json(path)
-            comparable = dict(existing)
-            comparable.pop("created_at", None)
-            expected = dict(payload)
-            expected.pop("created_at", None)
-            if comparable != expected:
-                changed = sorted(
-                    key
-                    for key in set(comparable) | set(expected)
-                    if key not in {"created_at", "identity_sha256"}
-                    and comparable.get(key) != expected.get(key)
-                )
-                raise IntegrityError(
-                    "campaign identity changed in protected inputs "
-                    f"{changed}; use a new artifacts directory"
-                )
-            return existing
-        atomic_write_json(path, payload)
-        return payload
+        return identity
 
     def _validate_split_separation(self) -> None:
         sets = {name: set(split.task_ids) for name, split in self.splits.items()}
@@ -979,6 +1151,20 @@ class CampaignController:
 
     def _write_state(self) -> None:
         self.status()
+
+
+def _identity_differences(before: Any, after: Any, prefix: str = "") -> list[str]:
+    """Return the dotted paths of every leaf that differs between two identities."""
+    if isinstance(before, dict) and isinstance(after, dict):
+        changes: list[str] = []
+        for key in sorted(set(before) | set(after)):
+            path = f"{prefix}.{key}" if prefix else str(key)
+            if key not in before or key not in after:
+                changes.append(path)
+            else:
+                changes.extend(_identity_differences(before[key], after[key], path))
+        return changes
+    return [] if before == after else [prefix]
 
 
 def _protected_path_identity(path: Path) -> dict[str, Any]:

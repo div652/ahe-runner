@@ -37,6 +37,17 @@ def main(argv: list[str] | None = None) -> int:
     round_parser = subparsers.add_parser("run-round")
     round_parser.add_argument("--config", type=Path, required=True)
     round_parser.add_argument("--round", type=int, required=True)
+    extend_parser = subparsers.add_parser(
+        "extend-rounds",
+        help=(
+            "Accept a raised campaign.rounds for an existing campaign "
+            "(dry run unless --apply)."
+        ),
+    )
+    extend_parser.add_argument("--config", type=Path, required=True)
+    extend_parser.add_argument("--reason", required=True)
+    extend_parser.add_argument("--apply", action="store_true")
+    extend_parser.add_argument("--allow-runner-code-change", action="store_true")
     args = parser.parse_args(argv)
 
     try:
@@ -90,6 +101,12 @@ def _dispatch(controller: CampaignController, args: argparse.Namespace) -> Any:
         return controller.status()
     if args.command == "run-round":
         return controller.run_round(args.round)
+    if args.command == "extend-rounds":
+        return controller.extend_rounds(
+            reason=args.reason,
+            apply=args.apply,
+            allow_runner_change=args.allow_runner_code_change,
+        )
     if args.command == "close-evolution":
         return controller.close_evolution()
     if args.command == "run-validation":
