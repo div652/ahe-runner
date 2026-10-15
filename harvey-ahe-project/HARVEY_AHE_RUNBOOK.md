@@ -1592,6 +1592,116 @@ Run 2026-10-15 02:57 UTC to 05:46 UTC (2 h 49 min), commit `48242b0`.
   three times; 1 sandbox unhealthy after its run. A single resume completed
   them.
 
+### Detailed analysis of campaign 9b
+
+All figures cover the same 250 tasks and 2,623 criteria in both runs. They
+were computed from each trial's `result.json` and the two
+`scores_judge-N.json` files of its grading. Judge 1 is claude-sonnet-5 and
+judge 2 is gpt-5.5. Definitions:
+
+- **Criterion pass rate:** the share of a task's criteria a judge passes,
+  averaged over tasks. The dual figure averages the two judges.
+- **Pooled pass rate:** passed criteria over all criteria, so tasks with
+  many criteria weigh more.
+- **All-pass:** a judge passes every criterion of the task. LAB's "dual
+  all-pass rate" is the mean of the two judges' all-pass rates. "Both
+  judges" is the stricter count of tasks that both judges pass entirely.
+
+**Each judge**
+
+| Judge | Run | Criterion pass rate | Pooled pass rate | All-pass rate (tasks) |
+|---|---|---|---|---|
+| claude-sonnet-5 | 9 | 0.599 | 0.582 | 0.212 (53) |
+| claude-sonnet-5 | 9b | 0.632 | 0.652 | 0.228 (57) |
+| gpt-5.5 | 9 | 0.616 | 0.599 | 0.228 (57) |
+| gpt-5.5 | 9b | 0.638 | 0.667 | 0.220 (55) |
+| Dual | 9 | 0.608 | | 0.220; both judges 52, either judge 58 |
+| Dual | 9b | 0.635 | | 0.224; both judges 51, either judge 61 |
+
+**Judge agreement**
+
+| Run | Criterion verdicts that agree | Cohen's kappa | Only claude passes | Only gpt passes | Tasks where both agree on all-pass |
+|---|---|---|---|---|---|
+| 9 | 97.7% | 0.952 | 9 | 52 | 97.6% |
+| 9b | 97.4% | 0.942 | 14 | 54 | 96.0% |
+
+The judges agree closely. When they differ, gpt-5.5 is the more lenient
+about four times in five.
+
+**Criterion types (9b).** Grouped by the part of the title before "—";
+the precision criteria are counted from every title that contains
+"precision".
+
+| Type | Criteria | Tasks | claude pass | gpt pass |
+|---|---|---|---|---|
+| Qualifying matter | 1,378 | 195 | 0.681 | 0.708 |
+| Proof document | 456 | 81 | 0.664 | 0.675 |
+| Precision (any title, LAB-006) | 241 | 241 | 0.485 | 0.461 |
+| Classification | 78 | 4 | 0.513 | 0.526 |
+| Answer | 14 | 14 | 0.500 | 0.571 |
+
+The precision criterion is the hardest one, even though an empty output
+passes it (LAB-006). All 9 trials without output passed it with gpt-5.5,
+and 8 of them with claude. Without the precision criteria, the criterion
+pass rate is 0.664 (claude) and 0.677 (gpt).
+
+**Criteria per task (9b).** Tasks have 1 to 85 criteria (median 6).
+
+| Criteria in task | Tasks | Criterion pass rate | Both-judge all-pass |
+|---|---|---|---|
+| 1-3 | 71 | 0.528 | 0.310 |
+| 4-6 | 59 | 0.659 | 0.220 |
+| 7-10 | 44 | 0.734 | 0.227 |
+| 11-85 | 76 | 0.659 | 0.079 |
+
+All-pass falls steeply with the number of criteria; tasks with 1-3
+criteria have the lowest criterion pass rate but the highest all-pass rate.
+
+**Score distribution (dual criterion pass rate, number of tasks)**
+
+| Run | 0 | (0, 0.25) | [0.25, 0.5) | [0.5, 0.75) | [0.75, 1) | 1 | Median |
+|---|---|---|---|---|---|---|---|
+| 9 | 28 | 27 | 22 | 51 | 70 | 52 | 0.729 |
+| 9b | 31 | 17 | 21 | 47 | 83 | 51 | 0.750 |
+
+**How runs ended.** In 9, 236 trials called `finish` (mean 0.636) and 14
+stopped for context (0.120). In 9b, 241 called `finish` (0.653) and 9
+stopped for context (0.161). Every stopped trial, and no other, lacked
+`response.md`. No judge input hit the 240,000-character limit.
+
+**Agent behaviour**
+
+| Measure | Run 9: median / p90 / max | Run 9b: median / p90 / max |
+|---|---|---|
+| Assistant turns | 18 / 37 / 81 | 17 / 37 / 104 |
+| Tool calls | 36 / 59 / 93 | 36 / 63 / 114 |
+| Agent run seconds (excluding grading) | 485 / 1,057 / 2,451 | 503 / 1,240 / 2,113 |
+
+Tool use in 9b: read 46%, bash 29%, glob 15%, grep 4%, write 2%, finish 2%,
+edit 2%; run 9 is almost the same. Among finished trials, more turns go
+with slightly higher scores (correlation 0.25).
+
+**Model calls**
+
+| Run | Calls | Calls that hung | Failed calls | Clean call seconds: median / p90 / p99 / max |
+|---|---|---|---|---|
+| 9 | 5,120 | 95 (1.9%) | 4 | 4.5 / 14.7 / 44.7 / 236 |
+| 9b | 5,293 | 101 (1.9%) | 2 | 5.0 / 14.4 / 41.7 / 154 |
+
+**Run-to-run noise.** The two runs use the same harness, model, and tasks,
+and differ only in the AHE-023 fix. Even so:
+
+- the per-task criterion pass rates correlate only 0.55;
+- the mean absolute change per task is 0.19, and 40 tasks moved by 0.5 or
+  more;
+- 37 tasks changed their both-judge all-pass result (19 lost it, 18 gained
+  it); only 33 passed entirely in both runs.
+
+A single run of one trial per task therefore measures an individual task
+poorly. Over all 250 tasks, the standard error of a difference between two
+runs is about 0.02 in criterion pass rate. Harness changes smaller than
+about 0.04 cannot be told apart from noise with one trial per task.
+
 
 ## 6. Known deviations and limits to report with results
 
