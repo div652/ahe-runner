@@ -289,10 +289,17 @@ will report matching supplement text.
 All four roles receive the same resolved benchmark-family context. Web Explore
 also receives the configured seed URLs before broader research.
 
-`transport.max_concurrent_requests` is the process-wide queue for recorded
-model calls to that endpoint. Adapter-owned provider calls participate only
+`transport.max_concurrent_requests` is the runner-wide queue for recorded
+model calls to that endpoint, including children created through the public
+evaluated-trial process helper. Adapter-owned provider calls participate only
 when wrapped with `ahe_runner.model_requests.model_request_slot`; see the
 adapter guide.
+
+`evaluation.max_concurrency` is only the maximum parallelism passed to the
+adapter. It does not choose threads or processes. When concurrent trials run
+CPU-bound harness tools on the host, review
+[`ADAPTER_GUIDE.md`](ADAPTER_GUIDE.md#threaded-versus-process-isolated-trials)
+before selecting the adapter's worker model.
 
 `transport.hung_call_retries` controls extra attempts for a request that
 timed out before any response. It defaults to `0` and is capped at `5`. The

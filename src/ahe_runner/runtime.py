@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 import tempfile
 import threading
+import time
 from collections.abc import Callable, Mapping, Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -29,7 +32,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from .adapter import BenchmarkInterface, BenchmarkToolSpec
 from .config import ModelSettings, TransportSettings
-from .errors import ConfigurationError, IntegrityError
+from .errors import ConfigurationError, InfrastructureError, IntegrityError
 from .harness import HarnessManifest, matched_component_paths
 from .harness_imports import HarnessImportScope
 from .io import atomic_write_json, sha256_file, tree_sha256
@@ -124,11 +127,26 @@ class BenchmarkActionCall(RuntimeModel):
     arguments: dict[str, Any]
 
 
+class ToolTiming(RuntimeModel):
+    sequence: int = Field(gt=0)
+    session_id: str
+    agent_name: str
+    tool_name: str
+    tool_call_id: str
+    started_at: str
+    completed_at: str
+    wall_time_seconds: float = Field(ge=0)
+    status: Literal["completed", "error"]
+    error_type: str | None = None
+    parallel_execution_id: str | None = None
+
+
 class AgentOutput(RuntimeModel):
     final_text: str
     external_actions: tuple[BenchmarkActionCall, ...] = ()
     messages: tuple[dict[str, Any], ...]
     trace: tuple[dict[str, Any], ...]
+    tool_timings: tuple[ToolTiming, ...] = ()
 
 
 class EvaluatedAgentSession:
@@ -140,6 +158,7 @@ class EvaluatedAgentSession:
         agent: Agent,
         client: RecordedExactModelClient,
         boundary: _ProtectedBenchmarkBoundary,
+        tool_timing: _ToolTimingRecorder,
         base_context: Mapping[str, Any],
         session_id: str,
         artifact_dir: Path,
@@ -148,11 +167,13 @@ class EvaluatedAgentSession:
         self._agent = agent
         self._client = client
         self._boundary = boundary
+        self._tool_timing = tool_timing
         self._base_context = dict(base_context)
         self._session_id = session_id
         self._artifact_dir = artifact_dir
         self._on_close = on_close
         self._outstanding_actions: dict[str, BenchmarkActionCall] = {}
+        self._last_tool_timing_sequence = 0
         self._closed = False
 
     @property
@@ -179,11 +200,17 @@ class EvaluatedAgentSession:
 
         actions = self._boundary.take_actions()
         self._outstanding_actions = {action.tool_call_id: action for action in actions}
+        tool_timings = self._tool_timing.after(self._last_tool_timing_sequence)
+        if tool_timings:
+            self._last_tool_timing_sequence = max(
+                event.sequence for event in tool_timings
+            )
         output = AgentOutput(
             final_text=str(result),
             external_actions=actions,
             messages=tuple(_model_dump(message) for message in self._agent.history),
             trace=tuple(_model_dump(message) for message in self._agent.full_trace),
+            tool_timings=tool_timings,
         )
         atomic_write_json(
             self._artifact_dir / "latest_output.json",
@@ -251,6 +278,23 @@ class EvaluatedAgentSession:
         return result
 
 
+class RuntimeProcessSpec(RuntimeModel):
+    """Ephemeral recipe for rebuilding a runtime in a spawned trial process."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    harness_dir: Path
+    manifest: HarnessManifest
+    benchmark_interface: BenchmarkInterface
+    model: ModelSettings
+    transport: TransportSettings
+    api_key: str = Field(repr=False, exclude=True)
+    artifact_root: Path
+    project_root: Path
+    model_preflight_path: Path
+    parent_runtime_pid: int
+
+
 class EvaluatedAgentRuntime:
     """Factory for isolated evaluated-agent sessions from one harness checkpoint."""
 
@@ -265,6 +309,8 @@ class EvaluatedAgentRuntime:
         api_key: str,
         artifact_root: Path,
         project_root: Path | None = None,
+        model_preflight_path: Path | None = None,
+        parent_runtime_pid: int | None = None,
     ) -> None:
         self._harness_dir = harness_dir.resolve()
         self._manifest = manifest
@@ -284,8 +330,53 @@ class EvaluatedAgentRuntime:
         self._preflight_lock = threading.Lock()
         self._preflight_path: Path | None = None
         self._preflight_error: Exception | None = None
+        self._parent_runtime_pid = parent_runtime_pid
+        if model_preflight_path is not None:
+            path = model_preflight_path.resolve()
+            try:
+                path.relative_to(self._artifact_root / "model-preflights")
+            except ValueError as exc:
+                raise IntegrityError(
+                    f"model preflight is outside this evaluation: {path}"
+                ) from exc
+            if not path.is_file():
+                raise IntegrityError(f"model preflight is missing: {path}")
+            self._preflight_path = path
         self._import_scope = HarnessImportScope(self._harness_dir)
         self._import_scope.__enter__()
+
+    @classmethod
+    def from_process_spec(cls, spec: RuntimeProcessSpec) -> EvaluatedAgentRuntime:
+        return cls(
+            harness_dir=spec.harness_dir,
+            manifest=spec.manifest,
+            benchmark_interface=spec.benchmark_interface,
+            model=spec.model,
+            transport=spec.transport,
+            api_key=spec.api_key,
+            artifact_root=spec.artifact_root,
+            project_root=spec.project_root,
+            model_preflight_path=spec.model_preflight_path,
+            parent_runtime_pid=spec.parent_runtime_pid,
+        )
+
+    def process_spec(self) -> RuntimeProcessSpec:
+        """Run one parent preflight and return an ephemeral child recipe."""
+
+        if self._closed:
+            raise RuntimeError("evaluated-agent runtime is closed")
+        return RuntimeProcessSpec(
+            harness_dir=self._harness_dir,
+            manifest=self._manifest,
+            benchmark_interface=self._benchmark_interface,
+            model=self._model,
+            transport=self._transport,
+            api_key=self._api_key,
+            artifact_root=self._artifact_root,
+            project_root=self._project_root,
+            model_preflight_path=self._ensure_model_preflight(),
+            parent_runtime_pid=os.getpid(),
+        )
 
     def open_session(self, request: AgentSessionRequest) -> EvaluatedAgentSession:
         if self._closed:
@@ -337,6 +428,10 @@ class EvaluatedAgentRuntime:
                 "so schemas stay in the structured API tools field"
             )
         boundary = _ProtectedBenchmarkBoundary(request.benchmark_tools)
+        tool_timing = _ToolTimingRecorder(
+            path=artifact_dir / "tool_timings.json",
+            session_id=request.session_id,
+        )
         harness_tool_names = {tool.name for tool in config.tools}
         benchmark_tool_names = {tool.name for tool in request.benchmark_tools}
         collisions = sorted(harness_tool_names & benchmark_tool_names)
@@ -361,7 +456,9 @@ class EvaluatedAgentRuntime:
             for hook in (config.after_model_hooks or [])
         ]
         config.after_model_hooks = []
+        _attach_tool_timing_to_subagents(config, tool_timing)
         config.middlewares = [
+            tool_timing,
             boundary,
             *candidate_middlewares,
             *legacy_after_model_middlewares,
@@ -395,6 +492,7 @@ class EvaluatedAgentRuntime:
             agent=agent,
             client=client,
             boundary=boundary,
+            tool_timing=tool_timing,
             base_context=base_context,
             session_id=request.session_id,
             artifact_dir=artifact_dir,
@@ -427,6 +525,19 @@ class EvaluatedAgentRuntime:
                     if self._manifest.context_accounting is not None
                     else None
                 ),
+                "execution_process": {
+                    "mode": (
+                        "spawned_child"
+                        if self._parent_runtime_pid is not None
+                        else "in_process"
+                    ),
+                    "pid": os.getpid(),
+                    "parent_runtime_pid": self._parent_runtime_pid,
+                },
+                "tool_timing": {
+                    "schema_version": 1,
+                    "path": "tool_timings.json",
+                },
                 "benchmark_tools": [
                     tool.model_dump(mode="json") for tool in request.benchmark_tools
                 ],
@@ -590,6 +701,86 @@ class _ProtectedActionCapture(Middleware):
         return self._boundary.capture(hook_input)
 
 
+class _ToolTimingRecorder(Middleware):
+    """Protected wall-time evidence for every harness-owned tool call."""
+
+    def __init__(self, *, path: Path, session_id: str) -> None:
+        self.name = "ahe_runtime_tool_timing"
+        self._path = path
+        self._session_id = session_id
+        self._lock = threading.Lock()
+        self._next_sequence = 1
+        self._events: list[ToolTiming] = []
+        atomic_write_json(
+            self._path,
+            {"schema_version": 1, "events": []},
+        )
+
+    def wrap_tool_call(
+        self,
+        params: ToolCallParams,
+        call_next: ToolCallFn,
+    ) -> Any:
+        with self._lock:
+            sequence = self._next_sequence
+            self._next_sequence += 1
+        started_at = datetime.now(UTC).isoformat()
+        started = time.monotonic()
+        status: Literal["completed", "error"] = "completed"
+        error_type: str | None = None
+        caught_error: BaseException | None = None
+        try:
+            return call_next(params)
+        except BaseException as exc:
+            status = "error"
+            error_type = type(exc).__name__
+            caught_error = exc
+            raise
+        finally:
+            completed_at = datetime.now(UTC).isoformat()
+            parallel_value = params.execution_params.get("parallel_execution_id")
+            event = ToolTiming(
+                sequence=sequence,
+                session_id=self._session_id,
+                agent_name=str(params.agent_state.agent_name),
+                tool_name=params.tool_name,
+                tool_call_id=params.tool_call_id,
+                started_at=started_at,
+                completed_at=completed_at,
+                wall_time_seconds=round(time.monotonic() - started, 6),
+                status=status,
+                error_type=error_type,
+                parallel_execution_id=(
+                    str(parallel_value) if parallel_value is not None else None
+                ),
+            )
+            try:
+                self._append(event)
+            except Exception as exc:
+                if caught_error is not None:
+                    caught_error.add_note(f"tool timing persistence failed: {exc}")
+                else:
+                    raise InfrastructureError(
+                        f"tool timing persistence failed: {exc}"
+                    ) from exc
+
+    def after(self, sequence: int) -> tuple[ToolTiming, ...]:
+        with self._lock:
+            return tuple(event for event in self._events if event.sequence > sequence)
+
+    def _append(self, event: ToolTiming) -> None:
+        with self._lock:
+            self._events.append(event)
+            self._events.sort(key=lambda item: item.sequence)
+            atomic_write_json(
+                self._path,
+                {
+                    "schema_version": 1,
+                    "events": [item.model_dump(mode="json") for item in self._events],
+                },
+            )
+
+
 class _CandidateMiddlewareGuard:
     """Delegate candidate middleware except after a protected action is captured."""
 
@@ -639,6 +830,15 @@ def _runtime_tools(tools: Sequence[BenchmarkToolSpec]) -> list[Tool]:
         )
         for tool in tools
     ]
+
+
+def _attach_tool_timing_to_subagents(
+    config: AgentConfig,
+    recorder: _ToolTimingRecorder,
+) -> None:
+    for sub_agent in (config.sub_agents or {}).values():
+        sub_agent.middlewares = [recorder, *(sub_agent.middlewares or [])]
+        _attach_tool_timing_to_subagents(sub_agent, recorder)
 
 
 def _blocked_runtime_tool(**_kwargs: Any) -> str:

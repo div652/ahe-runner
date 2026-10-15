@@ -1,13 +1,13 @@
 # Harvey Integration Upstream Disposition
 
-This document records the upstream review of AHE-001 through AHE-024 from
+This document records the upstream review of AHE-001 through AHE-025 from
 `HARVEY_INTEGRATION_UPSTREAM_RECOMMENDATIONS.md`. The findings were checked
 against the generic runner rather than accepted as Harvey-specific
 requirements.
 
 The resulting changes intentionally contain no Harvey task data, prompts,
 metrics, adapter code, campaign artifacts, or benchmark-specific policy. They
-form the AHE Runner 0.5.0 hardening boundary.
+form the AHE Runner 0.6.0 hardening boundary.
 
 ## Summary
 
@@ -27,7 +27,7 @@ form the AHE Runner 0.5.0 hardening boundary.
 | AHE-012 | Performance limitation | Deferred: cross-checkpoint concurrency requires one campaign-wide scheduler so adapter, judge, evaluated-agent, and meta-agent limits are not multiplied accidentally. |
 | AHE-013 | Directory-listing overflow | Fixed through AHE-016: guarded listing/glob tools participate in bounded output handling. |
 | AHE-014 | Evidence/citation mismatch | Fixed through AHE-016: full tool outputs are durable, while Debugger citations are captured from the post-truncation text actually shown to the model. |
-| AHE-015 | Endpoint pressure | Fixed for runner clients with one process-wide semaphore per endpoint; adapters can join the same queue through `ahe_runner.model_requests.model_request_slot`. |
+| AHE-015 | Endpoint pressure | Fixed for runner clients with one runner-wide semaphore per endpoint; adapters can join the same queue through `ahe_runner.model_requests.model_request_slot`, and runner-spawned evaluated-trial children inherit it. |
 | AHE-016 | Meta-agent fidelity gap | Fixed: original-AHE-style guarded tools, per-role settings, optional Docker shell, long-output handling, context compaction, Evolve skill, and Debugger failure policy are restored generically. |
 | AHE-017 | Attribution bug | Fixed: Debugger task keys, benchmark task IDs, and evaluation task keys resolve to one stable attribution key, with unresolved references reported. |
 | AHE-018 | Metric-guidance drift | Fixed as an explicit process and warning contract: the adapter guide defines the full metric-change checklist and local checks warn on configured deprecated metric terms in role supplements. Arbitrary prose is not claimed to be semantically verified. |
@@ -37,6 +37,7 @@ form the AHE Runner 0.5.0 hardening boundary.
 | AHE-022 | Retry-bias and recovery gap | Fixed as a bounded opt-in: timeout-class hangs may resend the identical call, every attempt is immutable, unrelated errors are never resent, preflights follow the same policy, and campaign status reports resend counts. The default remains zero retries. |
 | AHE-023 | Context-accounting and classification bug | Fixed generically: provider context rejections are excluded from infrastructure retry classification, adapters receive a public classifier for benchmark-native graded outcomes, and manifests can protect the evaluated agent tree's counter and limit. Harvey's tokenizer and scoring text remain local. |
 | AHE-024 | Cross-model tokenizer assumption | Fixed as explicit protected policy rather than a universal tokenizer: manifests and meta config state the counter import, counting unit, limit, and optional provider maximum. Operators must recalibrate when the model or transport changes. |
+| AHE-025 | Trial-execution contention and observability gap | Accepted with an ownership boundary: adapters still choose their worker model, while the runner provides an opt-in spawned evaluated-trial seam that preserves preflight and endpoint policy. Every evaluated session now records protected per-tool wall time. Harvey's `trial_processes` setting remains local. |
 
 ## Important design decisions
 
@@ -98,6 +99,27 @@ with model_request_slot(request.transport):
 Cross-stage scheduling remains sequential until the runner can allocate one
 shared campaign budget instead of multiplying each adapter evaluation's local
 concurrency.
+
+### Evaluated-trial isolation
+
+The runner cannot universally force one process per trial because the adapter
+owns benchmark-native unit scheduling, grading, corpus checks, and recovery.
+Some adapters already use subprocesses, containers, remote workers, or
+I/O-bound async execution. The generic repair is therefore opt-in:
+`run_evaluated_trial_in_child()` reconstructs the evaluated runtime in a fresh
+spawned process, reuses the parent preflight, preserves protected project
+imports and model/context policy, and shares the endpoint request queue.
+
+Grading and `EvaluationStore` completion remain in the parent. Abnormal child
+termination remains infrastructure and must end the evaluation attempt so a
+fresh CLI process can restore all resource budgets. The runner does not import
+Harvey's adapter setting, sandbox policy, document corpus, or worker count.
+
+Every evaluated runtime independently adds protected timing around root and
+sub-agent harness tools. `tool_timings.json` and
+`AgentOutput.tool_timings` make CPU/tool contention visible without inferring
+it from gaps between model calls. Benchmark-owned protected actions still run
+in the adapter and retain adapter-owned timing.
 
 ### Metric changes
 
@@ -162,7 +184,7 @@ termination reason, trace policy, and grade.
 
 ## Generic regression coverage
 
-The 0.5.0 hardening changes add or extend coverage for:
+The 0.6.0 hardening changes add or extend coverage for:
 
 - evaluated-model preflight caching, proofs, and failures;
 - per-session resources and isolation;
@@ -182,6 +204,9 @@ The 0.5.0 hardening changes add or extend coverage for:
 - bounded immutable hung-call resends and aggregate status counts;
 - provider context-rejection classification;
 - protected evaluated/meta context-counter units and limits.
+- spawned evaluated-trial runtime reconstruction and preflight reuse;
+- endpoint-budget sharing across runner-spawned processes;
+- protected root/sub-agent tool wall-time evidence.
 
 Validation results are recorded separately after the implementation commit so
 the tested source identity remains explicit.

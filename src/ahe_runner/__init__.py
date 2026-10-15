@@ -13,6 +13,7 @@ from .adapter import (
     BenchmarkInterface,
     BenchmarkToolSpec,
 )
+from .child_process import run_evaluated_trial_in_child
 from .config import ResolvedConfig, load_config
 from .controller import CampaignController
 from .runtime import (
@@ -22,6 +23,8 @@ from .runtime import (
     AgentSessionRequest,
     EvaluatedAgentRuntime,
     EvaluatedAgentSession,
+    RuntimeProcessSpec,
+    ToolTiming,
 )
 
 __all__ = [
@@ -37,5 +40,8 @@ __all__ = [
     "EvaluatedAgentRuntime",
     "EvaluatedAgentSession",
     "ResolvedConfig",
+    "RuntimeProcessSpec",
+    "ToolTiming",
     "load_config",
+    "run_evaluated_trial_in_child",
 ]

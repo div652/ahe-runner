@@ -289,6 +289,59 @@ Repeated `session.run(...)` calls preserve that session's NexAU history.
 Different sessions use different `Agent` instances and must not share mutable
 trial state.
 
+### Threaded versus process-isolated trials
+
+`EvaluationRequest.max_concurrency` is a ceiling, not a worker
+implementation. The adapter still chooses native workers, async tasks,
+threads, processes, containers, or remote jobs. Threads are appropriate for
+primarily I/O-bound work, but concurrent sessions in one interpreter share the
+GIL and imported module state. CPU-bound host-side harness tools can therefore
+queue behind one another even when the host has idle cores.
+
+For an adapter that needs one fresh Python process per trial, keep grading and
+`EvaluationStore` bookkeeping in the parent and run only the evaluated trial
+target in a child:
+
+```python
+from ahe_runner import EvaluatedAgentRuntime, run_evaluated_trial_in_child
+
+
+def run_trial_in_child(payload, runtime: EvaluatedAgentRuntime):
+    return run_native_trial(payload, runtime)
+
+
+trial_run = run_evaluated_trial_in_child(
+    "benchmark_adapter:run_trial_in_child",
+    payload,
+    runtime=runtime,
+    name=f"benchmark-trial-{unit_id}",
+)
+```
+
+The target must be a module-level importable function accepting
+`(payload, child_runtime, *inherited)`. Payloads, inherited synchronization
+objects, results, and exceptions must cross a multiprocessing `spawn`
+boundary. The project root is importable in the child. The helper reuses the
+parent's evaluated-model preflight, protected model/context settings, and
+endpoint request queue; each child runtime manifest records
+`execution_process.mode: spawned_child`.
+
+Process isolation is opt-in because it adds startup and memory cost and some
+benchmarks already isolate work in native subprocesses, containers, or remote
+workers. Treat an abnormal child exit or child timeout as infrastructure and
+stop the evaluation attempt so resume starts with a fresh process budget; do
+not silently convert it into an ordinary failed trial. Classify provider and
+benchmark outcomes inside the child target before they cross the process
+boundary, because arbitrary third-party exception cause chains are not
+portable. Keep every trial's workspace and artifact directory distinct.
+
+Every evaluated runtime session also writes protected
+`tool_timings.json`. `AgentOutput.tool_timings` contains the new events from
+that activation, including root/sub-agent name, tool name, call ID, wall time,
+completion status, and error type. Include this artifact in native traces and
+evidence when tool latency matters. It covers harness-owned NexAU tool calls;
+the adapter must time benchmark-owned protected actions itself.
+
 The runtime rejects missing, duplicate, unexpected, or mixed protected call
 IDs. NexAU never directly executes the protected action implementation.
 Candidate middleware cannot force another model call after an official action
@@ -325,11 +378,12 @@ with model_request_slot(request.transport) as timing:
     response = judge_client.chat.completions.create(...)
 ```
 
-Set `transport.max_concurrent_requests` to the endpoint's safe process-wide
-limit. Recorded evaluated/meta calls and adapter calls wrapped by
+Set `transport.max_concurrent_requests` to the endpoint's safe runner-wide
+limit. Recorded evaluated/meta calls, children created through
+`run_evaluated_trial_in_child()`, and adapter calls wrapped by
 `model_request_slot()` then share one queue. `timing` contains
-`slot_wait_seconds` when a queue is configured. Unwrapped adapter clients
-cannot be throttled by the runner.
+`slot_wait_seconds` when a queue is configured. Unwrapped adapter clients and
+custom child-process implementations cannot be throttled by the runner.
 
 Return native metrics in `EvaluationResult`. `artifact_hashes` should exclude
 the result files that contain those hashes, avoiding recursive identity. It

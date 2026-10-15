@@ -54,6 +54,7 @@ The assistant announces new permanent files before creating them.
 | AHE-022 | A model call that hangs until the request timeout fails its whole trial; the unit is rerun from the start, which wastes work and favours shorter trials | Found on 2026-10-14 in campaign 9 (52 gpt-5.6-sol hangs); the operator chose per-call resending | Fixed locally on 2026-10-14: `transport.hung_call_retries` (default 0), every attempt recorded |
 | AHE-023 | NexAU checks the context limit with a characters-÷-4 estimate and stops the agent before sending; LAB has no such check, and a provider "too long" error became an infrastructure error that was rerun | Explained on 2026-10-15 after campaign 9's rerun; the operator chose to keep those results with a caveat, fix it, and evaluate all 250 tasks again | Fixed locally; campaign 9b re-evaluates |
 | AHE-024 | The exact token counter of AHE-023 uses o200k_base for every model; Claude's tokenizer turns the same Harvey text into 1.65-1.68 times as many tokens, so `max_context_tokens` means a different amount of text per model | Explained on 2026-10-15 while preparing campaign 9c (claude-opus-4.8); the operator chose to keep the harness unchanged and let Anthropic's rejection end Opus runs, as LAB does, and approved recording; 9c was then dropped | No patch; only GPT models (o200k_base) are evaluated so far |
+| AHE-025 | All concurrent trials run as threads in one Python process, so host-side harness tools such as `grep` queue behind each other; LAB runs every task in its own process | Found on 2026-10-15 during campaign 10's C0 evaluation; the operator approved recording it | Fixed locally: the adapter setting `trial_processes` runs each trial's agent in its own process; campaign 10 was stopped and restarted with it |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -2020,3 +2021,80 @@ this before evaluating any non-GPT model.
 2. Where the transport reports no usage, calibrate with an over-limit probe
    whose rejection reports the provider's count, and record the result with
    the campaign.
+
+## AHE-025: concurrent trials share one Python process
+
+### Plain-language summary
+
+The Harvey adapter runs up to 20 trials at once as threads of the one
+`ahe` process. The harness's `grep`, `glob` and file tools run on the host
+inside that process, in Python. Python runs only one thread of
+CPU-bound Python code at a time, so when several trials search the
+shared document store at once, their searches wait for each other. A
+search that takes about 8 seconds alone takes minutes in a campaign.
+LAB starts a separate process for every task run, so its searches do not
+wait for each other. Scores are not affected (no tool times out), but
+trials take much longer than in LAB, and the share of time lost grows
+with how often the tasks search.
+
+### Evidence
+
+- Alone, the seed `grep` (`harness_lab/tools/grep.py:49` reads every
+  file with `read_text`) took 6.7-10.2 s over the 9,288-file shared store
+  (494M characters).
+- Campaign 10, C0 train, first 65 trials: the median time between a model
+  reply that called only `grep` and the next model request was 257 s
+  (90th percentile 662 s). `grep` took 53% of trial time. The median trial
+  took 17.3 minutes, of which 1.8 minutes were model calls.
+- Campaign 9b, C0, 253 trials: median 31 s, 90th percentile 281 s, 11% of
+  trial time; median trial 8.3 minutes. Campaign 9b searched about three
+  times less often per trial, so it was less affected.
+- During campaign 10 the `ahe` process used about 108% CPU while the
+  24-core host's load was about 2.3: one busy Python interpreter, not a
+  busy machine.
+- `harvey_ahe/adapter.py:565` (`_run_pending`) runs trials in a
+  `ThreadPoolExecutor`. LAB's `lab_core/utils/sweep.py:327`
+  (`_run_agent_worker`) starts `python -m lab_core.harness.run` as a
+  subprocess for each run (line 336). LAB's own `grep` is also host-side
+  Python.
+
+### Local decision or repair
+
+Campaign 10 was stopped on 2026-10-15 after 50 of its 120 C0 training
+trials and restarted from scratch with a fix (runbook 5r).
+
+The new adapter setting `trial_processes` (default off; on for campaign 10)
+runs each trial's agent session in its own Python process, as LAB does:
+
+- `src/ahe_runner/child_process.py` starts a fresh (spawned) child, sends it
+  the trial over a pipe and returns its result or error. The child stops if
+  the `ahe` process dies.
+- The runtime's model settings and its already-passed model preflight are
+  handed to the child (`RuntimeProcessSpec`), so the preflight is not
+  repeated per trial.
+- The shared limit on concurrent model requests (AHE-015, 24 slots) is now a
+  semaphore that works across processes and is passed to every child.
+- Grading, the check that the shared document store is unchanged, and all
+  bookkeeping stay in the parent process.
+- Errors are sorted into fatal, infrastructure or ordinary in the child,
+  because Python loses an exception's cause when it is sent between
+  processes.
+
+Measured without model calls: 20 searches of the shared store at once took
+241 s each as threads of one process and 10.5 s each as separate processes.
+
+Known limits:
+
+- A child that is killed while it holds a model-request slot does not give
+  the slot back, so the limit drops by one for the rest of the run. A
+  killed child also leaves its sandbox container behind.
+- Harness module state is now per trial; before, trials running at the same
+  time shared it.
+- Each child adds about 230 MB of memory and 2-3 s of start-up.
+
+### Upstream recommendations
+
+1. Run each evaluated trial in its own process, or otherwise keep
+   host-side harness tools of one trial from blocking another's.
+2. Record per-tool wall time in traces, so that slow tools are visible
+   without reconstructing them from model-call timestamps.

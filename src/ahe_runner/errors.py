@@ -29,6 +29,11 @@ class CandidateValidationError(AHERunnerError):
         errors = report.get("errors") or ["candidate validation failed"]
         super().__init__("\n".join(str(error) for error in errors))
 
+    def __reduce__(
+        self,
+    ) -> tuple[type[CandidateValidationError], tuple[dict[str, Any]]]:
+        return type(self), (self.report,)
+
 
 class StageInterruptedError(AHERunnerError):
     """A resumable stage attempt failed and was durably preserved."""

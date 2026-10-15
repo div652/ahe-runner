@@ -60,7 +60,11 @@ The installed package must:
 - preserve the configured exact model, endpoint, reasoning, non-streaming
   setting, bounded hung-call retry policy, and context-accounting policy;
 - reject provider context overflow as infrastructure and preserve every
-  timeout resend artifact.
+  timeout resend artifact;
+- rebuild an evaluated runtime in a spawned child without repeating preflight,
+  losing protected project imports, or bypassing the endpoint request queue;
+- persist protected root/sub-agent tool wall times and expose activation-local
+  timing events through `AgentOutput`.
 
 A live model-backed campaign is intentionally separate because it requires the
 operator to confirm the current endpoint instance, advertised exact model,

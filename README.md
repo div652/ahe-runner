@@ -217,6 +217,9 @@ Before the first research spend:
 - replace NexAU's character estimate with protected, model-specific context
   accounting when long prompts are possible, for both evaluated and meta
   agents;
+- decide whether concurrent trials may safely share one Python interpreter;
+  use benchmark-native workers or the adapter process-isolation seam when
+  CPU-bound host tools or mutable module state make threads unsuitable;
 - handle provider context rejection as a benchmark-native outcome when that
   matches the benchmark, rather than as retriable infrastructure;
 - review the

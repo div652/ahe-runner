@@ -27,6 +27,7 @@ the exact tool-call ID.
 Each trial persists:
 
 - the runtime session manifest and recorded model calls;
+- protected per-tool wall-time evidence in `tool_timings.json`;
 - a task-local result;
 - a JSONL trace with user input, model outputs, action arguments/results, and
   final text;
@@ -90,6 +91,11 @@ checkpoints/C1/
 selection/
 final/
 ```
+
+Each runtime manifest identifies whether the session ran in the controller
+process or through the optional spawned-child seam. The generated example is
+small and runs in-process; process isolation is an adapter decision for
+CPU-bound or process-state-sensitive benchmarks.
 
 An evidence-linked edit is evaluated again at the next checkpoint. If no
 candidate beats the seed under the adapter's selection key, selecting C0 is a

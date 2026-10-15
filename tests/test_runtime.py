@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import pickle
 import shutil
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
@@ -409,6 +410,10 @@ def test_runtime_intercepts_protected_actions_and_preserves_sessions(
         assert {
             sub_agent.llm_config.model for sub_agent in root_config.sub_agents.values()
         } == {config.document.models.evaluated.model}
+        assert all(
+            sub_agent.middlewares[0] is root_config.middlewares[0]
+            for sub_agent in root_config.sub_agents.values()
+        )
 
         first = protected_session.run(
             AgentInput(
@@ -503,6 +508,31 @@ def test_runtime_intercepts_protected_actions_and_preserves_sessions(
         )
         assert internal.final_text == "Internal tool completed."
         assert internal.external_actions == ()
+        assert len(internal.tool_timings) == 1
+        timing = internal.tool_timings[0]
+        assert timing.sequence == 1
+        assert timing.session_id == "internal"
+        assert timing.agent_name == "example_agent"
+        assert timing.tool_name == "record_note"
+        assert timing.tool_call_id == "call-internal"
+        assert timing.wall_time_seconds >= 0
+        assert timing.status == "completed"
+        assert timing.error_type is None
+        timing_artifact = read_json(artifact_root / "internal" / "tool_timings.json")
+        assert timing_artifact["schema_version"] == 1
+        assert timing_artifact["events"] == [timing.model_dump(mode="json")]
+        runtime_manifest = read_json(
+            artifact_root / "internal" / "runtime_manifest.json"
+        )
+        assert runtime_manifest["execution_process"] == {
+            "mode": "in_process",
+            "pid": runtime_manifest["execution_process"]["pid"],
+            "parent_runtime_pid": None,
+        }
+        assert runtime_manifest["tool_timing"] == {
+            "schema_version": 1,
+            "path": "tool_timings.json",
+        }
         internal_messages = json.dumps(FakeRecordedClient.instances[1].calls)
         assert "Look up account A-17" not in internal_messages
         assert "independent internal note" in internal_messages
@@ -759,6 +789,38 @@ def test_concurrent_sessions_share_one_evaluated_preflight(
         proofs = list(pool.map(lambda _: runtime._ensure_model_preflight(), range(8)))
     assert len(set(proofs)) == 1
     assert len(preflight_endpoint.requests) == 3
+
+
+def test_process_spec_reuses_preflight_and_protected_project_root(
+    tmp_path: Path,
+    runtime_factory: Callable[[], EvaluatedAgentRuntime],
+    preflight_endpoint: _PreflightEndpoint,
+) -> None:
+    parent = runtime_factory()
+    spec = pickle.loads(pickle.dumps(parent.process_spec()))
+    assert len(preflight_endpoint.requests) == 3
+    assert "api_key=" not in repr(spec)
+    assert "api_key" not in spec.model_dump(mode="json")
+    child = EvaluatedAgentRuntime.from_process_spec(spec)
+    try:
+        assert child._ensure_model_preflight() == spec.model_preflight_path
+        assert child._project_root == spec.project_root
+        assert child._parent_runtime_pid == spec.parent_runtime_pid
+    finally:
+        child.close()
+    assert len(preflight_endpoint.requests) == 3
+
+    outside = tmp_path / "elsewhere.json"
+    outside.write_text("{}", encoding="utf-8")
+    with pytest.raises(IntegrityError, match="outside this evaluation"):
+        EvaluatedAgentRuntime.from_process_spec(
+            spec.model_copy(update={"model_preflight_path": outside})
+        )
+    missing = spec.model_preflight_path.with_name("missing.json")
+    with pytest.raises(IntegrityError, match="missing"):
+        EvaluatedAgentRuntime.from_process_spec(
+            spec.model_copy(update={"model_preflight_path": missing})
+        )
 
 
 def test_new_evaluation_attempt_preserves_failed_preflight_and_request_identity(

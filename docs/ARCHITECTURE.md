@@ -604,9 +604,10 @@ sub-agent and again at the recorded request boundary. Protected aliases and
 are injected only into in-memory configurations and clients, never generated
 meta-agent YAML, while each session preserves its own `HistoryList`.
 
-When configured, `transport.max_concurrent_requests` provides one
-process-wide semaphore per endpoint for recorded clients. Adapter-owned
-provider calls join that same budget only through the public
+When configured, `transport.max_concurrent_requests` provides one runner-wide
+semaphore per endpoint for recorded clients. It is shared by threads and
+children created through the runner's evaluated-trial process helper.
+Adapter-owned provider calls join that same budget only through the public
 `model_request_slot()` seam.
 
 Evaluated harness manifests may also declare protected
@@ -619,6 +620,27 @@ it does not pretend that one tokenizer or calibration factor fits every model.
 Known provider context-length rejections are excluded from infrastructure
 classification. The adapter must translate them into the benchmark's native
 graded termination semantics instead of granting a fresh rollout.
+
+### Evaluated-trial process isolation and timing
+
+The benchmark adapter owns unit scheduling, so the runner does not force one
+worker model on every benchmark. An adapter may already use a native process,
+container, remote worker, async loop, or an I/O-efficient thread pool.
+
+For CPU-bound host-side harness tools or trial-local Python module state, the
+public `run_evaluated_trial_in_child()` seam rebuilds the protected runtime in
+a fresh spawned process. The parent performs the model preflight once; the
+child inherits the exact runtime policy and shared endpoint budget. Grading,
+evaluation-store completion, and protected corpus checks remain in the parent.
+The child recipe is ephemeral and contains the resolved API key only in
+memory; serialization methods exclude it.
+
+Every evaluated session injects a protected outer tool-call middleware into
+the root and sub-agent tree. It records wall time and completion status in
+`tool_timings.json` and returns activation-local events through
+`AgentOutput.tool_timings`. Arguments and outputs remain in their existing
+native traces rather than being duplicated into the timing record. Protected
+benchmark actions execute in the adapter and require adapter-owned timing.
 
 ## Evaluation recovery contract
 

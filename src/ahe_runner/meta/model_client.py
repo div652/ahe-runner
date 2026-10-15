@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
 import threading
 import time
 from collections.abc import Iterator, Mapping
@@ -44,21 +45,22 @@ _CONTEXT_OVERFLOW_MARKERS = (
     "prompt is too long",
 )
 
-_REQUEST_SLOTS: dict[str, tuple[int, threading.BoundedSemaphore]] = {}
+_REQUEST_SLOTS: dict[str, tuple[int, Any]] = {}
 _REQUEST_SLOTS_LOCK = threading.Lock()
+_SLOT_CONTEXT = multiprocessing.get_context("spawn")
 
 
 def _shared_request_slots(
     transport: TransportSettings,
-) -> threading.BoundedSemaphore | None:
-    """Return the process-wide call queue for this endpoint, if one is set."""
+) -> Any | None:
+    """Return the runner-wide call queue for this endpoint, if one is set."""
     limit = transport.max_concurrent_requests
     if limit is None:
         return None
     with _REQUEST_SLOTS_LOCK:
         existing = _REQUEST_SLOTS.get(transport.base_url)
         if existing is None:
-            slots = threading.BoundedSemaphore(limit)
+            slots = _SLOT_CONTEXT.BoundedSemaphore(limit)
             _REQUEST_SLOTS[transport.base_url] = (limit, slots)
             return slots
         if existing[0] != limit:
@@ -69,10 +71,31 @@ def _shared_request_slots(
         return existing[1]
 
 
+def _adopt_shared_request_slots(
+    transport: TransportSettings,
+    slots: Any,
+) -> None:
+    """Make a spawned child use its parent's endpoint request queue."""
+
+    limit = transport.max_concurrent_requests
+    if (limit is None) != (slots is None):
+        raise ConfigurationError(
+            "a child process must receive request slots exactly when "
+            "max_concurrent_requests is set"
+        )
+    if slots is None:
+        return
+    with _REQUEST_SLOTS_LOCK:
+        existing = _REQUEST_SLOTS.get(transport.base_url)
+        if existing is not None and existing[1] is not slots:
+            raise ConfigurationError(
+                f"request slots for {transport.base_url} already exist in this process"
+            )
+        _REQUEST_SLOTS[transport.base_url] = (limit, slots)
+
+
 @contextmanager
-def _request_slot(
-    slots: threading.BoundedSemaphore | None, waited: dict[str, float]
-) -> Iterator[None]:
+def _request_slot(slots: Any | None, waited: dict[str, float]) -> Iterator[None]:
     if slots is None:
         yield
         return
