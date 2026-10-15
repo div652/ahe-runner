@@ -1627,6 +1627,28 @@ judge 2 is gpt-5.5. Definitions:
 The judges agree closely. When they differ, gpt-5.5 is the more lenient
 about four times in five.
 
+**All-pass disagreements.** The judges disagree on whether a task passes
+entirely in 10 of 250 tasks (4.0%). In 6, only claude passes every
+criterion; in 4, only gpt does. Each disagreement comes from a single
+criterion, and in 8 of the 10 it is the precision criterion:
+
+| Task | Criteria | Only this judge passes all | Criterion the judges split on |
+|---|---|---|---|
+| 027 | 7 | claude | Qualifying set — precision |
+| 037 | 2 | gpt | Qualifying set — precision |
+| 056 | 2 | gpt | Answer — Dunmore Energy 1016-00005 |
+| 154 | 3 | claude | Qualifying set — precision |
+| 161 | 2 | claude | Qualifying set — precision |
+| 162 | 4 | claude | Qualifying set — precision |
+| 164 | 4 | claude | Qualifying set — precision |
+| 165 | 2 | claude | Qualifying set — precision |
+| 187 | 6 | gpt | Qualifying set — precision |
+| 231 | 3 | gpt | Qualifying matter — Calloway-Briggs Renewables 1015-00005 |
+
+Over all criteria gpt-5.5 is the more lenient judge, but on the precision
+criterion claude is (0.485 against 0.461), so claude more often passes a
+whole task alone.
+
 **Criterion types.** Grouped by the part of the title before "—"; the
 precision criteria are counted from every title that contains "precision".
 
