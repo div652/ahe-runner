@@ -104,7 +104,7 @@ def test_seed_harness_runs_through_the_session_bound_workspace(
     working_directory = trial / "nexau_cwd"
     working_directory.mkdir()
     try:
-        output, error = adapter_module._run_session(
+        output, error, overflow = adapter_module._run_session(
             runtime=runtime,  # type: ignore[arg-type]
             session_id="unit-1-1",
             artifact_dir=artifact_root / "unit-1" / "attempt-1",
@@ -115,7 +115,7 @@ def test_seed_harness_runs_through_the_session_bound_workspace(
     finally:
         runtime.close()
 
-    assert error is None and output is not None
+    assert error is None and overflow is None and output is not None
     assert handle.finished
     assert handle.finish_summary == "Memo written."
     assert (trial / "output" / "memo.md").read_text(encoding="utf-8") == "Rent: $10."

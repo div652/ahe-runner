@@ -1541,6 +1541,29 @@ and the runner counted that as an infrastructure error and reran the task
 (0.056), where LAB would have ended the run. These results are kept with
 this caveat; campaign 9b (5o) repeats all 250 tasks with the fix.
 
+## 5o. Campaign 9b: `harvey-lab-campaign-9b-lab-exact-token-fix`
+
+Campaign 9's full rerun again, on all 250 tasks, with the AHE-023 fix.
+Everything else is unchanged: `harness_lab/`, `harness_manifest_lab.yaml`,
+gpt-5.6-sol at reasoning high, the same judges, concurrency 20, 24 request
+slots, `hung_call_retries: 2`, C0 training evaluation only.
+
+The fix:
+
+| Change | Where |
+|---|---|
+| NexAU counts the prompt with o200k_base and its own message and tool overheads, instead of characters / 4 | `harness_lab/agent.yaml` `token_counter: harvey_ahe.token_count:count_prompt_tokens`; `harvey_ahe/token_count.py` |
+| NexAU stops the agent at 911,793 tokens, 10,000 below Copilot's 921,793, because Copilot silently cuts a longer prompt made of many messages (AHE-021) | `harness_lab/agent.yaml` `max_context_tokens` |
+| A provider "too long" rejection ends the trial as a graded `context_overflow`, as in LAB, instead of an infrastructure rerun | `harvey_ahe/adapter.py` `_run_session` |
+
+Preflight on 2026-10-15: the listener on 3141 is the server-host instance,
+`server.js` is still `5dea2428…`, and gpt-5.6-sol at high passed the
+positive and negative-control probes
+(`operator-preflight/2026-10-15/c9b-gpt-5.6-sol-high.json`).
+
+Launch the C0-only command of 5l in the same resume loop as 5n, with the
+log at `campaign-artifacts/c9b-run.log`.
+
 
 ## 6. Known deviations and limits to report with results
 

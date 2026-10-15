@@ -31,13 +31,16 @@
 # as C0 on all 250 firm-knowledge tasks with gpt-5.6-sol, reasoning high
 # (splits-firm-knowledge.json; runbook 5l). Only the C0 training evaluation
 # is run; no meta agents are used. The first run was stopped (runbook 5m);
-# this is the full rerun on the patched GH Copilot Server, after a 10-task
-# pilot (splits-firm-knowledge-pilot10.json; runbook 5n).
+# its full rerun on the patched GH Copilot Server (after a 10-task pilot,
+# splits-firm-knowledge-pilot10.json) is kept with a caveat (runbook 5n).
+# This is campaign 9b: the same evaluation again with the AHE-023 fix (exact
+# token count, max_context_tokens 911793, a provider "too long" rejection
+# graded as a context overflow; runbook 5o).
 schema_version: 1
 
 campaign:
-  name: harvey-lab-campaign-9-lab-exact-firm-knowledge
-  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-9-lab-exact-firm-knowledge
+  name: harvey-lab-campaign-9b-lab-exact-token-fix
+  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-9b-lab-exact-token-fix
   rounds: 0
   root_seed: 42
 

@@ -112,6 +112,14 @@ _CONTEXT_MARKERS = (
     "[Error: Prompt too long",
     "[Error: Insufficient tokens for response",
 )
+# Provider rejections of an over-long prompt. LAB stops cleanly and grades the
+# run on the first two (agent_loop.py); GH Copilot Server reports the same
+# condition as a 500 "Message exceeds token limit." (AHE-023).
+_PROVIDER_CONTEXT_ERRORS = (
+    "prompt is too long",
+    "context_length_exceeded",
+    "message exceeds token limit",
+)
 _FATAL_ERRORS = (IntegrityError, ConfigurationError, CandidateValidationError)
 
 
@@ -162,6 +170,7 @@ class _AgentRun:
     finished: bool
     finish_summary: str | None
     wall_clock_seconds: float
+    context_overflow: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -702,7 +711,7 @@ class HarveyAdapter(BenchmarkAdapterV2):
                 },
                 "termination_reason": termination,
                 "agent_error": run.error,
-                "final_text": "" if run.output is None else run.output.final_text,
+                "final_text": _final_text(run),
                 "finish_called": run.finished,
                 "finish_summary": run.finish_summary,
                 "tool_call_counts": tool_counts,
@@ -790,7 +799,7 @@ class HarveyAdapter(BenchmarkAdapterV2):
                     f"LAB sandbox failed to start: {exc}"
                 ) from exc
             started = time.monotonic()
-            output, error = _run_session(
+            output, error, overflow = _run_session(
                 runtime=runtime,
                 session_id=f"{unit.unit_id}-{attempt}",
                 artifact_dir=runtime_dir,
@@ -808,6 +817,7 @@ class HarveyAdapter(BenchmarkAdapterV2):
             return _AgentRun(
                 output=output,
                 error=error,
+                context_overflow=overflow,
                 finished=handle.finished,
                 finish_summary=handle.finish_summary,
                 wall_clock_seconds=elapsed,
@@ -904,7 +914,7 @@ def _run_session(
     working_directory: Path,
     handle: WorkspaceHandle,
     instructions: str,
-) -> tuple[AgentOutput | None, str | None]:
+) -> tuple[AgentOutput | None, str | None, str | None]:
     session = runtime.open_session(
         AgentSessionRequest(
             session_id=session_id,
@@ -922,10 +932,17 @@ def _run_session(
             )
         except Exception as exc:
             _raise_if_fatal(exc)
+            overflow = _provider_context_error(exc)
+            if overflow is not None:
+                return (
+                    None,
+                    None,
+                    f"[Error: Prompt too long, rejected by the provider: {overflow}]",
+                )
             if _is_infrastructure(exc):
                 raise
-            return None, f"{type(exc).__name__}: {exc}"
-        return output, None
+            return None, f"{type(exc).__name__}: {exc}", None
+        return output, None, None
     finally:
         session.close()
 
@@ -1100,7 +1117,7 @@ def _termination_reason(run: _AgentRun) -> str:
         return "agent_error"
     if run.finished:
         return "finish_tool"
-    final_text = "" if run.output is None else run.output.final_text
+    final_text = _final_text(run)
     if any(marker in final_text for marker in _MAX_TURN_MARKERS):
         return "max_turns_exceeded"
     if any(marker in final_text for marker in _CONTEXT_MARKERS):
@@ -1219,6 +1236,20 @@ def _podman_image_id(image: str) -> str:
             "it first (see HARVEY_AHE_RUNBOOK.md)"
         )
     return image_id
+
+
+def _final_text(run: _AgentRun) -> str:
+    if run.output is not None:
+        return run.output.final_text
+    return run.context_overflow or ""
+
+
+def _provider_context_error(exc: BaseException) -> str | None:
+    for item in _cause_chain(exc):
+        text = str(item)
+        if any(marker in text.casefold() for marker in _PROVIDER_CONTEXT_ERRORS):
+            return text[:500]
+    return None
 
 
 def _cause_chain(exc: BaseException) -> Iterator[BaseException]:

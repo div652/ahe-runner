@@ -106,8 +106,37 @@ def test_harness_lab_matches_lab_loop_limits() -> None:
     assert config["max_iterations"] == 200
     assert config["llm_config"]["max_tokens"] == 64000
     assert config["middlewares"] == []
-    # The provider, not the harness, bounds the context in LAB.
-    assert config["max_context_tokens"] == 921793
+    # LAB lets the provider bound the context. Copilot silently cuts a prompt
+    # over 921793 tokens (AHE-021), so stop 10,000 below it, counted exactly.
+    assert config["max_context_tokens"] == 911793
+    assert config["token_counter"] == "harvey_ahe.token_count:count_prompt_tokens"
+
+
+def test_exact_token_counter_uses_o200k_with_nexau_overheads() -> None:
+    import tiktoken
+    from harvey_ahe.token_count import count_prompt_tokens
+    from nexau.archs.main_sub.utils.token_counter import TokenCounter
+    from nexau.core.messages import Message
+
+    encoding = tiktoken.get_encoding("o200k_base")
+    text = "Rider 4.2 <|endoftext|> applies; see Schedule B, row 17."
+    messages = [Message.user(text)]
+    tools = [{"name": "read", "description": "Read a file."}]
+    nexau = TokenCounter(strategy="tiktoken", model="gpt-5")
+    expected = nexau._count_tokens_with_text_encoder(
+        messages, tools, lambda t: len(encoding.encode_ordinary(t))
+    )
+    assert count_prompt_tokens(messages, tools=tools) == expected
+    # Dense tables cost far more tokens than NexAU's characters / 4 estimate.
+    table = "\n".join(
+        "|"
+        + "|".join(f"{(r * 7919 + c * 104729) % 99991:05d}" for c in range(12))
+        + "|"
+        for r in range(300)
+    )
+    exact = count_prompt_tokens([Message.user(table)])
+    estimate = TokenCounter(strategy="fallback").count_tokens([Message.user(table)])
+    assert exact > estimate * 1.2
 
 
 def test_harness_lab_tool_schemas_match_lab() -> None:
@@ -215,7 +244,7 @@ def test_harness_lab_sends_lab_system_message_and_tools(
     working_directory = trial / "nexau_cwd"
     working_directory.mkdir()
     try:
-        output, error = adapter_module._run_session(
+        output, error, overflow = adapter_module._run_session(
             runtime=runtime,  # type: ignore[arg-type]
             session_id="unit-1-1",
             artifact_dir=artifact_root / "unit-1" / "attempt-1",
@@ -225,7 +254,8 @@ def test_harness_lab_sends_lab_system_message_and_tools(
         )
     finally:
         runtime.close()
-    assert error is None and output is not None and handle.finished
+    assert error is None and overflow is None
+    assert output is not None and handle.finished
 
     first = FakeRecordedClient.instances[0].calls[0]
     system, user = first["messages"][:2]

@@ -19,6 +19,8 @@ from harvey_ahe.adapter import (
     PRIMARY_METRIC,
     HarveyAdapter,
     _AgentRun,
+    _final_text,
+    _run_session,
     _termination_reason,
 )
 from harvey_ahe.grading import JUDGE_MAX_TOKENS, dual_summary
@@ -249,6 +251,69 @@ def test_termination_reason(
         wall_clock_seconds=0.0,
     )
     assert _termination_reason(run) == expected
+
+
+def test_provider_context_rejection_is_a_graded_context_overflow(
+    tmp_path: Path,
+) -> None:
+    """LAB grades a run the provider rejects as too long; so does the adapter."""
+    provider = RuntimeError(
+        "Error code: 500 - {'error': {'message': 'Message exceeds token limit.', "
+        "'type': 'server_error'}}"
+    )
+
+    class _Failing:
+        def __init__(self, exc: Exception) -> None:
+            self.exc = exc
+            self.closed = False
+
+        def run(self, agent_input: AgentInput) -> AgentOutput:
+            raise self.exc
+
+        def close(self) -> None:
+            self.closed = True
+
+    def run_with(exc: Exception) -> tuple[Any, _Failing]:
+        session = _Failing(exc)
+        runtime = type("R", (), {"open_session": lambda self, request: session})()
+        result = _run_session(
+            runtime=runtime,
+            session_id="s",
+            artifact_dir=tmp_path,
+            working_directory=tmp_path,
+            handle=object(),  # type: ignore[arg-type]
+            instructions="task",
+        )
+        return result, session
+
+    wrapped = RuntimeError(f"Error in agent execution: {provider}")
+    wrapped.__cause__ = InfrastructureError(str(provider))
+    (output, error, overflow), session = run_with(wrapped)
+    assert session.closed and output is None and error is None
+    assert overflow is not None and "Message exceeds token limit." in overflow
+    run = _AgentRun(
+        output=None,
+        error=error,
+        finished=False,
+        finish_summary=None,
+        wall_clock_seconds=0.0,
+        context_overflow=overflow,
+    )
+    assert _termination_reason(run) == "context_overflow"
+    assert _final_text(run).startswith("[Error: Prompt too long")
+
+    for text in ("prompt is too long: 1000 > 900", "context_length_exceeded"):
+        (_, error, overflow), _ = run_with(ValueError(text))
+        assert error is None and overflow is not None
+
+    other = RuntimeError(
+        "Error code: 500 - {'error': {'message': 'Model request timed out', "
+        "'type': 'server_error'}}"
+    )
+    with pytest.raises(RuntimeError, match="timed out"):
+        run_with(other)
+    (_, error, overflow), _ = run_with(ValueError("bad output"))
+    assert error == "ValueError: bad output" and overflow is None
 
 
 # Candidate validation

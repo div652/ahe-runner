@@ -4,9 +4,14 @@ description: >-
   Harvey LAB legal-work agent. Reads the task documents in its sandbox and
   produces the requested deliverables in the output directory.
 # LAB has no context cap of its own: it ends a run only when the provider
-# rejects an over-long prompt. 921793 is the max_input_tokens that the Copilot
-# endpoint advertises for gpt-5.6-sol on 2026-10-14.
-max_context_tokens: 921793
+# rejects an over-long prompt. Through Copilot, a prompt over the advertised
+# max_input_tokens (921793 for gpt-5.6-sol and gpt-5.4 on 2026-10-14) made of
+# many messages is not rejected but silently cut from the start (AHE-021), so
+# NexAU stops the run 10,000 tokens below it, counted with the real tokenizer
+# instead of NexAU's characters / 4 estimate (AHE-023). A provider rejection
+# still ends the run as a graded context overflow, as in LAB.
+max_context_tokens: 911793
+token_counter: harvey_ahe.token_count:count_prompt_tokens
 system_prompt: ./systemprompt.md
 system_prompt_type: file
 tool_call_mode: openai
