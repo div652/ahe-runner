@@ -50,6 +50,7 @@ The assistant announces new permanent files before creating them.
 | AHE-021 | The GH Copilot Server transport silently cut prompts over about 270k tokens from the start and ignored the requested reasoning effort; AHE has no check that the transport honours the configured context and effort | Found on 2026-10-14 while analysing campaign 9's infrastructure errors; the operator stopped campaign 9 and approved a patch | Fixed locally on 2026-10-14 in the host's GH Copilot Server `server.js` (sends `options.configuration`); verified by `scripts/copilot_context_effort_probe.py` |
 | AHE-022 | A model call that hangs until the request timeout fails its whole trial; the unit is rerun from the start, which wastes work and favours shorter trials | Found on 2026-10-14 in campaign 9 (52 gpt-5.6-sol hangs); the operator chose per-call resending | Fixed locally on 2026-10-14: `transport.hung_call_retries` (default 0), every attempt recorded |
 | AHE-023 | NexAU checks the context limit with a characters-÷-4 estimate and stops the agent before sending; LAB has no such check, and a provider "too long" error became an infrastructure error that was rerun | Explained on 2026-10-15 after campaign 9's rerun; the operator chose to keep those results with a caveat, fix it, and evaluate all 250 tasks again | Fixed locally; campaign 9b re-evaluates |
+| AHE-024 | The exact token counter of AHE-023 uses o200k_base for every model; Claude's tokenizer turns the same Harvey text into 1.65-1.68 times as many tokens, so `max_context_tokens` means a different amount of text per model | Explained on 2026-10-15 while preparing campaign 9c (claude-opus-4.8); the operator chose to keep the harness unchanged and let Anthropic's rejection end Opus runs, as LAB does, and approved recording; 9c was then dropped | No patch; only GPT models (o200k_base) are evaluated so far |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -1997,3 +1998,51 @@ so the trial is rerun from the start, a second chance LAB would not give.
    document which estimate a harness uses.
 2. Classify a provider context-length rejection as an agent outcome, not
    an infrastructure failure, so it is graded rather than rerun.
+
+## AHE-024: the exact token count assumes a GPT tokenizer
+
+### Plain-language summary
+
+The AHE-023 fix counts every prompt with o200k_base, the tokenizer of the
+GPT models used up to campaign 9b, and stops the agent at
+`max_context_tokens` in that count. Claude models use their own tokenizer.
+For claude-opus-4.8, the same Harvey text is 1.65-1.68 times as many
+tokens, so a limit chosen for GPT lets through far more text than a Claude
+model accepts. The harness has one number and no record of which tokenizer
+it is counted in.
+
+### Evidence
+
+- Probes on 2026-10-15
+  (`harvey-ahe-project/operator-preflight/2026-10-15/copilot-server-claude-thinking-patch/`):
+  three prompts of real tool output from campaign 9b traces were rejected
+  by Anthropic with their Claude token counts. 925,080 o200k tokens were
+  1,530,317 Claude tokens (1.654), 925,175 were 1,549,297 (1.675), and
+  631,109 were 1,058,298 (1.677).
+- Anthropic's limit for claude-opus-4.8 through Copilot is 1,000,000
+  Claude tokens (`model_max_prompt_tokens_exceeded: prompt is too long: N
+  tokens > 1000000 maximum`), about 597k o200k tokens of this text. The
+  harness limit is 911,793 o200k tokens.
+- Copilot Chat itself counts only with o200k_base or cl100k_base and cuts
+  prompts above 935,793 for this model, so for Claude the provider always
+  rejects first and Copilot never cuts silently (unlike AHE-021).
+
+### Local decision
+
+No patch. Campaign 9c (claude-opus-4.8) was planned to keep the harness
+unchanged: an Opus prompt over the provider's limit would be rejected and
+graded as a `context_overflow` (AHE-023), as LAB does. Two side effects
+were expected: such a trial's trace is empty, because NexAU raises without
+returning messages; and a prompt just under the limit leaves less room than
+the 64,000-token output budget. The operator dropped 9c before launch, so
+every campaign so far evaluates a GPT model, for which the count is exact.
+Revisit this before evaluating any non-GPT model.
+
+### Upstream recommendations
+
+1. Count with the evaluated model's tokenizer, or with a per-model factor
+   calibrated against the provider, and state the counting unit next to
+   `max_context_tokens`.
+2. Where the transport reports no usage, calibrate with an over-limit probe
+   whose rejection reports the provider's count, and record the result with
+   the campaign.

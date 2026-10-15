@@ -1759,6 +1759,28 @@ edit 2%. Among finished trials, more turns go with slightly higher scores
 runs, including one all-pass, are in
 [`docs/HARVEY_CAMPAIGN_9B_TRAJECTORY_WALKTHROUGHS.md`](../docs/HARVEY_CAMPAIGN_9B_TRAJECTORY_WALKTHROUGHS.md).
 
+## 5p. Campaign 9c (claude-opus-4.8 at reasoning high): prepared, not run
+
+Campaign 9c was to repeat 9b with claude-opus-4.8 at reasoning high as the
+evaluated model. On 2026-10-15 the server was patched and probed, then the
+operator dropped 9c in favour of campaign 10. Nothing was launched.
+
+- **Server patch, kept.** Copilot Chat turns on Claude thinking only when
+  `modelOptions._enableThinking` is set, so GH Copilot Server ignored
+  "high" for Claude (8-10 s calls with or without it). The patch sets it
+  for Claude models when an effort is sent and logs the thinking parts
+  received (they are not returned to the client). After it, "high" took
+  16 s with 75-93 thinking parts, and a three-step tool loop worked. GPT
+  requests and requests without effort, such as the judges', are
+  unchanged. `server.js` sha256 `5dea2428…` became `ed67ab4c…`; the backup
+  is `server.js.bak-2026-10-15-before-claude-thinking`. Record and probes:
+  `operator-preflight/2026-10-15/copilot-server-claude-thinking-patch/`
+  (script `scripts/copilot_claude_thinking_probe.py`).
+- **Context limit (AHE-024).** Claude counts the same Harvey text as
+  1.65-1.68 times as many tokens as the harness's o200k_base counter, and
+  Anthropic rejects prompts over 1,000,000 of its tokens (about 597k
+  o200k), well below the harness's 911,793. Any future non-GPT evaluation
+  must deal with this first.
 
 ## 6. Known deviations and limits to report with results
 
