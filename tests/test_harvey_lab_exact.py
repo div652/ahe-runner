@@ -320,6 +320,17 @@ def test_training_slug_widens_numeric_leaves() -> None:
     assert training_slug("tax/some-memo") == "some-memo"
 
 
+def test_web_leakage_terms_use_widened_numeric_slugs(tmp_path: Path) -> None:
+    adapter = HarveyAdapter(
+        project_root=PROJECT_ROOT,
+        settings=_adapter_settings(tmp_path, apply_task_filter=False),
+    )
+    terms = adapter.meta_prompt_context().task_id_leakage_terms
+    assert "tasks/001" in terms
+    assert "001" not in terms
+    assert "tasks/002" not in terms and "tasks/003" not in terms
+
+
 def _lab_copy(tmp_path: Path) -> Path:
     harness = tmp_path / "harness"
     shutil.copytree(HARNESS_LAB, harness, ignore=shutil.ignore_patterns("__pycache__"))

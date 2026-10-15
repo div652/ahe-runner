@@ -82,14 +82,13 @@ from ahe_runner.runtime import (
     EvaluatedAgentRuntime,
 )
 
-from .candidate_checks import WORKSPACE_SEED_DIR, harvey_candidate_errors
+from .candidate_checks import WORKSPACE_SEED_DIR, harvey_candidate_errors, training_slug
 from .grading import JUDGE_MAX_TOKENS, dual_summary, grade_with_retries
 from .readable import write_readable_views
 from .tasks import (
     HarveyTask,
     copy_documents,
     eligibility_errors,
-    leaf_slug,
     load_pinned_task,
     load_split_file,
     verify_shared_documents,
@@ -506,7 +505,7 @@ class HarveyAdapter(BenchmarkAdapterV2):
             ),
             task_id_leakage_terms=[
                 *LEAKAGE_TERMS,
-                *sorted({leaf_slug(task_id) for task_id in training}),
+                *sorted({training_slug(task_id) for task_id in training}),
             ],
         )
 

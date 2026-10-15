@@ -139,9 +139,16 @@ editing.
 
   Images and layout are invisible to judges. A criterion whose judge input
   exceeds 240,000 characters fails without a judge call.
+- **Documents.** Every trial gets the same shared document store under
+  `documents/`: about 9,300 files (mostly `.docx`, plus `.eml`, `.xlsx`
+  and `.pptx`) in 266 matter folders. Only a few files matter for a given
+  task. The agent has to find them, from folder and file names or by
+  searching, before reading them. Reading broadly uses up context.
 - **Context.** `read` returns whole documents. Several long documents can
-  exhaust `max_context_tokens` (200000). If you change that value, keep it
-  within the evaluated model's real context window.
+  exhaust `max_context_tokens` (911793, counted with the o200k_base
+  tokenizer). If you change that value, keep it at least 10,000 below the
+  evaluated model's advertised 921,793-token input limit: a longer prompt
+  is silently cut from the start rather than rejected.
 
 # Analysis Approach for This Benchmark
 
@@ -171,7 +178,7 @@ Within the core evidence order:
 | Family | Evidence that calls for it | Usual component | Main risk |
 |---|---|---|---|
 | Deliverable contract: extract the requested files, formats, and sections; `finish` checks existence, extension, non-empty content; preview the judges' view | Missing or misformatted deliverables, early finish | `finish` tool + system prompt | Blocking legitimate finishes |
-| Document coverage: inventory first, read everything (page long files), notes in a scratch file | Unopened documents, coverage gaps | System prompt + `read` tool | Turn and context cost |
+| Document retrieval and coverage: locate the relevant matter and documents in the shared store first, read each relevant one completely (page long files), notes in a scratch file | Needed documents never found or never opened, coverage gaps | System prompt + `read` tool | Turn and context cost |
 | Context and turn budget: page or summarize large reads; remaining-turn reminders; write deliverables early | `context_overflow`, `max_turns_exceeded` | Middleware + `read` tool | Losing facts in summaries |
 | Review before finishing: re-check each deliverable against the checklist and sources; optional bounded reviewer sub-agent | Accuracy or instruction failures in otherwise complete work | System prompt, skill, or sub-agent | Cost; reviewer overwriting files |
 | Durable procedures in memory | The same how-to failure across tasks | `LongTermMEMORY.md` or skill | Prompt growth |

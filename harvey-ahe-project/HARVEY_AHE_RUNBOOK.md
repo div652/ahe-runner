@@ -1782,6 +1782,52 @@ operator dropped 9c in favour of campaign 10. Nothing was launched.
   o200k), well below the harness's 911,793. Any future non-GPT evaluation
   must deal with this first.
 
+## 5q. Campaign 10 setup: `harvey-lab-campaign-10-lab-exact-60-15-15`
+
+The first evolution campaign on the LAB-exact harness. The operator's
+choices (2026-10-14, confirmed 2026-10-15):
+
+| Setting | Value |
+|---|---|
+| Starting harness | `harness_lab/` with `harness_manifest_lab.yaml`, as evaluated in 9b (AHE-023 token counter, `max_context_tokens` 911793) |
+| Split | `splits-firm-knowledge-60-15-15.json`: 60 train, 15 validation, 15 test, drawn at random from the 250 firm-knowledge tasks (`scripts/make_splits_firm_knowledge_c10.py`, salt `harvey-lab-campaign-10`) |
+| Rounds | 5 |
+| Trials per task | train 2, validation 2, test 3 |
+| Evaluated model | `gpt-5.4`, provider-default reasoning (no effort sent; Copilot's default is medium), `max_tokens` 64000 |
+| Meta model | `gpt-5.4`, reasoning high, `max_tokens` 32000; per-role settings as in campaign 8 |
+| Noise floor for change attribution | none (`attribution_min_task_delta: 0.0`) |
+| Judges, helper, transport | as in 9b, with `hung_call_retries: 2` |
+
+Changes before launch:
+
+- Web-research leakage terms now block training tasks as `tasks/017`
+  instead of `017`. The bare number also blocked ordinary text such as
+  "2017"; the harness check already used the wider form (`adapter.py`
+  `meta_prompt_context`, test
+  `test_web_leakage_terms_use_widened_numeric_slugs`).
+- `meta_supplements/evolve.md` states the real context limit (911793 in
+  o200k_base, kept 10,000 below Copilot's 921,793) instead of the old
+  200000.
+- Both the Evolve and Debugger supplements now describe the shared
+  document store of firm-knowledge tasks: about 9,300 files in 266 matter
+  folders, of which a task needs a few. Evolve no longer suggests "read
+  everything", and the Debugger checks whether needed documents were
+  found.
+- gpt-5.4 has the same Copilot input limit as gpt-5.6-sol (921,793 in
+  `/v1/models`), so the harness limit is unchanged.
+
+Preflight on 2026-10-15: the listener on 3141 is the server-host instance;
+`server.js` is `ed67ab4c…` (the Claude-thinking patch of 5p, which leaves
+GPT requests unchanged). gpt-5.4 passed the positive and negative-control
+probes at provider default and at high
+(`operator-preflight/2026-10-15/c10-gpt-5.4-provider-default.json`,
+`c10-gpt-5.4-high.json`). `ahe validate` and `ahe conformance` passed, and
+261 tests pass.
+
+Launch with the section 5h command (`ahe run`, then up to 5 `ahe resume`
+attempts), with the log at `campaign-artifacts/c10-run.log`, the campaign 10
+stage path, and tmux session `ahe-c10`.
+
 ## 6. Known deviations and limits to report with results
 
 - Task scope (campaigns 1 to 8): only 166 of LAB's 2,010 tasks (8%) are

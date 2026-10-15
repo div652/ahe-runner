@@ -35,13 +35,20 @@
 # splits-firm-knowledge-pilot10.json) is kept with a caveat (runbook 5n).
 # This is campaign 9b: the same evaluation again with the AHE-023 fix (exact
 # token count, max_context_tokens 911793, a provider "too long" rejection
-# graded as a context overflow; runbook 5o).
+# graded as a context overflow; runbook 5o). Campaign 9c (claude-opus-4.8)
+# was prepared but not run (runbook 5p). This tenth campaign evolves the
+# LAB-exact harness of 9b for 5 rounds on a random 60 train / 15 validation /
+# 15 test split of the firm-knowledge tasks (splits-firm-knowledge-60-15-15.json,
+# built by scripts/make_splits_firm_knowledge_c10.py), with gpt-5.4 at
+# provider-default reasoning as the evaluated model, gpt-5.4 at high for the
+# meta agents, 2/2/3 trials, and no noise floor for change attribution
+# (runbook 5q).
 schema_version: 1
 
 campaign:
-  name: harvey-lab-campaign-9b-lab-exact-token-fix
-  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-9b-lab-exact-token-fix
-  rounds: 0
+  name: harvey-lab-campaign-10-lab-exact-60-15-15
+  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-10-lab-exact-60-15-15
+  rounds: 5
   root_seed: 42
 
 project:
@@ -51,9 +58,9 @@ project:
   adapter_settings:
     # Relative paths resolve against this file's directory.
     lab_root: ../../harvey-labs
-    split_file: ./splits-firm-knowledge.json
+    split_file: ./splits-firm-knowledge-60-15-15.json
     # Firm-knowledge tasks fail the pilot filter (shared docs_dir store, more
-    # files and criteria); campaign 9 evaluates all of them unfiltered.
+    # files and criteria); campaigns 9 and 10 use them unfiltered.
     apply_task_filter: false
     # LAB's standard judge pair is claude-sonnet-4-6 and gpt-5.5. The results
     # carry the `lab-standard-dual-v1` profile label only when the configured IDs
@@ -92,11 +99,12 @@ project:
     # its score moves by more than this, the same value for every task. 0.08
     # is about the 80th percentile of task-level changes between three runs of
     # the unchanged seed harness (campaigns 4-6); 0.0 counts any change.
-    attribution_min_task_delta: 0.08
+    # Campaign 10 uses 0.0: no noise floor.
+    attribution_min_task_delta: 0.0
   adapter_dependency_paths:
     - ./benchmark_adapter.py
     - ./harvey_ahe
-    - ./splits-firm-knowledge.json
+    - ./splits-firm-knowledge-60-15-15.json
     - ./pyproject.toml
     - ./requirements.txt
   meta_agent_source_roots:
@@ -104,9 +112,9 @@ project:
 
 models:
   evaluated:
-    model: gpt-5.6-sol
+    model: gpt-5.4
     max_tokens: 64000
-    reasoning_effort: high
+    reasoning_effort: provider-default
     temperature: 0.0
   meta:
     model: gpt-5.4
@@ -133,7 +141,7 @@ transport:
   hung_call_retries: 2
 
 evaluation:
-  train_trials: 1
+  train_trials: 2
   validation_trials: 2
   test_trials: 3
   max_concurrency: 20

@@ -65,10 +65,13 @@ Work through these in order and stop at the earliest consequential failure:
    wrong format (text or markdown where `.docx` or `.xlsx` was asked for),
    empty or truncated, or a script that errored so the file was never
    produced.
-3. **Reading.** Did the agent open every relevant document? Look for `read`
-   results starting with `Error`, parse failures, partial reads through
-   `offset`/`limit` that never continued, or decisions based on `grep` hits
-   alone.
+3. **Reading.** Did the agent find and open every relevant document? The
+   documents folder is a shared store of about 9,300 files from 266
+   matters, so also check the search: which folders, names or terms it
+   looked for, and whether a needed document was never found. Look for
+   `read` results starting with `Error`, parse failures, partial reads
+   through `offset`/`limit` that never continued, or decisions based on
+   `grep` hits alone.
 4. **Substance.** For each failed criterion, classify the judge's reason:
    an issue not covered, a factual or numerical error versus the documents,
    a required section or element missing, a wrong format or structure, or an
