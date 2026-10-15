@@ -1,5 +1,71 @@
 # Validation Results
 
+## AHE-021 through AHE-024 transport and context hardening
+
+Validated at `2026-10-15T09:49:43Z` from source commit
+`34cc7e7dac2e39baf3bea657cb9da720d2165959`. The implementation commit was
+`904b553`, followed by the test-regex lint repair in `34cc7e7`:
+
+```text
+Focused transport/context contracts:         81 passed in 84.17s
+Complete suite:                              136 passed in 129.43s
+ruff check .:                                all checks passed
+ruff format --check .:                       106 files already formatted
+python -m compileall -q src tests:            exit 0
+git diff --check:                             exit 0
+uv build:                                     exit 0
+```
+
+Validation environment:
+
+```text
+Python:            3.14.7
+ahe-runner:        0.5.0
+NexAU:             0.3.9
+ag-ui-protocol:    0.1.22
+OpenAI Python:     3.29.0
+Pydantic:          2.14.1
+PyYAML:            6.0.3
+Pytest:            9.1.1
+Ruff:              0.17.0
+```
+
+Clean release artifacts:
+
+```text
+ahe_runner-0.5.0-py3-none-any.whl
+sha256: d2295706173e394f2febe420a6aee62e37e447acbd5a5896f9d33e498c9761f6
+
+ahe_runner-0.5.0.tar.gz
+sha256: 387b9ee6ab974d584dea55d6518bb5bed0e8c587ffb685b2b0beeb1edac0cf6d
+```
+
+The wheel was installed with the `web` extra into an isolated Python 3.14
+environment outside the source checkout. Using only that installation:
+
+- wheel metadata and `ahe_runner.__version__` both reported `0.5.0`;
+- the imported package resolved from the isolated environment's
+  `site-packages`;
+- `ahe init-project` generated `hung_call_retries: 0`;
+- the generated manifest protected `max_context_tokens: 200000` and declared
+  the NexAU serialized-character fallback unit, with no false exact-token
+  claim;
+- generated and packaged `LongTermMEMORY.md` files were both zero bytes;
+- the public context-overflow classifier recognized a provider rejection
+  wrapped as an HTTP 500-style error;
+- the packaged methods reference, Evolve prompt, NexAU evolution skill, and
+  project templates were present;
+- offline `ahe conformance` returned `valid: true` with no warnings;
+- offline `ahe validate` passed and retained the expected warning that
+  host-imported candidate middleware is not isolated by an operating-system
+  sandbox.
+
+No live model endpoint was contacted. NexAU emitted its expected optional
+`E2B SDK not installed` import message. Near-limit prompt retention and
+reasoning-effort application therefore remain operator-run transport-fidelity
+probes, as documented; this offline validation does not claim that an endpoint
+honours either behavior.
+
 ## AHE-019 and AHE-020 upstream closure
 
 Validated at `2026-10-14T20:09:55Z` from source commit
