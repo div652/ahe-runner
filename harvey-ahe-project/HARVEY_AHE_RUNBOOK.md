@@ -1836,10 +1836,11 @@ in 9b: the 20 trials ran as threads of one Python process, so their
 host-side `grep` calls waited for each other (AHE-025). The operator chose
 to stop, fix and restart from scratch.
 
-- The stopped run is kept as
-  `campaign-artifacts/harvey-lab-campaign-10-stopped-grep-contention/`, with
-  its log `campaign-artifacts/c10-stopped-grep-contention-run.log`. Its
-  results are not used.
+- The stopped run was kept as
+  `campaign-artifacts/harvey-lab-campaign-10-stopped-grep-contention/`
+  (deleted later; section 5s), with its log
+  `campaign-artifacts/c10-stopped-grep-contention-run.log`. Its results are
+  not used.
 - The fix is the adapter setting `trial_processes: true` in `ahe.yaml`: each
   trial's agent runs in its own Python process, as in LAB. Grading stays in
   the `ahe` process. Details and limits are in AHE-025.
@@ -1847,6 +1848,83 @@ to stop, fix and restart from scratch.
   241 s each as threads and 10.5 s each as separate processes.
 - Everything else in section 5q is unchanged. The restart uses the same
   campaign name and artifact folder, which the rename freed.
+
+## 5s. Campaign 10 stopped; campaign 11 setup: `harvey-lab-campaign-11-gpt-5.6-sol-high-60-15-15`
+
+**Campaign 10 end.** The restart ran from 11:14 to about 16:30 UTC on
+2026-10-15. The operator stopped it at the start of round 4 (the round 4
+debugger was running) to move to the models they care about. Both campaign
+10 folders were then deleted to free disk; only the logs `c10-run.log` and
+`c10-stopped-grep-contention-run.log` remain. Training scores (60 tasks × 2
+trials; no validation or test was run):
+
+| Checkpoint | Criterion pass | All-pass | Change |
+|---|---|---|---|
+| C0 | 0.531 | 0.208 | LAB-exact starting harness |
+| C1 | 0.636 | 0.258 | Prompt and skill: keep searching before finishing |
+| C2 | 0.500 | 0.200 | Review-guard middleware (regressed) |
+| C3 | 0.682 | 0.292 | C2's middleware rolled back; `grep` reads Office documents |
+
+These are training scores only. The Evolve agent sees these tasks, so they
+do not show that the changes generalize.
+
+Stage times with gpt-5.4 (useful for sizing):
+
+| Stage | Time |
+|---|---|
+| C0 train evaluation (120 trials, 20 at once) | 33 min |
+| C1 and C3 train evaluations | 66 min each; evolved harnesses made trials about 1.75 times longer |
+| Exploration | 16 min |
+| Debugger | 15-18 min per round |
+| Evolve | 7.5-11 min per round |
+
+One C2 evaluation attempt failed on a `podman info` timeout and cost 41
+minutes before the automatic resume.
+
+**Campaign 11.** Operator's choices (2026-10-15):
+
+| Setting | Value |
+|---|---|
+| Evaluated model | `gpt-5.6-sol`, reasoning high, `max_tokens` 64000 (as in 9b) |
+| Meta model | `gpt-5.6-sol`, reasoning high, `max_tokens` 32000. It is used by every meta agent: Debugger, Evolve and the Explore agents. Per-role settings are unchanged. |
+| Rounds | 3, so that the whole campaign finishes in about 12 hours |
+| Everything else | as campaign 10 (sections 5q and 5r): split, 2/2/3 trials, judges, helper, concurrency, no noise floor, `trial_processes: true` |
+
+How 3 rounds was chosen:
+
+- gpt-5.6-sol's model time per trial was taken from 9b's call timestamps:
+  4.8 min on average, against 2.4 min for gpt-5.4 in campaign 10. Tool time
+  was taken from campaign 10 C0: 2.9 s per tool call.
+- These per-task times were used to simulate 20 trials running at once. The
+  same simulation reproduces campaign 10's stage times to within 10%.
+- Estimates:
+  - C0 train evaluation: about 50 min.
+  - Exploration: about 20 min.
+  - Each round: about 1.8 h (Debugger about 20 min, Evolve about 12 min,
+    train evaluation about 75 min). This assumes trials grow 1.5 times longer
+    after evolution.
+  - Validation: about 30 min for C0 and about 45 min for each evolved
+    checkpoint, one after another.
+  - Final test: about 1 h.
+- Total: about 10.5 h for 3 rounds (9.5 to 11.5 h) and about 13 h for 4.
+  If the campaign runs well ahead of plan, `ahe extend-rounds` can add a
+  round. The campaign must be stopped, extended and resumed before round
+  3's training evaluation ends, because `evolution.close` starts right after
+  it (`docs/AHE_RUNNER_GUIDE.md` section 2.6).
+
+Changes since campaign 10: `ahe extend-rounds` was added
+(`docs/AHE_RUNNER_GUIDE.md` sections 2.2 and 2.6). Without a recorded
+extension, campaigns behave exactly as before.
+
+Preflight on 2026-10-15: gpt-5.6-sol at high passed the positive probe and
+the negative-control probe through the server-host listener on 3141
+(`operator-preflight/2026-10-15/c11-gpt-5.6-sol-high.json`). One check
+covers both roles, because both use the same model and effort. `ahe
+validate` and `ahe conformance` passed, and 280 tests pass.
+
+Launch with the section 5h command (`ahe run`, then up to 15 `ahe resume`
+attempts), with the log at `campaign-artifacts/c11-run.log`, the campaign 11
+stage path, and tmux session `ahe-c11`.
 
 ## 6. Known deviations and limits to report with results
 

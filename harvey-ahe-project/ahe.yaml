@@ -44,12 +44,16 @@
 # meta agents, 2/2/3 trials, and no noise floor for change attribution
 # (runbook 5q). Its first run was stopped on host-side grep contention
 # (AHE-025); the restart runs each trial in its own process (runbook 5r).
+# The restart was stopped in round 4 by operator choice and deleted (runbook
+# 5s). This eleventh campaign is campaign 10 with gpt-5.6-sol at high
+# reasoning as the evaluated model and for every meta agent, and 3 rounds,
+# sized to finish in about 12 hours (runbook 5s).
 schema_version: 1
 
 campaign:
-  name: harvey-lab-campaign-10-lab-exact-60-15-15
-  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-10-lab-exact-60-15-15
-  rounds: 5
+  name: harvey-lab-campaign-11-gpt-5.6-sol-high-60-15-15
+  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-11-gpt-5.6-sol-high-60-15-15
+  rounds: 3
   root_seed: 42
 
 project:
@@ -117,12 +121,12 @@ project:
 
 models:
   evaluated:
-    model: gpt-5.4
+    model: gpt-5.6-sol
     max_tokens: 64000
-    reasoning_effort: provider-default
+    reasoning_effort: high
     temperature: 0.0
   meta:
-    model: gpt-5.4
+    model: gpt-5.6-sol
     max_tokens: 32000
     reasoning_effort: high
     temperature: 0.2
