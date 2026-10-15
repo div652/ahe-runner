@@ -2071,6 +2071,19 @@ Everything else is campaign 11: gpt-5.6-sol at high for the evaluated model
 judges, concurrency and transport. Estimated time: about 1.33 times
 campaign 11's 15.5 hours, so 20 to 21 hours.
 
+Launched 2026-10-15 19:26 UTC. C0 (160 trials, done 20:48 UTC after one
+resume for two infrastructure-failed trials: a model call that timed out
+three times, and a sandbox exec error "procReady not received") against 9b
+on the same 80 tasks, paired by task, 95% bootstrap interval:
+
+| Metric | C0 | 9b | Difference | 95% interval |
+|---|---|---|---|---|
+| Criterion pass | 0.631 | 0.633 | -0.002 | -0.061 to +0.056 |
+| Dual all-pass | 0.259 | 0.225 | +0.034 | -0.034 to +0.103 |
+| Both-judge all-pass | 0.244 | 0.200 | +0.044 | -0.031 to +0.119 |
+
+No difference is significant.
+
 ## 6. Known deviations and limits to report with results
 
 - Task scope (campaigns 1 to 8): only 166 of LAB's 2,010 tasks (8%) are
