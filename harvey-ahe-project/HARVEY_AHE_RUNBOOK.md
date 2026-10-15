@@ -1607,6 +1607,36 @@ judge 2 is gpt-5.5. Definitions:
   all-pass rate" is the mean of the two judges' all-pass rates. "Both
   judges" is the stricter count of tasks that both judges pass entirely.
 
+**Judge reasoning mode**
+
+Neither judge was sent a reasoning setting. AHE grading, like LAB's own
+Copilot judge path, sends no `reasoning` field (temperature 0.0, max_tokens
+64000), and every `scores_judge-N.json` records `reasoning_effort: null`. The
+GH Copilot Server log shows `thinking=–, reasoning=–` on all 5,817 requests of
+each judge. Copilot Chat 0.69.0's defaults therefore decided what each judge
+actually ran with:
+
+| Judge | API path | Effective reasoning | Call time median / p90 / max |
+|---|---|---|---|
+| claude-sonnet-5 | Anthropic Messages | No extended thinking | 1.5 / 1.9 / 6.2 s |
+| gpt-5.5 (served as gpt-5.5-2026-04-23) | Copilot GPT path | Effort "medium" | 1.9 / 2.6 / 23.5 s |
+
+- **claude-sonnet-5:** the model's configured default effort is "high", but
+  Copilot Chat's Messages builder only turns on thinking, and only then sends
+  an effort, when the caller sets `_enableThinking`. The server never sets it,
+  so the request carries neither. The short call times fit this.
+- **gpt-5.5:** Copilot Chat sends effort on GPT models without any thinking
+  gate. The model's configured default and the code's fallback are both
+  "medium", and no per-model override or `reasoningEffortOverride` setting
+  exists in the host profile.
+
+Confirmed: no effort was requested. Inferred: the effective values, which come
+from reading the Copilot Chat code. The request sent to the provider is not
+logged, and the server reports token usage as 0. This matches LAB's own
+judges, which also send no thinking or effort setting. The `reasoning` text in
+each verdict is a written field of the JSON answer, separate from hidden
+thinking.
+
 **Each judge**
 
 | Judge | Criterion pass rate | Pooled pass rate | All-pass rate (tasks) |
