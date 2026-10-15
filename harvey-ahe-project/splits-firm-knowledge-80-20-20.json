@@ -1,0 +1,1891 @@
+{
+  "schema_version": 1,
+  "identity": "harvey-lab-firm-knowledge-80-20-20-stratified-9b",
+  "lab_commit": "86678eba6fcbc6c03958742c6e9e75737514f513",
+  "selection_policy": "Pool: all 250 LAB tasks under tasks/firm-knowledge/, which share the firm-knowledge/dms document store through docs_dir; no eligibility filter (apply_task_filter: false). Stratified by 9b difficulty (gpt-5.6-sol high, LAB-exact harness, one trial per task): tasks sorted by (9b dual all-pass rate, 9b criterion pass rate, sha256('harvey-lab-campaign-12:order:' + task_id)), cut into 10 blocks of 25; within each block, tasks sorted by sha256('harvey-lab-campaign-12:assign:' + task_id): first 2 test, next 2 validation, next 8 train, other 13 not used. Each split is listed sorted by task id. Built by scripts/make_splits_firm_knowledge_c12.py. Pins are sha256 of task.json and of the document tree hash map (the shared store).",
+  "splits": {
+    "train": [
+      {
+        "task_id": "firm-knowledge/tasks/003",
+        "task_json_sha256": "d4a9fcccdbc3c5d21a337d20041a5b0436498440bccb1bd5135a088dd029e6dc",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/011",
+        "task_json_sha256": "addc6f2db65fe942e4f65a661daa595e93c280f6330a32a3f8845abb6a79e0dc",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/014",
+        "task_json_sha256": "c3eb7a0f25c29ffccbec610f554fd4a268415c3dca7f7c2017baa98bf2bfccd1",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/016",
+        "task_json_sha256": "270376a95319d658ea8361d1c5d17820129b6b1f350f15046b912caf6eeb6056",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/017",
+        "task_json_sha256": "951c14f7644fb76824626032fb926a3d27db70b40a7df67b5cb9f7a24ceba6a7",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/028",
+        "task_json_sha256": "9dfb9d65bdbaf13ac805b61dda409a8fa3e8303ac5d98c0827eef5054d50cdcd",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/032",
+        "task_json_sha256": "619a3d6b6e58ff993a933d39d6027ce556536545f57b3894fa835959254878a4",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/034",
+        "task_json_sha256": "cbe337f39e29eb3b749df837d9038834f7e64fb0dc719cb9c87014d20e56f3c0",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/035",
+        "task_json_sha256": "3061c7dddc3371503d701996f7df0d49d3d8e8e47d585556312cef3e497890b6",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/046",
+        "task_json_sha256": "b929580150d2f4e1c243d599315d695785693eb7937b3ff7a4bc509d3eef192b",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/047",
+        "task_json_sha256": "299ad23d937ac0e88337ad971a7125f59dd7de7965e00e0381a64fdb11a94d3b",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/048",
+        "task_json_sha256": "8c0c138e3b12221030d66f83ef6498acf6989aa24ef7eec0a6cbb074b281d2a0",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/052",
+        "task_json_sha256": "4541fbb9b67b3a6b7a5fb821c0b5f49276bbb769537a367d9bca429c80ff02da",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/053",
+        "task_json_sha256": "e09226038f4d4b4c1a3e28cf1e925bd4b7ca2ba7f19ba0bcf239d308e6ae8b4d",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/056",
+        "task_json_sha256": "3c5120cb11ad0dcc995e82afb26be1bfafcd007aa454adccb6e3897d4eb4c943",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/057",
+        "task_json_sha256": "69a5f28d66d7ca815b98ac217eefe205a00c51bf5e50cd0c8ed794f4995723b8",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/058",
+        "task_json_sha256": "333e86e1f0e0c13aaf2956b210fbd9cb0837b8c5652146b94825187e9e8ae3eb",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/059",
+        "task_json_sha256": "0ec73924e68c17f9b20206d6c4946c935c3efc90318b028e0989b1774c5dd83a",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/061",
+        "task_json_sha256": "ea3e5e1508b29d9d47f81b3914a6b12e670f852670671861f18b7a064ad23f5b",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/063",
+        "task_json_sha256": "a38c7b9c53ba77786343133690f94d2249c6fe954c2f400f40caa4f474adf765",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/066",
+        "task_json_sha256": "cf5db10ce22433eef17ccb033e9b5c751a00d170514d287e6001e85ea561f907",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/068",
+        "task_json_sha256": "580fbb7ef614a3b3dbaa2abcad41e2d2fdee6ac16414f8178d59421da5fec058",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/072",
+        "task_json_sha256": "ab52daf210c514156f0dcf044c18b5b0c78e61dd745b5c7eb8893e0a1615fd8b",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/080",
+        "task_json_sha256": "a24b32200338b188226857987ef30ace4567763df72611333fd162a9cef1e3c3",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/081",
+        "task_json_sha256": "e18447d34d3d84b464be3803708ffee27fdc8033906aba45810bb8df82186b1e",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/082",
+        "task_json_sha256": "932bde8a2d30a291070af09cbbafbaa3221b6082b2d7dba1822c98e221e6cc61",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/091",
+        "task_json_sha256": "9f76be90481f1444b5cb153b42f4e4bb3ed0f6f35b7046b4404161956d70fa1e",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/092",
+        "task_json_sha256": "b2db9d233d9579b818479ed0f97289d780abc18d6c0de3c3a43f5d866945c5f5",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/093",
+        "task_json_sha256": "e9329d6fda346bae4a79d12a054347eb6ab7e1c28c12e62fdd937069b555b5c7",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/102",
+        "task_json_sha256": "f5681f0712dcddde9b3bfc6261eb5fcf35872b7d7cbb0461cb320ff8943ff8ac",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/104",
+        "task_json_sha256": "a5883a49b2feec2f9f2b8b4437713b382fb167db6ff76d660ceb97e9b9f2193e",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/111",
+        "task_json_sha256": "cf48f718f93f20c32394b89a139c153567847308079ffded8865199fa5137365",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/114",
+        "task_json_sha256": "3da5736611cdbb526541e12f9b80289f6203cd6f8c0c805bf06f56a3f3a31806",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/121",
+        "task_json_sha256": "86987a25404074399da27b5782fde1d525895f3eaba7c1b42f46aabd748957ab",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/125",
+        "task_json_sha256": "e5cb16c340c18c9dfd9927ffdc7cc51b6c426c2485c29eaa6918cd5e212fab42",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/126",
+        "task_json_sha256": "5f65551bb70f2e3a136a4905b9c598018def58f87cf02ce6201f8b4c89d9658b",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/129",
+        "task_json_sha256": "7bee022f1b5cf47fa2ef0674141a2ffc6bfc6149be5e6fc755ad9efc627fb19d",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/130",
+        "task_json_sha256": "5f85a7b4488c81b830a01260223e289076e16d42aca24ecd1de2b776da0f6872",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/131",
+        "task_json_sha256": "20c2b0a88da5776bb307dcb73e25ec0c0f48f2594cb6b6d90d1b6bac639a3153",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/132",
+        "task_json_sha256": "bfbbb5594335ee0a0bd73a9d98a4c58d2b1a6f24d96b372c5b76bcbf44e2e10c",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/137",
+        "task_json_sha256": "84bed2e72a032d889b0d89284b12b7963931616501d3b14498bc8b20d8238b6d",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/140",
+        "task_json_sha256": "d611575187f1cab0ad8b8ca3e55f81dd41fc1170e540fa645c870b11c77b78c4",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/141",
+        "task_json_sha256": "389d6e790c6214e97f2465b175a980634d80d5278e9e7207d32e0196fc6bf709",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/148",
+        "task_json_sha256": "d2b7efd809b5f7faebd5128fab1f22ca83d6e98864540c2c3d89752e00ad64dc",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/149",
+        "task_json_sha256": "9bf46c1b76ae245b4c140161835f63174b2ce14bb3ea0300db5ad2c9530a14f2",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/151",
+        "task_json_sha256": "c6bc62995c74428a66e699298f0cab2eaff2001b31f59bdbfbeb3bc1e13d0bf8",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/154",
+        "task_json_sha256": "66460b8709f63c0ce4e1a2d4f163a91f88d5e5f0f2b6633a82b37ba4af8e883f",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/155",
+        "task_json_sha256": "8ae77df22e06ceb1a1fc004c0ebd86cc89a898b454d5cb1b4c929d0e8ac09e35",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/158",
+        "task_json_sha256": "83e5d7e87424e1f1040b6794c1774714d75c3067c2212ed2fb330f032b6147eb",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/161",
+        "task_json_sha256": "53ad0ce3142db3e7d188b6c9501de7c7aaad192a086f4e9bc4453ed8b6b79aba",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/162",
+        "task_json_sha256": "08be75d893a04699625f4cfd66858e676589c55447d93ba6c6d141c60d1af780",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/167",
+        "task_json_sha256": "d01a2bb0dab0f613e397cdccfebdf8857cc88ecf4b22edd0149630cf7f8e621e",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/169",
+        "task_json_sha256": "55861c7ec9d393b4b688243b7cfa648093293e3cc577efa1d2c755c873289516",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/170",
+        "task_json_sha256": "2fa45c4c308fa1ece196d707768bebc5c8a9dbe9a6b452a74eb591201175f023",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/173",
+        "task_json_sha256": "37ee0c2eaf4bd3b14734ef1e22799db28c796db820b445301fc516f1839e1d8d",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/176",
+        "task_json_sha256": "2c79d509146c5a88eda13518db2aeda1ee8bf23e704f7404de05f886611c1d73",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/179",
+        "task_json_sha256": "8440cdbef9decf4d042ea62e4bc81defa7dfbd326ac9fdf05dfe4f481a952b61",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/181",
+        "task_json_sha256": "411c4347e5199ec10445eeffa5631a2dddb0900a71df2faed2b2a55590559076",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/184",
+        "task_json_sha256": "3a770c7b0c795b971a1a9f84b88c1325d11d9e0dbaadabc0e5d3a397bcc61f7a",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/185",
+        "task_json_sha256": "6dbf375e23dc6e5487103af70a76bcca15db26406d6decefebc419160788d090",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/190",
+        "task_json_sha256": "6e1613d3ab7c222934701f7318013573ef3574d3882ec7d267f0fa456725eaca",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/192",
+        "task_json_sha256": "d741b068073a169a7e8974f027739a92c0f90b616946e3cbc4cb105a92ef41b4",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/194",
+        "task_json_sha256": "f087fe2aff114deb32150a2964fd37c2ec0a06b3138786aa068c6eaddbc51bf2",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/195",
+        "task_json_sha256": "f77e23e75015a96ea67933224d020cdc4521e0173c85fc2bc6b5413dbc6d0649",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/198",
+        "task_json_sha256": "ab150a412914eb41f14c50b6a770eb74f1791dd958422d7263d61ccd3fc5a769",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/199",
+        "task_json_sha256": "1a1a7fcb58b54608f42b61e1f40b509e4cf7614b301e203cabfdc974c98e8b8c",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/200",
+        "task_json_sha256": "d27eaee04d9d17447ed2eca577c26d5a255db05023c1ff51f9db0fffba6c5963",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/201",
+        "task_json_sha256": "b2f6492c759ab058678ac7090e688a03c4b9a21d2392edef43010abefe8c2f27",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/206",
+        "task_json_sha256": "d1ada41c296228521425b8a2848cac3810ced9695d6fb4e1e43a01159b4a2c13",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/209",
+        "task_json_sha256": "7eebd71dd6a4932b09c58d0ea1480d37eb14a7fe7c25498dacd593b8e50e3139",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/210",
+        "task_json_sha256": "736847741a5e6d470bccdb9348aa0d0077172e590a65f45a95445b7c611724b3",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/211",
+        "task_json_sha256": "09105ace318e6f4bf3a817217ea0f1c4f0f86c906bc51718583a3ccdee177b9c",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/221",
+        "task_json_sha256": "769116dfd52ff897385b1ba0e9a31c2f2f7a21cd509f15a24a324a5e49153937",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/223",
+        "task_json_sha256": "ac7ceb79e514e1ba8640bf86a9b3118bbc26dc9ea3c3f5979479e9f4beef6a8d",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/230",
+        "task_json_sha256": "882bfba181c5505c3cbc38dd998d693291a41fd99afac54825f3aafdb9fdf669",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/238",
+        "task_json_sha256": "c930077d78afd9e037ccf1fa2e5de896146561717c21392e9c92932304c631ab",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/240",
+        "task_json_sha256": "18e6f89c5200abcbef6c967d640b00d394c2464c8eec0147dbe6c29478cbd91a",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/241",
+        "task_json_sha256": "a8fd932b2ed288af440f2c4053e3cef43e52ad58cb8d15d5bce9e477133128c1",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/243",
+        "task_json_sha256": "c658ede5e7893d4ca840eabb3be20394658b1476c9e2664aa2e5d3dfc817709a",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/247",
+        "task_json_sha256": "9cab0b4db6d1f26b11239f6d600d94be30dc35ebe7b47d0a2f15fe766e9fa977",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      }
+    ],
+    "validation": [
+      {
+        "task_id": "firm-knowledge/tasks/007",
+        "task_json_sha256": "7c5c6beeeffcc7f2c5dceba6c7578ed47383dfadad5b562ca5dbb0e113fb33da",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/020",
+        "task_json_sha256": "338cc077b69c6a9c04aed720db5846fdafacafda0cc500f7f0684adcefb97d52",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/050",
+        "task_json_sha256": "a16761273e60be7c891d5a2d7be55835bed9deb4c475ea73f90629d57ebe5123",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/090",
+        "task_json_sha256": "ab5a1d2b56cd3acb1c716aa51b404fd2cdd89fbb6567fd9fcf4e9027b0a69883",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/094",
+        "task_json_sha256": "6d03ef24b08f8224cb499e8cf4fdd4dce8a36bd509ae2c7ac29ebbb919120f9d",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/098",
+        "task_json_sha256": "502b63f74257018e10a3734c869975eb250115888ad3a8c901f99af2a237148e",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/105",
+        "task_json_sha256": "a4623ab36941c8371c0de0c794d38b38a61e7961abcd2f3f5a8819ef3f17e8ac",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/113",
+        "task_json_sha256": "f9811733bf022d156d4f1f774e013ff7cc9560cd3cb26b45c9d7027dc6a45d53",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/115",
+        "task_json_sha256": "0be3a8344e4f6ea38abcc9d9c19800aacd36a0561b992e18db4e7bfab3c50e93",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/152",
+        "task_json_sha256": "2dc44c8d74fb9bb1fecb41ba686cac7c2f95f1c2c5cc7edee953e0474c24d124",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/160",
+        "task_json_sha256": "b50806927c50f3670a609425215757ebe5f086fbae984d9d7cab3e53550c938b",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/164",
+        "task_json_sha256": "a3c7f3fa8497a8051971e3c8edec6454bf7fadd9c1de0e265e71e67c4483a50f",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/174",
+        "task_json_sha256": "62f23cda08c7b04a1bb371f24d318e111d9c94eac5f42b8553a97cf62d594970",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/182",
+        "task_json_sha256": "cbb6cbe95790e8754d127e1635232f15aa97212f1e9b4ba8eb93e36ae8947e39",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/191",
+        "task_json_sha256": "b25751966fde90e1103a729519b6140fcbce515c4d47b9badf76436715af16cd",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/202",
+        "task_json_sha256": "2147896ad628ba63637e1c3d9392bfe492e1c0208d979a6b426b44010bf8c5a5",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/219",
+        "task_json_sha256": "c86927004ae469e7d28f620cfc165fd460436e850f3755355e45a342b9aed1c8",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/228",
+        "task_json_sha256": "d737f3fc9e0d9140bc6885eff507eead806756752fabcda674d7983ecda8a0cd",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/236",
+        "task_json_sha256": "07ac6fdc630578831b7b4dd3fcb08abae9e7897a4f713308526319788ff64e29",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/249",
+        "task_json_sha256": "b7523e208bbdd71967e12095287997cb0fd982df12c9065af8cd0e8fcbf3b2b7",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      }
+    ],
+    "test": [
+      {
+        "task_id": "firm-knowledge/tasks/027",
+        "task_json_sha256": "dd26c8c67fcc9c1b1284a8f2293b0417d0e92e2329238b854a19e61449ce2d08",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/040",
+        "task_json_sha256": "417c6b24c1dab22a32f517e4ff9c141acc5c3dcbe7c52d623e9ade45f0665bfb",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/043",
+        "task_json_sha256": "e15662551574fa0a7048672cd42981e4afa7399dbe28eca854f2004114bcd173",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/054",
+        "task_json_sha256": "de69d43947391d51604334a9f76e7169bb4c341bf451e64f395f598ce6788823",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/064",
+        "task_json_sha256": "6d25a0d4766f979d2b6dd06031a71c3959a66858a320d166397c2db543964289",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/079",
+        "task_json_sha256": "769d7bc8bf9ddb42b109a278c1c84cc9f670eb905f2b8194982aeef01679b96d",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/084",
+        "task_json_sha256": "c6654e59627ade373bfdf1c0bb7a6a5a4645561bf43beb5c95bf9ef096cf78f9",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/103",
+        "task_json_sha256": "b7eae19dbdb6f5e26fd1aa671e0483a87192da7f028f1b661bc94082ec3bd745",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/106",
+        "task_json_sha256": "31ded87bf9e39a3358cf7c48b64fbe4ac63ec52e89bff37c019f787beb9c5436",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/157",
+        "task_json_sha256": "b4ea59db99cb930c92ad87c61665e2ebd7df630848d6361b6292dae6dd8fe533",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/159",
+        "task_json_sha256": "c93b2fb668c1d7b96195aa3566eac4793f44281673e0f4506de6845aab9d91dd",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/175",
+        "task_json_sha256": "fcd43e0b6f970f88d93e4f8e0286470f91345c0c1c569b5a607196781fea2ff7",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/183",
+        "task_json_sha256": "4fbb58fedaea8fc203ada130c65b5cbf8ec285d8b7e4e5b6792e9b932522ddf9",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/186",
+        "task_json_sha256": "0b53746c44b34e0f86cf93dac610ed99b06a113b4ad7c9f2ef8616f8c14aeaa4",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/187",
+        "task_json_sha256": "399978726a86e9413a77f013bf92097cee01026913af2c763420a57c4f8b190a",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/189",
+        "task_json_sha256": "f2738b4fea4e3ddcb1145ee15bec4f80db64e7b79c6d0610686278faaace5fa3",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/196",
+        "task_json_sha256": "f22e29513654014e0a993ccd681324580c9be36ab741595e937df0a540323868",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/203",
+        "task_json_sha256": "b281268c9ccd3b1b94f17293fb2577932619215348e7c09c02e262cb130bad80",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/207",
+        "task_json_sha256": "61ddcb8ee195b80d60afd240310cc233ce26e2275473220980ab0f97a3c5b45b",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      },
+      {
+        "task_id": "firm-knowledge/tasks/232",
+        "task_json_sha256": "89442b73688bc1b16c17813b6062571b4c23675e4a5393d56a67a96465189ea9",
+        "documents_sha256": "c88e146a20c0c88d7550a79be9d4d7344f469966844a7e6cc23b3e4c2584a89e"
+      }
+    ]
+  },
+  "stratification": {
+    "source": "campaign 9b C0-train results (runbook 5o)",
+    "mean_9b": {
+      "all": {
+        "dual_all_pass_rate": 0.224,
+        "criterion_pass_rate": 0.635
+      },
+      "test": {
+        "dual_all_pass_rate": 0.25,
+        "criterion_pass_rate": 0.6318
+      },
+      "validation": {
+        "dual_all_pass_rate": 0.225,
+        "criterion_pass_rate": 0.6251
+      },
+      "train": {
+        "dual_all_pass_rate": 0.225,
+        "criterion_pass_rate": 0.6334
+      },
+      "unused": {
+        "dual_all_pass_rate": 0.2192,
+        "criterion_pass_rate": 0.638
+      }
+    },
+    "tasks": {
+      "firm-knowledge/tasks/001": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.7142857142857143,
+        "block": 4
+      },
+      "firm-knowledge/tasks/002": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.75,
+        "block": 5
+      },
+      "firm-knowledge/tasks/003": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/004": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/005": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8333333333333334,
+        "block": 6
+      },
+      "firm-knowledge/tasks/006": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6666666666666666,
+        "block": 3
+      },
+      "firm-knowledge/tasks/007": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.3333333333333333,
+        "block": 2
+      },
+      "firm-knowledge/tasks/008": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 1
+      },
+      "firm-knowledge/tasks/009": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.3684210526315789,
+        "block": 2
+      },
+      "firm-knowledge/tasks/010": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.5,
+        "block": 2
+      },
+      "firm-knowledge/tasks/011": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.3684210526315789,
+        "block": 2
+      },
+      "firm-knowledge/tasks/012": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/013": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/014": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6666666666666666,
+        "block": 3
+      },
+      "firm-knowledge/tasks/015": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/016": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6428571428571429,
+        "block": 3
+      },
+      "firm-knowledge/tasks/017": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.75,
+        "block": 5
+      },
+      "firm-knowledge/tasks/018": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/019": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8333333333333334,
+        "block": 6
+      },
+      "firm-knowledge/tasks/020": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/021": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.9166666666666666,
+        "block": 7
+      },
+      "firm-knowledge/tasks/022": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.7692307692307693,
+        "block": 5
+      },
+      "firm-knowledge/tasks/023": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 1
+      },
+      "firm-knowledge/tasks/024": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8888888888888888,
+        "block": 7
+      },
+      "firm-knowledge/tasks/025": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8,
+        "block": 5
+      },
+      "firm-knowledge/tasks/026": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/027": {
+        "dual_all_pass_rate": 0.5,
+        "criterion_pass_rate": 0.9285714285714286,
+        "block": 7
+      },
+      "firm-knowledge/tasks/028": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8333333333333334,
+        "block": 6
+      },
+      "firm-knowledge/tasks/029": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/030": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8333333333333334,
+        "block": 6
+      },
+      "firm-knowledge/tasks/031": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8333333333333334,
+        "block": 6
+      },
+      "firm-knowledge/tasks/032": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/033": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/034": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/035": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8,
+        "block": 5
+      },
+      "firm-knowledge/tasks/036": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6666666666666666,
+        "block": 4
+      },
+      "firm-knowledge/tasks/037": {
+        "dual_all_pass_rate": 0.5,
+        "criterion_pass_rate": 0.75,
+        "block": 7
+      },
+      "firm-knowledge/tasks/038": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/039": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.28,
+        "block": 2
+      },
+      "firm-knowledge/tasks/040": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/041": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.7608695652173914,
+        "block": 5
+      },
+      "firm-knowledge/tasks/042": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.75,
+        "block": 5
+      },
+      "firm-knowledge/tasks/043": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8181818181818182,
+        "block": 5
+      },
+      "firm-knowledge/tasks/044": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/045": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8461538461538461,
+        "block": 6
+      },
+      "firm-knowledge/tasks/046": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6153846153846154,
+        "block": 3
+      },
+      "firm-knowledge/tasks/047": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.92,
+        "block": 7
+      },
+      "firm-knowledge/tasks/048": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/049": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.5666666666666667,
+        "block": 3
+      },
+      "firm-knowledge/tasks/050": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.4482758620689655,
+        "block": 2
+      },
+      "firm-knowledge/tasks/051": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/052": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.043478260869565216,
+        "block": 1
+      },
+      "firm-knowledge/tasks/053": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.7619047619047619,
+        "block": 5
+      },
+      "firm-knowledge/tasks/054": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.75,
+        "block": 4
+      },
+      "firm-knowledge/tasks/055": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.5,
+        "block": 2
+      },
+      "firm-knowledge/tasks/056": {
+        "dual_all_pass_rate": 0.5,
+        "criterion_pass_rate": 0.75,
+        "block": 7
+      },
+      "firm-knowledge/tasks/057": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.4,
+        "block": 2
+      },
+      "firm-knowledge/tasks/058": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8636363636363636,
+        "block": 6
+      },
+      "firm-knowledge/tasks/059": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8888888888888888,
+        "block": 7
+      },
+      "firm-knowledge/tasks/060": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.7142857142857143,
+        "block": 4
+      },
+      "firm-knowledge/tasks/061": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/062": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6,
+        "block": 3
+      },
+      "firm-knowledge/tasks/063": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.9090909090909091,
+        "block": 7
+      },
+      "firm-knowledge/tasks/064": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.4444444444444444,
+        "block": 2
+      },
+      "firm-knowledge/tasks/065": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8333333333333334,
+        "block": 6
+      },
+      "firm-knowledge/tasks/066": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.7777777777777778,
+        "block": 5
+      },
+      "firm-knowledge/tasks/067": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/068": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.3333333333333333,
+        "block": 2
+      },
+      "firm-knowledge/tasks/069": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.16666666666666666,
+        "block": 1
+      },
+      "firm-knowledge/tasks/070": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.75,
+        "block": 4
+      },
+      "firm-knowledge/tasks/071": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/072": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.75,
+        "block": 4
+      },
+      "firm-knowledge/tasks/073": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/074": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.7777777777777778,
+        "block": 5
+      },
+      "firm-knowledge/tasks/075": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.9230769230769231,
+        "block": 7
+      },
+      "firm-knowledge/tasks/076": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.2,
+        "block": 1
+      },
+      "firm-knowledge/tasks/077": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8888888888888888,
+        "block": 7
+      },
+      "firm-knowledge/tasks/078": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.875,
+        "block": 6
+      },
+      "firm-knowledge/tasks/079": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.5,
+        "block": 3
+      },
+      "firm-knowledge/tasks/080": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.7777777777777778,
+        "block": 5
+      },
+      "firm-knowledge/tasks/081": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/082": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/083": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/084": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6944444444444444,
+        "block": 4
+      },
+      "firm-knowledge/tasks/085": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/086": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.42857142857142855,
+        "block": 2
+      },
+      "firm-knowledge/tasks/087": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/088": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.75,
+        "block": 5
+      },
+      "firm-knowledge/tasks/089": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6666666666666666,
+        "block": 3
+      },
+      "firm-knowledge/tasks/090": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.9473684210526315,
+        "block": 7
+      },
+      "firm-knowledge/tasks/091": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6666666666666666,
+        "block": 4
+      },
+      "firm-knowledge/tasks/092": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.5555555555555556,
+        "block": 3
+      },
+      "firm-knowledge/tasks/093": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.25,
+        "block": 1
+      },
+      "firm-knowledge/tasks/094": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/095": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.75,
+        "block": 4
+      },
+      "firm-knowledge/tasks/096": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/097": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.75,
+        "block": 5
+      },
+      "firm-knowledge/tasks/098": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 1
+      },
+      "firm-knowledge/tasks/099": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6666666666666666,
+        "block": 4
+      },
+      "firm-knowledge/tasks/100": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.2894736842105263,
+        "block": 2
+      },
+      "firm-knowledge/tasks/101": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/102": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.4,
+        "block": 2
+      },
+      "firm-knowledge/tasks/103": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6666666666666666,
+        "block": 3
+      },
+      "firm-knowledge/tasks/104": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/105": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.5,
+        "block": 3
+      },
+      "firm-knowledge/tasks/106": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.4,
+        "block": 2
+      },
+      "firm-knowledge/tasks/107": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6666666666666666,
+        "block": 3
+      },
+      "firm-knowledge/tasks/108": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/109": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6666666666666666,
+        "block": 4
+      },
+      "firm-knowledge/tasks/110": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8636363636363636,
+        "block": 6
+      },
+      "firm-knowledge/tasks/111": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/112": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.5,
+        "block": 2
+      },
+      "firm-knowledge/tasks/113": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8571428571428571,
+        "block": 6
+      },
+      "firm-knowledge/tasks/114": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.058823529411764705,
+        "block": 1
+      },
+      "firm-knowledge/tasks/115": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8333333333333334,
+        "block": 6
+      },
+      "firm-knowledge/tasks/116": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.43478260869565216,
+        "block": 2
+      },
+      "firm-knowledge/tasks/117": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6551724137931034,
+        "block": 3
+      },
+      "firm-knowledge/tasks/118": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.5714285714285714,
+        "block": 3
+      },
+      "firm-knowledge/tasks/119": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.9166666666666666,
+        "block": 7
+      },
+      "firm-knowledge/tasks/120": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/121": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.3888888888888889,
+        "block": 2
+      },
+      "firm-knowledge/tasks/122": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6666666666666666,
+        "block": 3
+      },
+      "firm-knowledge/tasks/123": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.65,
+        "block": 3
+      },
+      "firm-knowledge/tasks/124": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6935483870967742,
+        "block": 4
+      },
+      "firm-knowledge/tasks/125": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.7931034482758621,
+        "block": 5
+      },
+      "firm-knowledge/tasks/126": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6896551724137931,
+        "block": 4
+      },
+      "firm-knowledge/tasks/127": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.625,
+        "block": 3
+      },
+      "firm-knowledge/tasks/128": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.25,
+        "block": 2
+      },
+      "firm-knowledge/tasks/129": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/130": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.3448275862068966,
+        "block": 2
+      },
+      "firm-knowledge/tasks/131": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/132": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.39285714285714285,
+        "block": 2
+      },
+      "firm-knowledge/tasks/133": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8461538461538461,
+        "block": 6
+      },
+      "firm-knowledge/tasks/134": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.16666666666666666,
+        "block": 1
+      },
+      "firm-knowledge/tasks/135": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.08333333333333333,
+        "block": 1
+      },
+      "firm-knowledge/tasks/136": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.022222222222222223,
+        "block": 1
+      },
+      "firm-knowledge/tasks/137": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.75,
+        "block": 4
+      },
+      "firm-knowledge/tasks/138": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/139": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8888888888888888,
+        "block": 6
+      },
+      "firm-knowledge/tasks/140": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8636363636363636,
+        "block": 6
+      },
+      "firm-knowledge/tasks/141": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8275862068965517,
+        "block": 5
+      },
+      "firm-knowledge/tasks/142": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.7884615384615385,
+        "block": 5
+      },
+      "firm-knowledge/tasks/143": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8478260869565217,
+        "block": 6
+      },
+      "firm-knowledge/tasks/144": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.7931034482758621,
+        "block": 5
+      },
+      "firm-knowledge/tasks/145": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.7317073170731707,
+        "block": 4
+      },
+      "firm-knowledge/tasks/146": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.7452830188679245,
+        "block": 4
+      },
+      "firm-knowledge/tasks/147": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.7735849056603774,
+        "block": 5
+      },
+      "firm-knowledge/tasks/148": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/149": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8548387096774193,
+        "block": 6
+      },
+      "firm-knowledge/tasks/150": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8235294117647058,
+        "block": 5
+      },
+      "firm-knowledge/tasks/151": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6666666666666666,
+        "block": 3
+      },
+      "firm-knowledge/tasks/152": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/153": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/154": {
+        "dual_all_pass_rate": 0.5,
+        "criterion_pass_rate": 0.8333333333333333,
+        "block": 7
+      },
+      "firm-knowledge/tasks/155": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.9302325581395349,
+        "block": 7
+      },
+      "firm-knowledge/tasks/156": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.7916666666666666,
+        "block": 5
+      },
+      "firm-knowledge/tasks/157": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/158": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8571428571428571,
+        "block": 6
+      },
+      "firm-knowledge/tasks/159": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/160": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.75,
+        "block": 5
+      },
+      "firm-knowledge/tasks/161": {
+        "dual_all_pass_rate": 0.5,
+        "criterion_pass_rate": 0.75,
+        "block": 7
+      },
+      "firm-knowledge/tasks/162": {
+        "dual_all_pass_rate": 0.5,
+        "criterion_pass_rate": 0.875,
+        "block": 7
+      },
+      "firm-knowledge/tasks/163": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/164": {
+        "dual_all_pass_rate": 0.5,
+        "criterion_pass_rate": 0.875,
+        "block": 7
+      },
+      "firm-knowledge/tasks/165": {
+        "dual_all_pass_rate": 0.5,
+        "criterion_pass_rate": 0.75,
+        "block": 7
+      },
+      "firm-knowledge/tasks/166": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/167": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.2,
+        "block": 1
+      },
+      "firm-knowledge/tasks/168": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/169": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6842105263157895,
+        "block": 4
+      },
+      "firm-knowledge/tasks/170": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.5555555555555556,
+        "block": 3
+      },
+      "firm-knowledge/tasks/171": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.14285714285714285,
+        "block": 1
+      },
+      "firm-knowledge/tasks/172": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/173": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/174": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.75,
+        "block": 4
+      },
+      "firm-knowledge/tasks/175": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8333333333333334,
+        "block": 6
+      },
+      "firm-knowledge/tasks/176": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/177": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/178": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.9130434782608695,
+        "block": 7
+      },
+      "firm-knowledge/tasks/179": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.14814814814814814,
+        "block": 1
+      },
+      "firm-knowledge/tasks/180": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 7
+      },
+      "firm-knowledge/tasks/181": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8333333333333334,
+        "block": 6
+      },
+      "firm-knowledge/tasks/182": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/183": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/184": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.1,
+        "block": 1
+      },
+      "firm-knowledge/tasks/185": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/186": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0392156862745098,
+        "block": 1
+      },
+      "firm-knowledge/tasks/187": {
+        "dual_all_pass_rate": 0.5,
+        "criterion_pass_rate": 0.9166666666666667,
+        "block": 7
+      },
+      "firm-knowledge/tasks/188": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.034482758620689655,
+        "block": 1
+      },
+      "firm-knowledge/tasks/189": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8108108108108109,
+        "block": 5
+      },
+      "firm-knowledge/tasks/190": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.09375,
+        "block": 1
+      },
+      "firm-knowledge/tasks/191": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6666666666666666,
+        "block": 4
+      },
+      "firm-knowledge/tasks/192": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/193": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.9470588235294117,
+        "block": 7
+      },
+      "firm-knowledge/tasks/194": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.75,
+        "block": 4
+      },
+      "firm-knowledge/tasks/195": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.875,
+        "block": 6
+      },
+      "firm-knowledge/tasks/196": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/197": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.9852941176470589,
+        "block": 7
+      },
+      "firm-knowledge/tasks/198": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.75,
+        "block": 4
+      },
+      "firm-knowledge/tasks/199": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/200": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/201": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8,
+        "block": 5
+      },
+      "firm-knowledge/tasks/202": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.09090909090909091,
+        "block": 1
+      },
+      "firm-knowledge/tasks/203": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/204": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6212121212121212,
+        "block": 3
+      },
+      "firm-knowledge/tasks/205": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/206": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/207": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 1
+      },
+      "firm-knowledge/tasks/208": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.9444444444444444,
+        "block": 7
+      },
+      "firm-knowledge/tasks/209": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/210": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/211": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/212": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/213": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.18181818181818182,
+        "block": 1
+      },
+      "firm-knowledge/tasks/214": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/215": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/216": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.5,
+        "block": 2
+      },
+      "firm-knowledge/tasks/217": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.13636363636363635,
+        "block": 1
+      },
+      "firm-knowledge/tasks/218": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6111111111111112,
+        "block": 3
+      },
+      "firm-knowledge/tasks/219": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/220": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.3333333333333333,
+        "block": 2
+      },
+      "firm-knowledge/tasks/221": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/222": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6666666666666666,
+        "block": 4
+      },
+      "firm-knowledge/tasks/223": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6428571428571428,
+        "block": 3
+      },
+      "firm-knowledge/tasks/224": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8571428571428571,
+        "block": 6
+      },
+      "firm-knowledge/tasks/225": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.5,
+        "block": 2
+      },
+      "firm-knowledge/tasks/226": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/227": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/228": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8,
+        "block": 5
+      },
+      "firm-knowledge/tasks/229": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 1
+      },
+      "firm-knowledge/tasks/230": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6666666666666666,
+        "block": 4
+      },
+      "firm-knowledge/tasks/231": {
+        "dual_all_pass_rate": 0.5,
+        "criterion_pass_rate": 0.8333333333333333,
+        "block": 7
+      },
+      "firm-knowledge/tasks/232": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8333333333333334,
+        "block": 6
+      },
+      "firm-knowledge/tasks/233": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/234": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.75,
+        "block": 4
+      },
+      "firm-knowledge/tasks/235": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/236": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 9
+      },
+      "firm-knowledge/tasks/237": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.4,
+        "block": 2
+      },
+      "firm-knowledge/tasks/238": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6,
+        "block": 3
+      },
+      "firm-knowledge/tasks/239": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.6666666666666666,
+        "block": 3
+      },
+      "firm-knowledge/tasks/240": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/241": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.5,
+        "block": 2
+      },
+      "firm-knowledge/tasks/242": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.25,
+        "block": 1
+      },
+      "firm-knowledge/tasks/243": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.875,
+        "block": 6
+      },
+      "firm-knowledge/tasks/244": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/245": {
+        "dual_all_pass_rate": 1.0,
+        "criterion_pass_rate": 1.0,
+        "block": 8
+      },
+      "firm-knowledge/tasks/246": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.7142857142857143,
+        "block": 4
+      },
+      "firm-knowledge/tasks/247": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 1
+      },
+      "firm-knowledge/tasks/248": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.0,
+        "block": 0
+      },
+      "firm-knowledge/tasks/249": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.65,
+        "block": 3
+      },
+      "firm-knowledge/tasks/250": {
+        "dual_all_pass_rate": 0.0,
+        "criterion_pass_rate": 0.8846153846153846,
+        "block": 6
+      }
+    }
+  }
+}

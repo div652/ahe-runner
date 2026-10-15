@@ -14,7 +14,7 @@ All commands run from the AHE repository root (`~/AHE_Harvey`, branch
 |---|---|
 | LAB repository | `~/harvey-labs`, branch `divyanshu_harvey_evolution` |
 | LAB commit | `86678eba6fcbc6c03958742c6e9e75737514f513` (equals `lab_commit` in `splits.json` and `splits-v2.json`) |
-| Splits | `harvey-ahe-project/splits.json` (campaigns 1-6): 6 train, 3 validation, 3 test tasks. `harvey-ahe-project/splits-v2.json` (campaign 7 onward): 60 train, 15 validation, 15 test tasks, built by `scripts/make_splits_v2.py` (section 5h). Each task is pinned by the sha256 of its `task.json` and documents tree |
+| Splits | `harvey-ahe-project/splits.json` (campaigns 1-6): 6 train, 3 validation, 3 test tasks. `harvey-ahe-project/splits-v2.json` (campaign 7 onward): 60 train, 15 validation, 15 test tasks, built by `scripts/make_splits_v2.py` (section 5h). Firm-knowledge splits: `splits-firm-knowledge-60-15-15.json` (campaigns 10, 11; random) and `splits-firm-knowledge-80-20-20.json` (campaign 12; stratified by 9b difficulty, section 5u). Each task is pinned by the sha256 of its `task.json` and documents tree |
 | NexAU | 0.3.9 (from the AHE environment) |
 | Endpoint | loopback GH Copilot Server, `http://127.0.0.1:3141/v1`, chat completions |
 
@@ -2003,6 +2003,73 @@ the same 60 tasks, paired by task, with a 95% bootstrap interval. 9b on these
 - both-judge all-pass 0.317.
 
 If C0 differs clearly, the operator may rerun all 250 tasks with 128000.
+
+## 5u. Campaign 11 stopped; campaign 12: `harvey-lab-campaign-12-gpt-5.6-sol-high-80-20-20`
+
+Campaign 11's C0 (120 trials, done 2026-10-15 18:32 UTC after one resume for
+an infrastructure-failed trial) matched 9b on the same 60 train tasks. No
+difference is significant, so the 250-task rerun with 128000 is not needed:
+
+| Metric | C0 (128000) | 9b | Difference | 95% interval |
+|---|---|---|---|---|
+| Criterion pass | 0.721 | 0.734 | -0.013 | -0.089 to +0.064 |
+| Dual all-pass | 0.358 | 0.342 | +0.017 | -0.050 to +0.087 |
+| Both-judge all-pass | 0.342 | 0.317 | +0.025 | -0.042 to +0.100 |
+
+The campaign 10 split was not representative. Its train tasks were easier
+than the pool by chance, although the draw did not look at scores. 9b's
+scores on each part:
+
+| Part | Tasks | Dual all-pass | Criterion pass |
+|---|---|---|---|
+| Train | 60 | 0.342 | 0.734 |
+| Validation | 15 | 0.200 | 0.587 |
+| Test | 15 | 0.133 | 0.630 |
+| Not used | 160 | 0.191 | 0.603 |
+| All | 250 | 0.224 | 0.635 |
+
+Only 0.8% of random 60-task draws reach a dual all-pass of 0.342 (0.4% for
+the criterion pass). The number of criteria does not explain it (11.6 per
+train task, 10.5 overall). C0 confirmed it independently (0.358). The
+operator stopped campaign 11 at the start of round 1 (2026-10-15 18:53 UTC)
+and its folder was deleted; the log is
+`campaign-artifacts/c11-stopped-split-change-run.log`.
+
+A new random draw would not fix this reliably: 95% of random 80-task draws
+have a dual all-pass between 0.150 and 0.300, and 20-task draws between 0.05
+and 0.40. Campaign 12 therefore uses a split stratified by 9b difficulty
+(operator's choice), `splits-firm-knowledge-80-20-20.json`, built by
+`scripts/make_splits_firm_knowledge_c12.py` with salt
+`harvey-lab-campaign-12`:
+1. Sort the 250 tasks from hardest to easiest by 9b's dual all-pass rate,
+   then criterion pass rate.
+2. Cut the list into 10 blocks of 25.
+3. In each block, draw 2 test, 2 validation and 8 train tasks at random. The
+   other 13 are not used.
+
+The split file records each task's 9b values and block under
+`stratification`. 9b's scores on the new parts:
+
+| Part | Tasks | Dual all-pass | Criterion pass | Mean criteria |
+|---|---|---|---|---|
+| Train | 80 | 0.225 | 0.633 | 9.9 |
+| Validation | 20 | 0.225 | 0.625 | 9.0 |
+| Test | 20 | 0.250 | 0.632 | 9.3 |
+| Not used | 130 | 0.219 | 0.638 | |
+| All | 250 | 0.224 | 0.635 | 10.5 |
+
+The train part shares 26 tasks with the campaign 10 split, 15 of them from
+its train part. The validation and test parts share none with their
+campaign 10 counterparts.
+
+Caveat: stratifying by 9b uses the evaluated model's own C0 results (one
+trial per task). This balances difficulty; it does not tell the meta agents
+anything about validation or test tasks.
+
+Everything else is campaign 11: gpt-5.6-sol at high for the evaluated model
+(`max_tokens` 128000) and every meta agent, 5 rounds, 2/2/3 trials, the same
+judges, concurrency and transport. Estimated time: about 1.33 times
+campaign 11's 15.5 hours, so 20 to 21 hours.
 
 ## 6. Known deviations and limits to report with results
 
