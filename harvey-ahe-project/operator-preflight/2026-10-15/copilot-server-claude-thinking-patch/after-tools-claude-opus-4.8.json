@@ -1,0 +1,60 @@
+{
+  "model": "claude-opus-4.8",
+  "base_url": "http://127.0.0.1:3141/v1",
+  "mode": "tools",
+  "started": "2026-10-15T07:18:42Z",
+  "steps": [
+    {
+      "ok": true,
+      "seconds": 3.17,
+      "model": "claude-opus-4.8",
+      "text": null,
+      "tool_calls": [
+        {
+          "id": "toolu_01T455Z5aQ6h798oSj4CVPZL",
+          "type": "function",
+          "function": {
+            "name": "get_balance",
+            "arguments": "{\"account_id\":\"A-17\"}"
+          }
+        }
+      ],
+      "step": 1
+    },
+    {
+      "ok": true,
+      "seconds": 3.19,
+      "model": "claude-opus-4.8",
+      "text": null,
+      "tool_calls": [
+        {
+          "id": "toolu_01R67h7cHzJCnuh9WmmNMyjz",
+          "type": "function",
+          "function": {
+            "name": "get_balance",
+            "arguments": "{\"account_id\":\"B-4\"}"
+          }
+        },
+        {
+          "id": "toolu_011iKGjwZ1NLZoiMn1oaxrXG",
+          "type": "function",
+          "function": {
+            "name": "get_balance",
+            "arguments": "{\"account_id\":\"C-9\"}"
+          }
+        }
+      ],
+      "step": 2
+    },
+    {
+      "ok": true,
+      "seconds": 1.28,
+      "model": "claude-opus-4.8",
+      "text": "1732.75",
+      "tool_calls": null,
+      "step": 3
+    }
+  ],
+  "expected_final": "1732.75",
+  "finished": "2026-10-15T07:18:49Z"
+}

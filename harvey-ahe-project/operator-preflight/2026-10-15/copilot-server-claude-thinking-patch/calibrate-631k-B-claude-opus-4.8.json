@@ -1,0 +1,20 @@
+{
+  "model": "claude-opus-4.8",
+  "base_url": "http://127.0.0.1:3141/v1",
+  "mode": "calibrate",
+  "started": "2026-10-15T07:21:09Z",
+  "target_o200k": 631000,
+  "prompt_tokens_o200k": 631109,
+  "n_messages": 108,
+  "prompt_chars": 3048456,
+  "run": {
+    "ok": false,
+    "seconds": 6.05,
+    "error": {
+      "http_status": 500,
+      "body": "{\"error\":{\"message\":\"Request Failed: 400 {\\\"error\\\":{\\\"code\\\":\\\"model_max_prompt_tokens_exceeded\\\",\\\"message\\\":\\\"prompt is too long: 1058298 tokens \\\\u003e 1000000 maximum\\\",\\\"type\\\":\\\"invalid_request_error\\\"},\\\"request_id\\\":\\\"req_011Cg3crsjWYUcXGC11qc3TG\\\",\\\"type\\\":\\\"error\\\"}\",\"type\":\"server_error\"}}"
+    },
+    "secret_recalled": false
+  },
+  "finished": "2026-10-15T07:21:19Z"
+}
