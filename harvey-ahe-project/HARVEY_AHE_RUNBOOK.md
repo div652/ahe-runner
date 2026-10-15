@@ -1740,6 +1740,10 @@ edit 2%. Among finished trials, more turns go with slightly higher scores
 | Calls that failed after resends | 2 (each hung three times) |
 | Clean call seconds: median / p90 / p99 / max | 5.0 / 14.4 / 41.7 / 154 |
 
+**Trajectory walkthroughs.** Call-by-call walkthroughs of six campaign 9b
+runs, including one all-pass, are in
+[`docs/HARVEY_CAMPAIGN_9B_TRAJECTORY_WALKTHROUGHS.md`](../docs/HARVEY_CAMPAIGN_9B_TRAJECTORY_WALKTHROUGHS.md).
+
 
 ## 6. Known deviations and limits to report with results
 
