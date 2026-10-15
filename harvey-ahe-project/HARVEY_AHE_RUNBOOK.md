@@ -1564,6 +1564,34 @@ positive and negative-control probes
 Launch the C0-only command of 5l in the same resume loop as 5n, with the
 log at `campaign-artifacts/c9b-run.log`.
 
+Run 2026-10-15 02:57 UTC to 05:46 UTC (2 h 49 min), commit `48242b0`.
+
+| Measure | Campaign 9 rerun (5n) | Campaign 9b |
+|---|---|---|
+| Graded trials | 250 (4 on a second attempt) | 250 (11 on a second attempt) |
+| Mean criterion pass rate | 0.608 | 0.635 |
+| Dual all-pass rate | 0.220 (52 trials) | 0.224 (51 trials) |
+| Stopped for context | 14 (by the characters / 4 estimate) | 9 (by the exact count) |
+| Rejected by Copilot as too long | 1 (task 208, rerun) | 0 |
+| Hung calls | 95 of 5,120 calls | 101 of 5,293 calls; 2 hung three times |
+| Largest answered prompt | 797k tokens | 857k tokens; none over 921,793 |
+
+- Per task, 9b minus 9 is +0.027 (standard error 0.021): 75 tasks better,
+  64 worse, 111 equal. This is within noise.
+- The 14 trials stopped in campaign 9: 12 finished in 9b, and their mean
+  rose from 0.120 to 0.586. The 229 tasks stopped in neither run moved
+  from 0.644 to 0.652.
+- The 9 stops in 9b (tasks 052, 068, 069, 076, 093, 114, 134, 135, 171)
+  wrote no output; mean 0.161. Their prompts would have been 919k to 12.2M
+  tokens. Only task 052 (919,371) was within the 10,000-token margin.
+  Seven of them had finished in campaign 9, so which tasks run out of
+  context changes from run to run.
+- The 11 second attempts were infrastructure failures: 8 `podman info`
+  timeouts (10 s) between 05:05 and 05:08, just after a process inside one
+  sandbox was killed for running out of memory at 05:04; 2 calls that hung
+  three times; 1 sandbox unhealthy after its run. A single resume completed
+  them.
+
 
 ## 6. Known deviations and limits to report with results
 
