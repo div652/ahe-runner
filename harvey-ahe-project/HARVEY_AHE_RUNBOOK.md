@@ -1707,6 +1707,21 @@ pass rate is 0.664 (claude) and 0.677 (gpt).
 All-pass falls steeply with the number of criteria; tasks with 1-3
 criteria have the lowest criterion pass rate but the highest all-pass rate.
 
+The same split into four wider buckets, per judge (claude = claude-sonnet-5,
+gpt = gpt-5.5). All-pass cells give the rate and the number of tasks.
+
+| Criteria in task | Tasks | Criteria | Criterion pass claude / gpt / dual | Pooled pass claude / gpt | All-pass claude | All-pass gpt | Dual all-pass | Both-judge all-pass |
+|---|---|---|---|---|---|---|---|---|
+| 1-5 | 114 | 364 | 0.569 / 0.568 / 0.568 | 0.585 / 0.582 | 0.333 (38) | 0.316 (36) | 0.325 | 0.289 (33) |
+| 6-15 | 85 | 770 | 0.734 / 0.739 / 0.737 | 0.740 / 0.745 | 0.212 (18) | 0.212 (18) | 0.212 | 0.200 (17) |
+| 16-25 | 28 | 572 | 0.615 / 0.618 / 0.617 | 0.621 / 0.624 | 0.036 (1) | 0.036 (1) | 0.036 | 0.036 (1) |
+| 26+ | 23 | 917 | 0.591 / 0.633 / 0.612 | 0.623 / 0.661 | 0 (0) | 0 (0) | 0 | 0 (0) |
+| All | 250 | 2,623 | 0.632 / 0.638 / 0.635 | 0.652 / 0.667 | 0.228 (57) | 0.220 (55) | 0.224 | 0.204 (51) |
+
+Only one task with more than 15 criteria passes entirely; none with 26 or
+more does. The judges differ most on the largest tasks, where gpt-5.5 is
+more lenient (0.633 against 0.591).
+
 **Score distribution (dual criterion pass rate)**
 
 | Score | 0 | (0, 0.25) | [0.25, 0.5) | [0.5, 0.75) | [0.75, 1) | 1 |
