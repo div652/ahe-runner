@@ -49,6 +49,7 @@ The assistant announces new permanent files before creating them.
 | AHE-020 | Conformance requires `additionalProperties: false` in every tool schema, and NexAU sends that field to the model, so a harness cannot reproduce a benchmark's own tool schemas exactly | Explained on 2026-10-14; the operator chose an opt-in manifest setting | Fixed locally on 2026-10-14 (`44ea8aa`): `tool_schemas.allow_omitted_additional_properties`, default off; on only in `harness_manifest_lab.yaml` (campaign 9) |
 | AHE-021 | The GH Copilot Server transport silently cut prompts over about 270k tokens from the start and ignored the requested reasoning effort; AHE has no check that the transport honours the configured context and effort | Found on 2026-10-14 while analysing campaign 9's infrastructure errors; the operator stopped campaign 9 and approved a patch | Fixed locally on 2026-10-14 in the host's GH Copilot Server `server.js` (sends `options.configuration`); verified by `scripts/copilot_context_effort_probe.py` |
 | AHE-022 | A model call that hangs until the request timeout fails its whole trial; the unit is rerun from the start, which wastes work and favours shorter trials | Found on 2026-10-14 in campaign 9 (52 gpt-5.6-sol hangs); the operator chose per-call resending | Fixed locally on 2026-10-14: `transport.hung_call_retries` (default 0), every attempt recorded |
+| AHE-023 | NexAU checks the context limit with a characters-÷-4 estimate and stops the agent before sending; LAB has no such check, and a provider "too long" error became an infrastructure error that was rerun | Explained on 2026-10-15 after campaign 9's rerun; the operator chose to keep those results with a caveat, fix it, and evaluate all 250 tasks again | Fix in progress |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -1923,3 +1924,56 @@ campaign transport. Tests: `tests/test_model_access.py`
 2. Report, per campaign, how many calls were resent and how many unit
    attempts were lost to infrastructure errors, so readers can judge any
    bias towards shorter trials.
+
+### Outcome in campaign 9's rerun
+
+Runbook 5n: 106 hung attempts on 95 of 5,120 calls (about 2%). 92 calls
+succeeded on a resend; 3 hung three times in a row, so their trials were
+rerun and then succeeded. A call that hung once hung again 12% of the
+time, against 2% for a fresh call, so the stalls look tied to the request.
+
+## AHE-023: NexAU's context check differs from LAB's
+
+### Plain-language summary
+
+Before every model call, NexAU estimates the prompt size and stops the
+agent if the estimate is over `max_context_tokens`. By default it estimates
+one token per four characters. LAB has no such check: it sends the prompt
+and stops cleanly only when the provider says "prompt is too long" or
+"context_length_exceeded". The estimate is wrong in both directions. For
+prose it is 10-20% too high, so NexAU stops agents that would still fit.
+For dense tables it is too low, so a prompt that does not fit is sent, and
+the provider rejects it. GH Copilot Server reports that as a 500 "Message
+exceeds token limit", which the runner treats as an infrastructure error,
+so the trial is rerun from the start, a second chance LAB would not give.
+
+### Evidence
+
+- NexAU 0.3.9 `TokenCounter` defaults to `strategy="fallback"`,
+  `(len(text) + 3) // 4` (`archs/main_sub/utils/token_counter.py`); the
+  stop is in `execution/executor.py` around line 524.
+- Campaign 9 rerun (runbook 5n): 14 trials were stopped by the estimate.
+  On their last sent prompt the real o200k count was 0.80-0.96 times the
+  estimate, so about 10 of them were probably still under 921,793 real
+  tokens when stopped. All 14 wrote no output (mean criterion pass 0.12).
+- Task 208: one tool result of 2,715,670 characters (a table listing)
+  was estimated at about 680k tokens but is 946,107 real tokens; the
+  request (962,286) was rejected, recorded as an infrastructure error, and
+  rerun (second attempt 0.056).
+- No answered call in the rerun exceeded 797k real tokens, so nothing was
+  silently cut (AHE-021).
+
+### Approved local repair
+
+1. `harness_lab/agent.yaml` uses an exact o200k token counter
+   (`harvey_ahe.token_count:count_prompt_tokens`) for NexAU's check.
+2. The Harvey adapter treats a provider "too long" error (LAB's two
+   markers plus Copilot's "Message exceeds token limit") as a graded
+   `context_overflow` stop, as LAB does, not as an infrastructure error.
+
+### Upstream recommendations
+
+1. Count tokens with the model's tokenizer, or make the check opt-in, and
+   document which estimate a harness uses.
+2. Classify a provider context-length rejection as an agent outcome, not
+   an infrastructure failure, so it is graded rather than rerun.

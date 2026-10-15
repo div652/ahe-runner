@@ -1505,9 +1505,10 @@ artifacts directory.
 | Dual all-pass rate | 0.20 (tasks 087 and 096) |
 
 Two trials (tasks 174 and 222) filled the whole 921,793-token context
-through large file reads (LAB-005). NexAU then stopped the agent ("Prompt
-tokens ... exceed max_context_tokens"), as LAB stops on a provider
-"context_length_exceeded". Neither wrote an output file, yet they scored
+through large file reads (LAB-005). NexAU's own pre-send estimate then
+stopped the agent ("Prompt tokens ... exceed max_context_tokens"); LAB has
+no such check and lets the provider decide (AHE-023). Neither wrote an
+output file, yet they scored
 0.25 and 0.33: their "Qualifying set — precision" criterion passes when
 nothing is asserted (LAB-006). These are valid trials and are not retried.
 
@@ -1518,6 +1519,27 @@ nothing is asserted (LAB-006). These are valid trials and are not retried.
 directory name is reused; the stopped run lives under its new name (5m).
 Launch with the C0-only command of 5l, wrapped in the resume loop used for
 5m (log `campaign-artifacts/c9-run.log`).
+
+Run 2026-10-14 21:58 UTC to 2026-10-15 00:21 UTC (2 h 23 min), commit
+`aa9e013`.
+
+| Measure | Value |
+|---|---|
+| Graded trials | 250 of 250 (246 on the first attempt, 4 on a second) |
+| Mean criterion pass rate | 0.608 |
+| Dual all-pass rate | 0.220 (52 trials passed every criterion with both judges) |
+| Infrastructure errors | 4 attempts: 3 calls that hung three times, 1 "Message exceeds token limit" (task 208) |
+| Hung calls | 106 hung attempts on 95 of 5,120 calls (2%); 92 recovered by resending |
+| Stopped by NexAU's context estimate | 14 trials, no output, mean criterion pass 0.12 |
+| Largest answered prompt | 797k real tokens; nothing was silently cut |
+
+Caveat (AHE-023): NexAU's estimate of one token per four characters is
+10-20% high for prose, so about 10 of the 14 stopped trials were probably
+still under the real limit, where LAB would have continued. It is too low
+for dense tables: task 208 sent a 962k-token prompt, Copilot rejected it,
+and the runner counted that as an infrastructure error and reran the task
+(0.056), where LAB would have ended the run. These results are kept with
+this caveat; campaign 9b (5o) repeats all 250 tasks with the fix.
 
 
 ## 6. Known deviations and limits to report with results
