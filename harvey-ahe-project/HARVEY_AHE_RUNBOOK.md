@@ -2084,6 +2084,50 @@ on the same 80 tasks, paired by task, 95% bootstrap interval:
 
 No difference is significant.
 
+## 5v. Campaign 12: model server crash, stage retry and memory guard (AHE-026)
+
+On 2026-10-16 at 05:59:44 UTC, during the C4 train evaluation, the renderer
+of the model host's VS Code window (`copilot-host`, about 46 hours old)
+stopped with "V8 javascript OOM" (`~/copilot-host/logs/code.log`). Its
+extension host closed and port 3141 stopped answering.
+
+- 41 of the 160 C4 train trials had finished; they are valid and kept. The
+  other 119 failed with "Connection error".
+- The launcher's next two resumes failed at once, the stage used its 3
+  attempts and was blocked, and the launcher stopped ("final exit 2").
+- Rounds 0 to 3 and round 4's debugger, Evolve, freeze and validation stages
+  were complete.
+
+The crash log shows a heap of 225 MB against a 4,192 MB limit in an isolate
+only 83 minutes old. Chromium's isolates in one renderer share one 4 GB
+pointer-compression area, so this most likely means the window's main
+renderer heap had grown to almost 4 GB over 46 hours, not that one request
+was too large. This is an inference, not a measurement.
+
+The operator approved, on 2026-10-16:
+
+1. Restart the model server: done at 06:43 UTC (kill of the old main
+   process, new `code` tmux window, Start Server with xdotool). Preflights
+   for gpt-5.6-sol (high), claude-sonnet-5 and gpt-5.5 passed
+   (`operator-preflight/2026-10-16/`).
+2. A runner command to continue an infrastructure-blocked stage,
+   `ahe retry-blocked-stage`, and a pre-stage hook `AHE_PRE_STAGE_COMMAND`
+   (guide sections 2.5 and 2.6, AHE-026).
+3. A memory guard for the hook: `scripts/copilot_host_memory_guard.py`.
+   Before each stage attempt it measures the renderer's resident memory.
+   Below 2,500 MB it does nothing. At or above it, it waits up to 10 minutes
+   for other clients of port 3141 to finish, then restarts the window and
+   checks the listener, `/v1/models` and one small gpt-5.6-sol completion.
+   If other clients stay connected, it restarts only at 3,300 MB or more. A
+   failed restart stops the runner with an infrastructure error that uses no
+   attempt. Each decision is a JSON line in
+   `campaign-artifacts/copilot-host-guard.log`.
+4. Resume campaign 12 with both.
+
+A forced test restart at 06:54 UTC, with nothing running, took 20 seconds;
+the listener, 31 models and the probe were fine. Right after a restart the
+renderer uses 300 to 500 MB.
+
 ## 6. Known deviations and limits to report with results
 
 - Task scope (campaigns 1 to 8): only 166 of LAB's 2,010 tasks (8%) are

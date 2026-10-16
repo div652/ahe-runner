@@ -52,6 +52,7 @@ The assistant announces new permanent files before creating them.
 | AHE-023 | NexAU checks the context limit with a characters-÷-4 estimate and stops the agent before sending; LAB has no such check, and a provider "too long" error became an infrastructure error that was rerun | Explained on 2026-10-15 after campaign 9's rerun; the operator chose to keep those results with a caveat, fix it, and evaluate all 250 tasks again | Fixed locally; campaign 9b re-evaluates |
 | AHE-024 | The exact token counter of AHE-023 uses o200k_base for every model; Claude's tokenizer turns the same Harvey text into 1.65-1.68 times as many tokens, so `max_context_tokens` means a different amount of text per model | Explained on 2026-10-15 while preparing campaign 9c (claude-opus-4.8); the operator chose to keep the harness unchanged and let Anthropic's rejection end Opus runs, as LAB does, and approved recording; 9c was then dropped | No patch; only GPT models (o200k_base) are evaluated so far |
 | AHE-025 | All concurrent trials run as threads in one Python process, so host-side harness tools such as `grep` queue behind each other; LAB runs every task in its own process | Found on 2026-10-15 during campaign 10's C0 evaluation; the operator approved recording it | Fixed locally: the adapter setting `trial_processes` runs each trial's agent in its own process; campaign 10 was stopped and restarted with it |
+| AHE-026 | When an outage outlasts a stage's attempts, the stage is blocked and the campaign cannot continue, although every attempt failed on infrastructure and no result is in doubt; there is also no hook to keep a long-lived dependency such as the model server healthy between stages | Found on 2026-10-16 when campaign 12's model server crashed during the C4 train evaluation; the operator approved a command that reopens only infrastructure-blocked stages, plus a pre-stage hook | Fixed locally: `ahe retry-blocked-stage` (recorded in `campaign_amendments.json`) and `AHE_PRE_STAGE_COMMAND`; campaign 12 resumed with both |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -2124,3 +2125,66 @@ Known limits:
    host-side harness tools of one trial from blocking another's.
 2. Record per-tool wall time in traces, so that slow tools are visible
    without reconstructing them from model-call timestamps.
+
+## AHE-026: an outage can block a stage for good
+
+### Plain-language summary
+
+A stage that fails because of infrastructure (a timeout, a dropped
+connection) is retried when the operator resumes, up to
+`recovery.maximum_stage_attempts` attempts. If the outage lasts longer than
+those attempts, the stage is blocked, and AHE had no way to unblock it
+(AHE-011). The only option was to start a new campaign, throwing away hours
+of valid work, even though no attempt had produced a result and nothing
+about the campaign was in doubt.
+
+The outage itself also had a cause AHE could have helped with: the model
+server runs inside a VS Code window that slowly uses more memory, and the
+runner had no point at which an operator could check or restart it between
+stages.
+
+### Evidence
+
+- Campaign 12 (gpt-5.6-sol, high) ran for about 34 hours. On 2026-10-16 at
+  05:59:44 UTC the renderer process of the model host's VS Code window
+  stopped with "V8 javascript OOM" after about 46 hours. Its extension host
+  closed, and port 3141 stopped answering.
+- In the C4 train evaluation, 41 of 160 trials had finished; the other 119
+  failed with "Connection error". The two resumes that followed failed at
+  once for the same reason, the stage reached its 3 attempts and was blocked,
+  and the resume loop stopped.
+- Rounds 0 to 3 and round 4's debugger, Evolve, freeze and validation stages
+  were complete. The 41 finished C4 trials were written before the crash and
+  are valid.
+
+### Local decision or repair
+
+The operator approved, on 2026-10-16:
+
+1. `ahe retry-blocked-stage --config C --stage S --reason R [--apply]
+   [--allow-runner-code-change]` (`controller.py`, `state.py`). It accepts
+   only a blocked, retryable stage whose every attempt failed on
+   infrastructure (or was abandoned by a killed process). It adds
+   `recovery.maximum_stage_attempts` more attempts, recorded as
+   `attempt_allowance` and an `operator_overrides` entry in the stage
+   record, and appends an entry of kind `retry_blocked_stage` to
+   `campaign_amendments.json`, chained like the `extend-rounds` entries.
+   Protected inputs must be unchanged; changed runner files are accepted
+   only with the flag and are listed. It is a dry run unless `--apply`.
+2. Stages now store `retryable` in `stage.json`, so the check does not have
+   to guess. For older records, a stage counts as retryable only if an
+   earlier attempt failed on infrastructure without blocking it.
+3. `AHE_PRE_STAGE_COMMAND`: an operator command run before every new stage
+   attempt, with `AHE_STAGE_NAME` and `AHE_CAMPAIGN_DIR` set. If it fails or
+   times out (`AHE_PRE_STAGE_TIMEOUT_SECONDS`, default 1200), the runner
+   stops with an infrastructure error before the attempt is recorded, so no
+   attempt is used. Harvey uses it to restart the model server's VS Code
+   window when its memory is high (runbook section 5v).
+
+### Upstream recommendations
+
+1. Let an operator reopen a stage blocked only by infrastructure failures,
+   with an audit record, instead of requiring a new campaign.
+2. Give operators a supported hook between stages for health checks of
+   external services.
+

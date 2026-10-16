@@ -184,6 +184,7 @@ code 2 (`cli.py`, `main`). Other Python errors print a normal traceback.
 | `ahe run-final-test --config C` | Validation and selection if needed, then the final test and export |
 | `ahe status --config C` | Write and print `campaign_state.json` |
 | `ahe extend-rounds --config C --reason R [--apply] [--allow-runner-code-change]` | After raising `campaign.rounds` in the config, accept the new value for an existing campaign (section 2.6). A dry run unless `--apply` |
+| `ahe retry-blocked-stage --config C --stage S --reason R [--apply] [--allow-runner-code-change]` | Give stage S, blocked only by infrastructure failures, `recovery.maximum_stage_attempts` more attempts (section 2.6). A dry run unless `--apply` |
 
 Neither `conformance` nor `validate` checks the model endpoint or the Docker
 shell image. The endpoint is checked by preflights at the start of each model
@@ -239,11 +240,27 @@ per attempt. The same command can be run again at any time.
   `StageInterruptedError` ("Run resume to continue"). Run the same command (or
   `ahe resume`) again.
 - Any other failure makes the stage `blocked`. A blocked stage raises
-  `StageBlockedError` on every later call. No command unblocks it (AHE-011).
+  `StageBlockedError` on every later call. Only `ahe retry-blocked-stage`
+  unblocks it, and only when every attempt failed on infrastructure
+  (section 2.6; AHE-011, AHE-026).
 - A stage with more than `recovery.maximum_stage_attempts` attempts (default
-  3) becomes `blocked`. Killed attempts count too.
+  3), or more than its `attempt_allowance` after `retry-blocked-stage`,
+  becomes `blocked`. Killed attempts count too.
 
 The runner never retries inside one process. You decide when to rerun.
+
+**Pre-stage command (AHE-026).** If the environment variable
+`AHE_PRE_STAGE_COMMAND` is set, the runner runs it before every new stage
+attempt (not for stages that are already complete). It is split like a shell
+command line (`shlex.split`) but run without a shell. It gets
+`AHE_STAGE_NAME` and `AHE_CAMPAIGN_DIR` in its environment, and its output
+goes to stderr. If it exits non-zero, or runs longer than
+`AHE_PRE_STAGE_TIMEOUT_SECONDS` (default 1200), the command stops with an
+`InfrastructureError` before the attempt is recorded, so no attempt is used.
+The command is saved in each attempt record as `pre_stage_command`. Harvey
+uses it to restart the model server's VS Code window before it runs out of
+memory (runbook section 5v). The variable is not part of the campaign
+identity.
 
 These stages are never retried, even after an infrastructure error:
 `baseline.freeze`, `evidence.*`, `round.*.validate`, `round.*.freeze`,
@@ -275,7 +292,8 @@ changed in protected inputs [...]; use a new artifacts directory`.
 
 So any edit to runner code, prompts, supplements, `ahe.yaml` or adapter files
 needs a new `campaign.artifacts_dir` (and usually a new `campaign.name`). The
-same applies after a stage is blocked.
+same applies after a stage is blocked, unless the second exception below
+applies.
 
 The check runs again at the start of every round inside a running `ahe run`
 or `ahe resume`, because the hashes are taken from the files on disk. Editing
@@ -307,6 +325,38 @@ Rules (`extend_rounds` in `controller.py`):
 - From then on, commands accept only the identity of the last amendment.
   Amendments must chain from the manifest's hash and match their own hashes;
   an edited ledger stops every command.
+
+**Second exception: retrying a stage blocked by infrastructure (AHE-026).**
+If an outage outlasts a stage's attempts (for example the model server is
+down while a resume loop uses them up), the stage is blocked although nothing
+is wrong with the campaign. To continue it:
+
+1. Fix the cause and stop the campaign process.
+2. Run `ahe retry-blocked-stage --config C --stage S --reason "..."`. This
+   dry run shows the attempts so far and the new allowance.
+3. Run it again with `--apply`, then `ahe resume`.
+
+Rules (`retry_blocked_stage` in `controller.py`, `blocked_retry_plan` and
+`reopen_blocked` in `state.py`):
+
+- The stage must be `blocked`, and retryable (evaluation, `exploration`,
+  `round.*.debugger`, `round.*.evolve`). Records written before stages stored
+  `retryable` count as retryable only if an earlier attempt failed on
+  infrastructure without blocking the stage.
+- Every attempt must have failed on infrastructure (`infrastructure_failed`,
+  or `interrupted` with `AbandonedStageAttempt`). A stage with any other
+  failure is refused, so a valid result or a real error is never retried.
+- No protected input may have changed. With `--allow-runner-code-change`,
+  changed runner package files are accepted and listed, as for
+  `extend-rounds`.
+- `--apply` appends an entry of kind `retry_blocked_stage` to
+  `campaign_amendments.json` (reason, stage, attempt statuses, new allowance,
+  changed paths, identity and hash) and adds an `operator_overrides` entry to
+  the stage record. The stage becomes `interrupted` with
+  `attempt_allowance` = attempts so far + `recovery.maximum_stage_attempts`.
+  Earlier attempts and all other stage records are not changed.
+- The resume keeps what the stage kept before (section 2.5): for an
+  evaluation, only units without `complete.json` run again.
 
 ### 2.7 The model endpoint
 
@@ -1065,7 +1115,7 @@ All are in `src/ahe_runner/errors.py` and subclass `AHERunnerError`.
 | `IntegrityError` | A stored artifact does not match its record, a model answered with the wrong label, the campaign identity changed, or a meta agent did not deliver its contract | Stage blocked | Investigate. Never edit artifacts to make it pass. A changed identity needs a new artifacts folder |
 | `CandidateValidationError` | The evolved harness failed validation in `round.{i}.validate` | Stage blocked | Read `evolve/C{i}/validation.json`. Start a new campaign |
 | `StageInterruptedError` | A retryable attempt failed for infrastructure reasons and was saved | Stage `interrupted` | Rerun the command or `ahe resume` |
-| `StageBlockedError` | A stage cannot continue | Stage `blocked` | Read `error.json`. A new campaign is needed (AHE-011) |
+| `StageBlockedError` | A stage cannot continue | Stage `blocked` | Read `error.json`. If every attempt failed on infrastructure, use `ahe retry-blocked-stage` (section 2.6). Otherwise a new campaign is needed (AHE-011) |
 
 Exit code 2 with a JSON error on stderr means one of these. A Python
 traceback means an unexpected error, for example `--round` out of range or a
@@ -1095,6 +1145,7 @@ From the runbook and the recommendations doc:
 | Judge load probe: 120 calls at once, 30 failed with HTTP 500 | Upstream HTTP 429: the Copilot service refuses large bursts, and nothing queued calls (AHE-015) | `transport.max_concurrent_requests: 24`, Harvey judge cap 18 |
 | Campaign 3 final test: models were listed but chat calls hung for 300 s | An orphaned VS Code extension host behind the endpoint | Relaunched; the endpoint now runs in tmux session `copilot-host` on the server |
 | Campaign 9: 52 evaluated-agent calls hung until the 300 s endpoint timeout, each failing its whole trial | Upstream stalls specific to gpt-5.6-sol (2.6% of its calls; under 0.1% for other models), mostly in calls 2-9 of a trial | `transport.hung_call_retries` resends the call (AHE-022) |
+| Campaign 12, C4 train: 119 trials failed with "Connection error", then the resume loop used up the stage's 3 attempts and it was blocked | The model server's VS Code window ran out of memory after about 46 hours and closed port 3141 | Restart the server, then `ahe retry-blocked-stage` and `ahe resume`; a pre-stage command restarts the window before it gets that large (AHE-026) |
 | Campaign 4, round 1: debugger submissions refused for uncovered citations | Citing single-line trace records that were not fully read | Recoverable inside the run; readable views and line-only rules (AHE-016) make this clearer |
 | Campaign 4, round 1: Evolve `complete_task` refused, "predicted_fixes and risk_tasks overlap" | A task listed as both a predicted fix and a risk | Recoverable inside the run; the agent fixed its manifest |
 | Campaign 4, round 2: two debuggers stopped with "context remains above the configured compaction target", stage blocked | They read `.docx`/`.xlsx` files as text (about 36,000 tokens each); old compaction stopped the agent | AHE-016: binary refusal in `read_file`, readable views, original middleware, non-blocking debugger failures |
@@ -1157,7 +1208,7 @@ issues are in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md`.
 | AHE-008 | Skills were copied into the operator's current folder | Per-run sandbox work folder |
 | AHE-009 | Supplements are rendered as Jinja | No patch; supplements avoid markup |
 | AHE-010 | `search_text` had no output budget | Capped; later replaced by AHE-016 tools |
-| AHE-011 | Blocked stages cannot be retried | No patch; start a new campaign |
+| AHE-011 | Blocked stages cannot be retried | Only infrastructure-blocked stages: `ahe retry-blocked-stage` (AHE-026). Otherwise start a new campaign |
 | AHE-012 | Independent evaluations run one after another | No patch (performance only) |
 | AHE-013 | No tool-output safety net, no shell | Addressed by AHE-014 and AHE-016 |
 | AHE-014 | `list_files` had no output budget | Backstop middleware; replaced in AHE-016 |

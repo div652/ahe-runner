@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import shlex
+import subprocess
+import sys
 import traceback
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -10,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import (
+    ConfigurationError,
     InfrastructureError,
     IntegrityError,
     StageBlockedError,
@@ -46,9 +51,13 @@ class StageStore:
         *,
         campaign_dir: Path,
         maximum_attempts: int,
+        pre_stage_command: str | None = None,
+        pre_stage_timeout_seconds: float = 1200.0,
     ) -> None:
         self.campaign_dir = campaign_dir.resolve()
         self.maximum_attempts = maximum_attempts
+        self.pre_stage_command = pre_stage_command
+        self.pre_stage_timeout_seconds = pre_stage_timeout_seconds
         self.root = self.campaign_dir / "stages"
 
     def run(
@@ -108,11 +117,13 @@ class StageStore:
             atomic_write_json(stage_path, stage)
 
         attempt = len(attempts) + 1
-        if attempt > self.maximum_attempts:
+        allowed_attempts = self._allowed_attempts(stage)
+        if attempt > allowed_attempts:
             stage["status"] = "blocked"
-            stage["last_error"] = f"stage exhausted {self.maximum_attempts} attempts"
+            stage["last_error"] = f"stage exhausted {allowed_attempts} attempts"
             atomic_write_json(stage_path, stage)
             raise StageBlockedError(name, stage["last_error"])
+        self._run_pre_stage_command(name)
 
         attempt_dir = stage_dir / "attempts" / f"{attempt:04d}"
         attempt_dir.mkdir(parents=True, exist_ok=False)
@@ -125,8 +136,11 @@ class StageStore:
             "started_at": datetime.now(UTC).isoformat(),
             "attempt_dir": str(attempt_dir.relative_to(self.campaign_dir)),
         }
+        if self.pre_stage_command:
+            attempt_record["pre_stage_command"] = self.pre_stage_command
         attempts.append(attempt_record)
         stage["attempts"] = attempts
+        stage["retryable"] = retryable
         stage["status"] = "running"
         stage["updated_at"] = datetime.now(UTC).isoformat()
         atomic_write_json(stage_path, stage)
@@ -167,7 +181,7 @@ class StageStore:
             can_retry = (
                 retryable
                 and isinstance(exc, InfrastructureError)
-                and attempt < self.maximum_attempts
+                and attempt < allowed_attempts
             )
             stage["status"] = "interrupted" if can_retry else "blocked"
             stage["updated_at"] = datetime.now(UTC).isoformat()
@@ -201,6 +215,87 @@ class StageStore:
         atomic_write_json(stage_path, stage)
         return result
 
+    def blocked_retry_plan(self, name: str) -> dict[str, Any]:
+        """Check that a blocked stage may be retried and describe the retry.
+
+        Only a retryable stage whose every attempt ended in an infrastructure
+        failure (or was abandoned by a killed process) qualifies. A stage with
+        any completed attempt or any other failure is refused, so valid
+        results are never rerun.
+        """
+        stage_path = self._stage_path(name)
+        if not stage_path.is_file():
+            raise ConfigurationError(f"no stage named {name!r} in this campaign")
+        stage = read_json(stage_path)
+        if stage.get("status") != "blocked":
+            raise ConfigurationError(
+                f"stage {name} is {stage.get('status')!r}, not 'blocked'"
+            )
+        attempts = list(stage.get("attempts") or [])
+        if not attempts:
+            raise IntegrityError(f"blocked stage {name} has no attempts")
+        refused = [
+            int(row.get("attempt", index))
+            for index, row in enumerate(attempts, start=1)
+            if not _failed_on_infrastructure(row)
+        ]
+        if refused:
+            raise IntegrityError(
+                f"stage {name} attempts {refused} did not fail on infrastructure; "
+                "only infrastructure-blocked stages can be retried"
+            )
+        retryable = stage.get("retryable")
+        if retryable is None:
+            # Records written before `retryable` was stored: an earlier attempt
+            # that failed on infrastructure without blocking the stage shows
+            # the runner treated it as retryable.
+            retryable = any(
+                row.get("status") == "infrastructure_failed" for row in attempts[:-1]
+            )
+        if not retryable:
+            raise IntegrityError(f"stage {name} is not retryable by design")
+        last_error = stage.get("last_error")
+        return {
+            "stage": name,
+            "attempts": len(attempts),
+            "allowed_attempts": self._allowed_attempts(stage),
+            "attempt_statuses": [row.get("status") for row in attempts],
+            "last_error_type": last_error.get("type")
+            if isinstance(last_error, dict)
+            else None,
+        }
+
+    def reopen_blocked(
+        self,
+        name: str,
+        *,
+        allowed_attempts: int,
+        override: Mapping[str, Any],
+    ) -> None:
+        """Mark a blocked stage interrupted with a larger attempt allowance."""
+        plan = self.blocked_retry_plan(name)
+        if allowed_attempts <= plan["attempts"]:
+            raise ConfigurationError(
+                f"stage {name} already has {plan['attempts']} attempts; the new "
+                f"allowance must be larger, not {allowed_attempts}"
+            )
+        stage_path = self._stage_path(name)
+        stage = read_json(stage_path)
+        stage["operator_overrides"] = [
+            *list(stage.get("operator_overrides") or []),
+            {
+                **dict(override),
+                "previous_stage_state": "blocked",
+                "previous_allowed_attempts": plan["allowed_attempts"],
+                "allowed_attempts": allowed_attempts,
+                "attempts_before": plan["attempts"],
+            },
+        ]
+        stage["attempt_allowance"] = allowed_attempts
+        stage["status"] = "interrupted"
+        stage["updated_at"] = datetime.now(UTC).isoformat()
+        atomic_write_json(stage_path, stage)
+
     def status(self) -> list[dict[str, Any]]:
         if not self.root.is_dir():
             return []
@@ -208,6 +303,40 @@ class StageStore:
         for path in sorted(self.root.glob("*/stage.json")):
             rows.append(read_json(path))
         return rows
+
+    def _stage_path(self, name: str) -> Path:
+        return self.root / _stage_directory_name(name) / "stage.json"
+
+    def _allowed_attempts(self, stage: Mapping[str, Any]) -> int:
+        return max(self.maximum_attempts, int(stage.get("attempt_allowance") or 0))
+
+    def _run_pre_stage_command(self, name: str) -> None:
+        """Run the operator's pre-stage command; a failure consumes no attempt."""
+        if not self.pre_stage_command:
+            return
+        environment = {
+            **os.environ,
+            "AHE_STAGE_NAME": name,
+            "AHE_CAMPAIGN_DIR": str(self.campaign_dir),
+        }
+        try:
+            completed = subprocess.run(
+                shlex.split(self.pre_stage_command),
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                stdout=sys.stderr,
+                stderr=sys.stderr,
+                timeout=self.pre_stage_timeout_seconds,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise InfrastructureError(
+                f"pre-stage command failed before stage {name}: {exc}"
+            ) from exc
+        if completed.returncode != 0:
+            raise InfrastructureError(
+                f"pre-stage command exited {completed.returncode} before stage {name}"
+            )
 
     def _load_or_create(
         self,
@@ -248,6 +377,17 @@ class StageStore:
         }
         atomic_write_json(stage_path, stage)
         return stage
+
+
+def _failed_on_infrastructure(attempt: Mapping[str, Any]) -> bool:
+    if attempt.get("status") == "infrastructure_failed":
+        return True
+    error = attempt.get("error")
+    return (
+        attempt.get("status") == "interrupted"
+        and isinstance(error, dict)
+        and error.get("type") == "AbandonedStageAttempt"
+    )
 
 
 def _stage_directory_name(name: str) -> str:

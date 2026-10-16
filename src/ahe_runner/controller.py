@@ -53,6 +53,8 @@ from .workspace import (
 )
 
 _RUNNER_PACKAGE_IDENTITY = "protected_runner_resources.package"
+PRE_STAGE_COMMAND_ENV = "AHE_PRE_STAGE_COMMAND"
+PRE_STAGE_TIMEOUT_ENV = "AHE_PRE_STAGE_TIMEOUT_SECONDS"
 
 
 class CampaignController:
@@ -72,6 +74,8 @@ class CampaignController:
         self.stage_store = StageStore(
             campaign_dir=config.campaign_dir,
             maximum_attempts=config.document.recovery.maximum_stage_attempts,
+            pre_stage_command=os.environ.get(PRE_STAGE_COMMAND_ENV) or None,
+            pre_stage_timeout_seconds=_pre_stage_timeout(),
         )
         self.method_reference = (
             Path(__file__).resolve().parent / "resources" / "AHE_METHODS_REFERENCE.md"
@@ -956,6 +960,110 @@ class CampaignController:
         }
         if not apply:
             return report
+        self._append_campaign_amendment(manifest, amendment)
+        self._write_state()
+        return report
+
+    def retry_blocked_stage(
+        self,
+        *,
+        stage: str,
+        reason: str,
+        apply: bool = False,
+        allow_runner_change: bool = False,
+    ) -> dict[str, Any]:
+        """Give an infrastructure-blocked stage more attempts.
+
+        Only a retryable stage whose every attempt failed on infrastructure
+        qualifies (``StageStore.blocked_retry_plan``). The stage gains
+        ``recovery.maximum_stage_attempts`` more attempts; a later resume
+        continues it. The override is recorded in ``campaign_amendments.json``
+        and in the stage record; earlier attempts stay unchanged.
+        """
+        if not reason.strip():
+            raise ConfigurationError("retry-blocked-stage needs a non-empty --reason")
+        manifest_path = self._campaign_manifest_path()
+        if not manifest_path.is_file():
+            raise ConfigurationError("campaign does not exist; use run first")
+        manifest = read_json(manifest_path)
+        accepted = self._accepted_campaign_identity(manifest)
+        identity = self._campaign_identity()
+        changes = _identity_differences(accepted["identity"], identity)
+        runner_changes = [
+            change
+            for change in changes
+            if change == _RUNNER_PACKAGE_IDENTITY
+            or change.startswith(f"{_RUNNER_PACKAGE_IDENTITY}.")
+        ]
+        refused = [
+            change
+            for change in changes
+            if not (allow_runner_change and change in runner_changes)
+        ]
+        if refused:
+            raise IntegrityError(
+                "retry-blocked-stage changes no protected input, but these "
+                f"changed: {refused}"
+                + (
+                    "; pass --allow-runner-code-change to accept changed runner "
+                    "package files"
+                    if set(refused) <= set(runner_changes)
+                    else ""
+                )
+            )
+        plan = self.stage_store.blocked_retry_plan(stage)
+        allowed_attempts = (
+            plan["attempts"] + self.config.document.recovery.maximum_stage_attempts
+        )
+        identity_sha = sha256_json(identity)
+        created_at = datetime.now(UTC).isoformat()
+        amendment = {
+            "kind": "retry_blocked_stage",
+            "created_at": created_at,
+            "reason": reason.strip(),
+            "stage": stage,
+            "attempts_before": plan["attempts"],
+            "attempt_statuses": plan["attempt_statuses"],
+            "last_error_type": plan["last_error_type"],
+            "allowed_attempts": allowed_attempts,
+            "changes": changes,
+            "previous_identity_sha256": accepted["identity_sha256"],
+            "identity_sha256": identity_sha,
+            "identity": identity,
+        }
+        report = {
+            "status": "applied" if apply else "dry_run",
+            "campaign_dir": str(self.config.campaign_dir),
+            "stage": stage,
+            "attempts_before": plan["attempts"],
+            "attempt_statuses": plan["attempt_statuses"],
+            "allowed_attempts": allowed_attempts,
+            "changes": changes,
+            "runner_package_changes": runner_changes,
+            "previous_identity_sha256": accepted["identity_sha256"],
+            "identity_sha256": identity_sha,
+            "ledger": str(self._campaign_amendments_path()),
+        }
+        if not apply:
+            return report
+        index = self._append_campaign_amendment(manifest, amendment)
+        self.stage_store.reopen_blocked(
+            stage,
+            allowed_attempts=allowed_attempts,
+            override={
+                "kind": "retry_blocked_stage",
+                "created_at": created_at,
+                "reason": reason.strip(),
+                "campaign_amendment": index,
+            },
+        )
+        self._write_state()
+        return report
+
+    def _append_campaign_amendment(
+        self, manifest: dict[str, Any], amendment: dict[str, Any]
+    ) -> int:
+        """Append to ``campaign_amendments.json``; return the 1-based index."""
         ledger_path = self._campaign_amendments_path()
         ledger = (
             read_json(ledger_path)
@@ -968,8 +1076,7 @@ class CampaignController:
         )
         ledger["amendments"] = [*ledger["amendments"], amendment]
         atomic_write_json(ledger_path, ledger)
-        self._write_state()
-        return report
+        return len(ledger["amendments"])
 
     def _accepted_campaign_identity(self, manifest: dict[str, Any]) -> dict[str, Any]:
         """Return the identity a resume must match: manifest or last amendment."""
@@ -1151,6 +1258,19 @@ class CampaignController:
 
     def _write_state(self) -> None:
         self.status()
+
+
+def _pre_stage_timeout() -> float:
+    raw = os.environ.get(PRE_STAGE_TIMEOUT_ENV)
+    if not raw:
+        return 1200.0
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ConfigurationError(f"{PRE_STAGE_TIMEOUT_ENV} must be a number") from exc
+    if value <= 0:
+        raise ConfigurationError(f"{PRE_STAGE_TIMEOUT_ENV} must be positive")
+    return value
 
 
 def _identity_differences(before: Any, after: Any, prefix: str = "") -> list[str]:

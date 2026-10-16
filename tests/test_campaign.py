@@ -14,6 +14,7 @@ from ahe_runner.errors import (
     ConfigurationError,
     InfrastructureError,
     IntegrityError,
+    StageBlockedError,
     StageInterruptedError,
 )
 from ahe_runner.io import atomic_write_json, read_json, sha256_json
@@ -403,3 +404,101 @@ def test_extend_rounds_cli_defaults_to_a_dry_run(
     assert cli_main([*args, "--apply"]) == 0
     assert '"status": "applied"' in capsys.readouterr().out
     assert cli_main(["status", "--config", str(config_path)]) == 0
+
+
+def _evolve_fails_while(marker: Path) -> type[ScriptedMetaBackend]:
+    class Backend(ScriptedMetaBackend):
+        def run_evolve(self, **kwargs):  # type: ignore[no-untyped-def]
+            if marker.exists():
+                raise InfrastructureError("injected model server crash")
+            return super().run_evolve(**kwargs)
+
+    return Backend
+
+
+def _controller_with(
+    config_path: Path, backend: type[ScriptedMetaBackend]
+) -> CampaignController:
+    controller = CampaignController(load_config(config_path))
+    controller.meta = backend(controller.meta.context)
+    return controller
+
+
+def test_retry_blocked_stage_continues_an_infrastructure_blocked_stage(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_path = make_example_project(tmp_path, rounds=1)
+    marker = tmp_path / "server-down"
+    marker.touch()
+    backend = _evolve_fails_while(marker)
+    with pytest.raises(StageInterruptedError):
+        _controller_with(config_path, backend).run()
+    with pytest.raises(StageInterruptedError):
+        _controller_with(config_path, backend).resume()
+    with pytest.raises(StageBlockedError):
+        _controller_with(config_path, backend).resume()
+
+    controller = CampaignController(load_config(config_path))
+    campaign_dir = controller.config.campaign_dir
+    ledger = campaign_dir / "campaign_amendments.json"
+    stage_path = campaign_dir / "stages" / "round.1.evolve" / "stage.json"
+    blocked = stage_path.read_bytes()
+    assert [row["name"] for row in controller.status()["blocked_stages"]] == [
+        "round.1.evolve"
+    ]
+
+    with pytest.raises(ConfigurationError, match="reason"):
+        controller.retry_blocked_stage(stage="round.1.evolve", reason=" ")
+    with pytest.raises(ConfigurationError, match="not 'blocked'"):
+        controller.retry_blocked_stage(stage="evaluation.C0.train", reason="x")
+    _set_campaign(config_path, rounds=2)
+    with pytest.raises(IntegrityError, match=re.escape("campaign.rounds")):
+        CampaignController(load_config(config_path)).retry_blocked_stage(
+            stage="round.1.evolve", reason="x", apply=True
+        )
+    _set_campaign(config_path, rounds=1)
+
+    args = [
+        "retry-blocked-stage",
+        "--config",
+        str(config_path),
+        "--stage",
+        "round.1.evolve",
+        "--reason",
+        "model server crashed",
+    ]
+    assert cli_main(args) == 0
+    assert '"status": "dry_run"' in capsys.readouterr().out
+    assert not ledger.exists()
+    assert stage_path.read_bytes() == blocked
+
+    assert cli_main([*args, "--apply"]) == 0
+    report = capsys.readouterr().out
+    assert '"status": "applied"' in report
+    assert '"allowed_attempts": 6' in report
+    amendment = read_json(ledger)["amendments"][0]
+    assert amendment["kind"] == "retry_blocked_stage"
+    assert amendment["stage"] == "round.1.evolve"
+    assert amendment["attempts_before"] == 3
+    assert amendment["allowed_attempts"] == 6
+    assert amendment["changes"] == []
+    stage = read_json(stage_path)
+    assert stage["status"] == "interrupted"
+    assert stage["attempt_allowance"] == 6
+    assert stage["operator_overrides"][0]["campaign_amendment"] == 1
+    assert cli_main([*args, "--apply"]) == 2
+    assert len(read_json(ledger)["amendments"]) == 1
+
+    marker.unlink()
+    status = _controller_with(config_path, backend).resume()
+    assert status["checkpoints"] == ["C0", "C1"]
+    assert status["blocked_stages"] == []
+    assert status["final_test"]["no_post_test_evolution"] is True
+    assert [row["status"] for row in read_json(stage_path)["attempts"]] == [
+        "infrastructure_failed",
+        "infrastructure_failed",
+        "infrastructure_failed",
+        "completed",
+    ]
+    CampaignController(load_config(config_path)).prepare()

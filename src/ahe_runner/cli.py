@@ -48,6 +48,18 @@ def main(argv: list[str] | None = None) -> int:
     extend_parser.add_argument("--reason", required=True)
     extend_parser.add_argument("--apply", action="store_true")
     extend_parser.add_argument("--allow-runner-code-change", action="store_true")
+    retry_parser = subparsers.add_parser(
+        "retry-blocked-stage",
+        help=(
+            "Give a stage blocked only by infrastructure failures more attempts "
+            "(dry run unless --apply)."
+        ),
+    )
+    retry_parser.add_argument("--config", type=Path, required=True)
+    retry_parser.add_argument("--stage", required=True)
+    retry_parser.add_argument("--reason", required=True)
+    retry_parser.add_argument("--apply", action="store_true")
+    retry_parser.add_argument("--allow-runner-code-change", action="store_true")
     args = parser.parse_args(argv)
 
     try:
@@ -103,6 +115,13 @@ def _dispatch(controller: CampaignController, args: argparse.Namespace) -> Any:
         return controller.run_round(args.round)
     if args.command == "extend-rounds":
         return controller.extend_rounds(
+            reason=args.reason,
+            apply=args.apply,
+            allow_runner_change=args.allow_runner_code_change,
+        )
+    if args.command == "retry-blocked-stage":
+        return controller.retry_blocked_stage(
+            stage=args.stage,
             reason=args.reason,
             apply=args.apply,
             allow_runner_change=args.allow_runner_code_change,
