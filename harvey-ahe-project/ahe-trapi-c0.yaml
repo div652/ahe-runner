@@ -68,7 +68,7 @@ project:
 models:
   evaluated:
     model: gpt-5.6-sol_2026-07-09
-    # LAB's TRAPI adapter default.
+    # The output cap of the colleague's gateway run.
     max_tokens: 32768
     reasoning_effort: high
     # Not sent: reasoning models on the Responses API take no temperature.
@@ -97,7 +97,7 @@ transport:
   max_concurrent_requests: 24
   hung_call_retries: 2
   # HTTP 429 / 5xx / connection errors: wait for Retry-After (capped) and
-  # resend, up to 40 times, as LAB's TRAPI client does.
+  # resend, up to 40 times.
   transient_retries: 40
   transient_max_wait_seconds: 120
 
@@ -105,7 +105,7 @@ evaluation:
   train_trials: 1
   validation_trials: 1
   test_trials: 1
-  # Trials at once (LAB's TRAPI runner default).
+  # Trials at once (the colleague's gateway run used 4).
   max_concurrency: 4
 
 debugger:

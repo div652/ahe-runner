@@ -1,6 +1,6 @@
 # Model providers: GH Copilot Server or an Azure Entra gateway
 
-Status: design, branch `harveybench-trapi`. The default provider and every
+Status: implemented on branch `harveybench-trapi`. The default provider and every
 existing configuration behave exactly as before.
 
 ## Why
