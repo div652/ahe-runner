@@ -33,7 +33,11 @@ from .errors import ConfigurationError, IntegrityError
 from .harness import HarnessManifest, matched_component_paths
 from .harness_imports import HarnessImportScope
 from .io import atomic_write_json, sha256_file, tree_sha256
-from .meta.model_client import RecordedExactModelClient
+from .meta.model_client import (
+    RecordedExactModelClient,
+    nexau_api_type,
+    nexau_reasoning,
+)
 from .meta.preflight import run_model_preflight
 
 _NEXAU_RESERVED_STORAGE_KEYS = frozenset(
@@ -711,7 +715,7 @@ def _override_model_settings(
         "max_tokens": model.max_tokens,
         "temperature": model.temperature,
         "stream": False,
-        "api_type": "openai_chat_completion",
+        "api_type": nexau_api_type(transport),
         "max_retries": 0,
     }
     config.retry_attempts = 1
@@ -722,8 +726,9 @@ def _override_model_settings(
         config.llm_config.extra_params["extra_body"] = extra_body
     else:
         config.llm_config.extra_params.pop("extra_body", None)
-    if model.reasoning_effort is not None:
-        updates["reasoning"] = {"effort": model.reasoning_effort}
+    reasoning = nexau_reasoning(transport, model.reasoning_effort)
+    if reasoning is not None:
+        updates["reasoning"] = reasoning
     config.llm_config.update(**updates)
     if config.sandbox_config is None:
         config.sandbox_config = LocalSandboxConfig(work_dir=str(working_directory))

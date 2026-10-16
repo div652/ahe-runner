@@ -115,17 +115,23 @@ New adapter setting `judge_api`:
   `json_schema` output and the last does not. `max_output_tokens` comes from
   the judge's `max_tokens`; `reasoning: {effort, summary: "auto"}` is sent
   when the judge has an effort; temperature only when it is not null. The
-  transport must use `api_mode: responses`.
+  transport must use `api_mode: responses`. One difference from LAB: an API
+  error is raised, not swallowed and retried as a parsing failure, so the
+  runner's infrastructure retries handle it and a failed call never becomes
+  an "error" verdict. Judge results are labelled `openai/<model>` (LAB's
+  label for its OpenAI path) instead of `copilot/<model>`.
 
 `judges` may now hold one judge or two. With one judge, the aggregate file is
 still `scores_dual.json` and its fields keep their names, so the selection
 and reporting code is unchanged: `dual_criterion_pass` is that judge's
 criterion pass rate, `dual_all_pass_rate` is its all-pass (0 or 1), and
-`judges_agree` is always true. Two-judge campaigns are unchanged.
+`judges_agree` is always true. The judge profile is `custom-single`, and
+the adapter reports only `judge_1_all_pass_rate`. Two-judge campaigns are
+unchanged; `copilot_chat` still requires two judges and a helper.
 
 `helper` may now be `null`. Then LAB's last-resort filename matching makes
 no model call and returns no match; each time this happens it is recorded
-under `filename_helper/disabled/`. (LAB's default helper calls Anthropic's
+under `filename_helper/disabled/matches/call-NNNN.json`. (LAB's default helper calls Anthropic's
 API directly, which is not available here.) With a helper set and
 `judge_api: openai_responses`, the helper uses the Responses API with
 strict `json_schema` output.
@@ -133,13 +139,16 @@ strict `json_schema` output.
 ## Planned run: C0 baseline on the gateway
 
 The first use is a C0-only evaluation on all 250 firm-knowledge tasks, as in
-campaign 9b, with only the provider and grading changed:
+campaign 9b, with only the provider and grading changed. The configuration
+is `harvey-ahe-project/ahe-trapi-c0.yaml`; run it with
+`harvey-ahe-project/scripts/run_c0_train_only.py`.
 
 | | Campaign 9b | Gateway run |
 |---|---|---|
 | Harness | `harness_lab` (C0) | same |
 | Agent model | `gpt-5.6-sol`, effort high | `gpt-5.6-sol_2026-07-09`, effort high, summary auto |
-| Agent output cap | 128,000 tokens | 32,768 (the colleague's value) |
+| Agent output cap | 64,000 tokens | 32,768 (the colleague's value) |
+| Agent temperature | 0 (ignored by Copilot) | not sent |
 | Context cap (NexAU) | 911,793 tokens | same |
 | Judge | claude-sonnet-5 + gpt-5.5 via Copilot | `gpt-6.1-sol_2026-09-29`, effort high, `max_output_tokens` 8,192 (the colleague's judge) |
 | Trials | 1 per task | same |

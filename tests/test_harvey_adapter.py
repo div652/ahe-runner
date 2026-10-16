@@ -470,7 +470,8 @@ class _Runtime:
 
 
 class _Grader:
-    def __init__(self, adapter: HarveyAdapter) -> None:
+    def __init__(self, adapter: HarveyAdapter, label: str = "copilot") -> None:
+        self.label = label
         train = adapter.split(SplitName.TRAIN).task_ids
         self.index = {task_id: index for index, task_id in enumerate(train)}
         self.outputs: dict[str, list[str]] = {}
@@ -486,7 +487,7 @@ class _Grader:
         task_id: str,
         task_config: dict[str, Any],
         run_dir: Path,
-        judges: tuple[ModelSettings, ModelSettings],
+        judges: tuple[ModelSettings, ...],
         api_key: str,
         **_kwargs: Any,
     ) -> tuple[Path, dict[str, Any]]:
@@ -501,7 +502,7 @@ class _Grader:
             )
         grading_dir = grading_root / "grading-1"
         grading_dir.mkdir(parents=True)
-        failing = SCRIPT[self.index[task_id]][1]
+        failing = SCRIPT[self.index[task_id]][1][: len(judges)]
         per_judge: list[dict[str, Any]] = []
         for number, (judge, fails) in enumerate(zip(judges, failing, strict=True), 1):
             rows = [
@@ -516,7 +517,7 @@ class _Grader:
             scores = {
                 "task": task_id,
                 "judge_index": number,
-                "judge_model": f"copilot/{judge.model}",
+                "judge_model": f"{self.label}/{judge.model}",
                 "all_pass": passed == len(rows),
                 "n_criteria": len(rows),
                 "n_passed": passed,
@@ -752,6 +753,116 @@ def test_evaluate_resume_verify_and_evidence(
     score_path.write_text(score_path.read_text() + " ", encoding="utf-8")
     with pytest.raises(IntegrityError, match="score hash mismatch"):
         adapter.verify_evaluation(VerificationRequest(evaluation=request))
+
+
+def _responses_settings(scratch_root: Path) -> dict[str, Any]:
+    return _settings(
+        scratch_root,
+        judge_api="openai_responses",
+        judges=[
+            {
+                "model": JUDGE_A,
+                "max_tokens": 8192,
+                "reasoning_effort": "high",
+                "temperature": None,
+            }
+        ],
+        helper=None,
+    )
+
+
+@pytest.mark.parametrize(
+    ("override", "message"),
+    [
+        ({"judges": [{"model": JUDGE_A, "max_tokens": JUDGE_MAX_TOKENS}]}, "two"),
+        ({"helper": None}, "helper"),
+        ({"judges": []}, "judges"),
+    ],
+)
+def test_copilot_judges_keep_dual_requirements(
+    tmp_path: Path, override: dict[str, Any], message: str
+) -> None:
+    with pytest.raises(ConfigurationError, match=message):
+        HarveyAdapter(
+            project_root=PROJECT_ROOT, settings=_settings(tmp_path, **override)
+        )
+
+
+def test_single_responses_judge_evaluates_and_verifies(
+    scratch_root: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    single = HarveyAdapter(
+        project_root=PROJECT_ROOT, settings=_responses_settings(scratch_root)
+    )
+    grader = _Grader(single, label="openai")
+    monkeypatch.setattr(adapter_module, "pandoc_version", lambda: "3.6")
+    monkeypatch.setattr(
+        adapter_module, "_podman_image_id", lambda _image: FAKE_IMAGE_ID
+    )
+    monkeypatch.setattr(adapter_module, "Sandbox", lambda **kw: FakeSandbox(**kw))
+    monkeypatch.setattr(adapter_module, "grade_with_retries", grader)
+    request = EvaluationRequest(
+        checkpoint="C0",
+        harness_dir=HARNESS_DIR,
+        split=single.split(SplitName.TRAIN),
+        trials=1,
+        root_seed=7,
+        output_dir=tmp_path / "evaluation",
+        model=ModelSettings(model="evaluated-model", max_tokens=64000),
+        transport=TransportSettings(base_url="http://127.0.0.1:9/v1"),
+        api_key="offline-key",
+        max_concurrency=3,
+    )
+    runtime = _Runtime(single)
+    with pytest.raises(InfrastructureError):
+        single.evaluate(request, runtime)  # type: ignore[arg-type]
+    result = single.evaluate(request, runtime)  # type: ignore[arg-type]
+
+    train_ids = single.split(SplitName.TRAIN).task_ids
+    rates = [
+        (grader.criteria_counts[task_id] - SCRIPT[index][1][0])
+        / grader.criteria_counts[task_id]
+        for index, task_id in enumerate(train_ids)
+    ]
+    metrics = result.summary.metrics
+    assert result.summary.primary.value == pytest.approx(sum(rates) / 6)
+    assert metrics["judge_1_all_pass_rate"] == pytest.approx(3 / 6)
+    assert "judge_2_all_pass_rate" not in metrics
+    assert metrics["mean_dual_all_pass_rate"] == pytest.approx(3 / 6)
+    assert metrics["both_judges_all_pass_rate"] == pytest.approx(3 / 6)
+    assert metrics["judge_disagreement_count"] == 0
+    assert "judges_split" not in {fact.outcome for fact in result.trial_facts}
+    assert result.metadata["judges"] == [JUDGE_A]
+    first = json.loads(
+        next(request.output_dir.glob("units/*/attempt-1/result.json")).read_text()
+    )
+    assert sorted(first["grading"]["scores"]) == [
+        "scores_dual.json",
+        "scores_judge-1.json",
+    ]
+    assert single.verify_evaluation(VerificationRequest(evaluation=request)) == result
+
+    environment = adapter_module._Environment(
+        image_id=FAKE_IMAGE_ID, pandoc_version="3.6"
+    )
+    inputs = single._semantic_inputs(request, environment)["adapter_settings"]
+    assert inputs["judge_api"] == "openai_responses"
+    assert inputs["helper"] is None
+    dual = HarveyAdapter(project_root=PROJECT_ROOT, settings=_settings(scratch_root))
+    assert "judge_api" not in dual._semantic_inputs(request, environment)[
+        "adapter_settings"
+    ]
+
+    score_path = next(
+        request.output_dir.glob("units/*/attempt-1/grading/*/scores_judge-1.json")
+    )
+    scores = json.loads(score_path.read_text())
+    scores["judge_model"] = f"copilot/{JUDGE_A}"
+    score_path.write_text(json.dumps(scores), encoding="utf-8")
+    with pytest.raises(IntegrityError, match="score hash mismatch"):
+        single.verify_evaluation(VerificationRequest(evaluation=request))
 
 
 def test_evidence_refuses_non_training_split(

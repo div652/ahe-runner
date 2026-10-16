@@ -1,0 +1,139 @@
+# AHE configuration: C0-only evaluation of the LAB-exact harness through an
+# Azure Entra (TRAPI-style) Responses endpoint instead of GH Copilot Server.
+#
+# Purpose: test whether the model access path explains the gap between our
+# campaign 9b results and a run of LAB's own harness on the same endpoint
+# (runbook section 5x). It repeats campaign 9b (all 250 firm-knowledge tasks,
+# 1 trial, C0 training evaluation only, harness_lab/) with:
+#   * the Responses API: the system prompt is sent as `instructions`, and
+#     reasoning items are returned and resent on every turn;
+#   * pinned model snapshots: gpt-5.6-sol_2026-07-09 for the agent and a
+#     single judge, gpt-6.1-sol_2026-09-29, at reasoning high;
+#   * no filename helper model (LAB's fallback without a helper key).
+# See docs/MODEL_PROVIDERS.md.
+#
+# The endpoint and token scope are not committed. Set before any command:
+#   export AHE_AZURE_BASE_URL=<https endpoint ending in /openai/v1>
+#   export AHE_AZURE_TOKEN_SCOPE=<Entra scope, e.g. api://<app>/.default>
+# and log in once with `az login`; tokens are fetched with
+# `az account get-access-token` and refreshed in each process.
+#
+# Run only with scripts/run_c0_train_only.py (rounds: 0).
+schema_version: 1
+
+campaign:
+  name: harvey-lab-campaign-13-trapi-c0-gpt-5.6-sol-high
+  artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-13-trapi-c0-gpt-5.6-sol-high
+  rounds: 0
+  root_seed: 42
+
+project:
+  harness_dir: ./harness_lab
+  harness_manifest: ./harness_manifest_lab.yaml
+  adapter: benchmark_adapter:HarveyAdapter
+  adapter_settings:
+    lab_root: ../../harvey-labs
+    # All 250 firm-knowledge tasks in the training split, as in campaign 9b.
+    split_file: ./splits-firm-knowledge.json
+    apply_task_filter: false
+    # LAB's OpenAI judge path (Responses API, strict JSON schema on all but
+    # the last try) with one judge.
+    judge_api: openai_responses
+    judges:
+      - model: gpt-6.1-sol_2026-09-29
+        max_tokens: 8192
+        reasoning_effort: high
+        temperature: null
+    # No helper model: deliverables LAB cannot match by name stay unmatched.
+    helper: null
+    judge_max_prompt_chars: 240000
+    sandbox_image: lab-sandbox:latest
+    shell_timeout: 60
+    scratch_root: null
+    # As campaign 9b; verdicts do not depend on grading parallelism.
+    grading_parallel: 10
+    judge_max_concurrent_calls: 18
+    grading_attempts: 2
+    attribution_min_task_delta: 0.0
+    trial_processes: true
+  adapter_dependency_paths:
+    - ./benchmark_adapter.py
+    - ./harvey_ahe
+    - ./splits-firm-knowledge.json
+    - ./pyproject.toml
+    - ./requirements.txt
+  meta_agent_source_roots:
+    - ./benchmark_public
+
+models:
+  evaluated:
+    model: gpt-5.6-sol_2026-07-09
+    # LAB's TRAPI adapter default.
+    max_tokens: 32768
+    reasoning_effort: high
+    # Not sent: reasoning models on the Responses API take no temperature.
+    temperature: null
+  # Not used by a C0-only run.
+  meta:
+    model: gpt-5.6-sol_2026-07-09
+    max_tokens: 32000
+    reasoning_effort: high
+    temperature: null
+
+transport:
+  provider: azure_entra
+  base_url: ${AHE_AZURE_BASE_URL}
+  token_scope: ${AHE_AZURE_TOKEN_SCOPE}
+  api_key_env: null
+  api_mode: responses
+  stream: false
+  request_timeout_seconds: 600
+  observable_model_policy: exact
+  # The endpoint has no /models catalog, and an unknown model returns 429,
+  # not a model error, so neither check is meaningful.
+  model_catalog: disabled
+  negative_control: disabled
+  # As campaign 9b. Agents use at most max_concurrency of these slots.
+  max_concurrent_requests: 24
+  hung_call_retries: 2
+  # HTTP 429 / 5xx / connection errors: wait for Retry-After (capped) and
+  # resend, up to 40 times, as LAB's TRAPI client does.
+  transient_retries: 40
+  transient_max_wait_seconds: 120
+
+evaluation:
+  train_trials: 1
+  validation_trials: 1
+  test_trials: 1
+  # Trials at once (LAB's TRAPI runner default).
+  max_concurrency: 4
+
+debugger:
+  max_concurrency: 4
+  max_iterations: 25
+
+recovery:
+  maximum_stage_attempts: 3
+  archive_incomplete_attempts: true
+
+meta:
+  backend: nexau
+  explore:
+    source_enabled: true
+    web_enabled: true
+    web_search_backend: ddgs
+    research_seed_urls:
+      - https://github.com/nex-agi/NexAU
+  role_supplements:
+    source: ./meta_supplements/source.md
+    web: ./meta_supplements/web.md
+    debugger: ./meta_supplements/debugger.md
+    evolve: ./meta_supplements/evolve.md
+  max_concurrent_model_calls: 4
+  max_context_tokens: 200000
+  max_running_subagents: 5
+  evolve_max_iterations: 500
+  explore_max_iterations: 200
+  shell:
+    backend: docker
+    image: ahe-meta-shell:py313-v2

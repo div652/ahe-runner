@@ -437,9 +437,11 @@ The meta values can be changed per role with `meta.roles` (section 3.8).
 
 | Field | Default | Meaning |
 |---|---|---|
-| `base_url` | required | OpenAI-compatible endpoint |
-| `api_key_env` | `null` | Name of the env var with the key. `null` sends a placeholder |
-| `api_mode` | `chat_completions` | Only value allowed |
+| `provider` | `gh_copilot_server` | `gh_copilot_server` or `azure_entra` (an HTTPS gateway that takes a Microsoft Entra token; see `docs/MODEL_PROVIDERS.md`) |
+| `base_url` | required | OpenAI-compatible endpoint. Must be `https://` for `azure_entra`. `${VAR}` is expanded from the environment |
+| `token_scope` | `null` | `azure_entra` only, and required there: the Entra scope. Tokens come from `az account get-access-token` and are refreshed 5 minutes before expiry |
+| `api_key_env` | `null` | Name of the env var with the key. `null` sends a placeholder. Must be `null` for `azure_entra` |
+| `api_mode` | `chat_completions` | `chat_completions` or `responses` (system prompt sent as `instructions`, reasoning items resent each turn) |
 | `stream` | `false` | Only value allowed |
 | `request_timeout_seconds` | 300 | Per-call timeout (Harvey: 600) |
 | `observable_model_policy` | `exact` | The response must name the requested model |
@@ -447,6 +449,12 @@ The meta values can be changed per role with `meta.roles` (section 3.8).
 | `negative_control` | `best_effort` | `required`, `best_effort` or `disabled`: check a fake model ID is refused |
 | `max_concurrent_requests` | `null` | Max model calls in flight in this process (AHE-015). `null` means no limit |
 | `hung_call_retries` | `0` | Times to resend a model call whose request timed out (client or endpoint) before any response, at most 5 (AHE-022). Each failed attempt is saved as `hung-attempt-N.json` in the call folder and listed under `hung_attempts` in `response.json` or `error.json`. Other errors are never resent |
+| `transient_retries` | `0` | Times to resend a call refused with HTTP 429, 5xx or a connection error, at most 100. Waits for `Retry-After` when given, else backs off; each attempt is recorded like hung attempts |
+| `transient_max_wait_seconds` | 120 | Longest single wait between transient retries |
+
+`provider`, `token_scope`, `transient_retries` and
+`transient_max_wait_seconds` are left out of the campaign identity while
+they keep their defaults, so existing campaigns resume unchanged.
 
 Harvey sets `model_catalog: required`, `negative_control: required` and
 `max_concurrent_requests: 24`; from the campaign 9 rerun also

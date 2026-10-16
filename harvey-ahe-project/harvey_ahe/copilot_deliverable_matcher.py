@@ -1,4 +1,9 @@
-"""Protected, recorded Copilot callback for LAB's filename-matching helper."""
+"""Protected, recorded callbacks for LAB's filename-matching helper.
+
+``CopilotDeliverableMatcher`` calls a model (chat completions on GH Copilot
+Server, or the Responses API). ``DisabledDeliverableMatcher`` makes no model
+call and answers "no match" for every key, recording each call.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +11,7 @@ import json
 import tempfile
 import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from jsonschema import Draft202012Validator, ValidationError
 from lab_core.harness.adapters.copilot import resolve_copilot_base_url
@@ -14,8 +19,49 @@ from lab_core.harness.adapters.copilot import resolve_copilot_base_url
 from ahe_runner.config import ModelSettings, TransportSettings
 from ahe_runner.errors import ConfigurationError, InfrastructureError, IntegrityError
 from ahe_runner.io import atomic_write_json, sha256_file
-from ahe_runner.meta.model_client import RecordedExactModelClient, completion_text
+from ahe_runner.meta.model_client import (
+    RecordedExactModelClient,
+    completion_text,
+    responses_reasoning,
+)
 from ahe_runner.meta.preflight import run_model_preflight
+
+
+class DisabledDeliverableMatcher:
+    """No filename helper: every unresolved deliverable stays unmatched.
+
+    This is what LAB's built-in fallback returns when its helper model is
+    unreachable, but here it is explicit and recorded.
+    """
+
+    def __init__(self, *, artifact_root: Path) -> None:
+        self._artifact_root = artifact_root.resolve()
+        self._call_index = 0
+        self._lock = threading.Lock()
+
+    def __call__(
+        self,
+        prompt: str,
+        output_schema: dict[str, Any],
+    ) -> dict[str, str | None]:
+        Draft202012Validator.check_schema(output_schema)
+        keys = output_schema.get("required")
+        if not isinstance(keys, list) or not all(isinstance(key, str) for key in keys):
+            raise IntegrityError("Filename-helper schema has no required key list")
+        matches: dict[str, str | None] = {key: None for key in keys}
+        with self._lock:
+            self._call_index += 1
+            atomic_write_json(
+                self._artifact_root
+                / "disabled"
+                / "matches"
+                / f"call-{self._call_index:04d}.json",
+                {"status": "disabled", "matches": matches},
+            )
+        return matches
+
+    def close(self) -> None:
+        return None
 
 
 class CopilotDeliverableMatcher:
@@ -28,19 +74,28 @@ class CopilotDeliverableMatcher:
         transport: TransportSettings,
         api_key: str,
         artifact_root: Path,
+        api: Literal["chat", "responses"] = "chat",
     ) -> None:
-        resolve_copilot_base_url(transport.base_url)
-        if settings.max_tokens != 1024 or settings.temperature != 0.0:
+        if api == "chat":
+            resolve_copilot_base_url(transport.base_url)
+            if settings.max_tokens != 1024 or settings.temperature != 0.0:
+                raise ConfigurationError(
+                    "The LAB filename helper requires max_tokens=1024 and "
+                    "temperature=0.0"
+                )
+            if (
+                transport.model_catalog != "required"
+                or transport.negative_control != "required"
+            ):
+                raise ConfigurationError(
+                    "The filename helper requires catalog and negative-control "
+                    "preflights"
+                )
+        elif transport.api_mode != "responses":
             raise ConfigurationError(
-                "The LAB filename helper requires max_tokens=1024 and temperature=0.0"
+                "A Responses filename helper requires transport.api_mode responses"
             )
-        if (
-            transport.model_catalog != "required"
-            or transport.negative_control != "required"
-        ):
-            raise ConfigurationError(
-                "The filename helper requires catalog and negative-control preflights"
-            )
+        self._api = api
         self._settings = settings.model_copy(deep=True)
         self._transport = transport.model_copy(deep=True)
         self._api_key = api_key
@@ -95,18 +150,46 @@ class CopilotDeliverableMatcher:
                 raise IntegrityError("Incomplete filename-helper initialization")
             self._call_index += 1
             result_path = artifact_dir / "matches" / f"call-{self._call_index:04d}.json"
-            # The proxy ignores response_format, so include the format contract.
-            wire_prompt = (
-                prompt + "\n\nReturn only a JSON object, with no Markdown fences, "
-                "that conforms to this schema:\n"
-                + json.dumps(output_schema, sort_keys=True)
-            )
-            response = client.chat.completions.create(
-                model=self._settings.model,
-                messages=[{"role": "user", "content": wire_prompt}],
-            )
+            if self._api == "chat":
+                # The proxy ignores response_format, so include the format contract.
+                wire_prompt = (
+                    prompt + "\n\nReturn only a JSON object, with no Markdown fences, "
+                    "that conforms to this schema:\n"
+                    + json.dumps(output_schema, sort_keys=True)
+                )
+                response = client.chat.completions.create(
+                    model=self._settings.model,
+                    messages=[{"role": "user", "content": wire_prompt}],
+                )
+            else:
+                # Same contract as LAB's Anthropic helper: structured output.
+                kwargs: dict[str, Any] = {
+                    "model": self._settings.model,
+                    "input": prompt,
+                    "max_output_tokens": self._settings.max_tokens,
+                    "text": {
+                        "format": {
+                            "type": "json_schema",
+                            "name": "deliverable_matches",
+                            "schema": output_schema,
+                            "strict": True,
+                        }
+                    },
+                }
+                if self._settings.temperature is not None:
+                    kwargs["temperature"] = self._settings.temperature
+                if self._settings.reasoning_effort is not None:
+                    kwargs["reasoning"] = responses_reasoning(
+                        self._settings.reasoning_effort
+                    )
+                response = client.responses.create(**kwargs)
             try:
-                value = json.loads(completion_text(response))
+                text = (
+                    completion_text(response)
+                    if self._api == "chat"
+                    else response.output_text or ""
+                )
+                value = json.loads(text)
                 Draft202012Validator(output_schema).validate(value)
                 if not isinstance(value, dict):
                     raise ValueError("Filename matches must be a JSON object")

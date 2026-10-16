@@ -89,7 +89,13 @@ from ahe_runner.runtime import (
 )
 
 from .candidate_checks import WORKSPACE_SEED_DIR, harvey_candidate_errors, training_slug
-from .grading import JUDGE_MAX_TOKENS, dual_summary, grade_with_retries
+from .grading import (
+    JUDGE_MAX_TOKENS,
+    JudgeApi,
+    dual_summary,
+    grade_with_retries,
+    judge_label,
+)
 from .readable import write_readable_views
 from .tasks import (
     HarveyTask,
@@ -107,6 +113,15 @@ RESULT_SCHEMA_VERSION = 1
 PRIMARY_METRIC = "mean_criterion_pass_rate"
 ALL_PASS_METRIC = "mean_dual_all_pass_rate"
 SCORE_FILES = ("scores_judge-1.json", "scores_judge-2.json", "scores_dual.json")
+
+
+def score_files(judges: int) -> tuple[str, ...]:
+    """Score files for one or two judges; two judges give ``SCORE_FILES``."""
+    return (
+        *(f"scores_judge-{index}.json" for index in range(1, judges + 1)),
+        "scores_dual.json",
+    )
+
 HEALTH_CHECK_TIMEOUT_SECONDS = 30
 MAX_WORKSPACE_LISTING = 500
 LEAKAGE_TERMS = ("harvey-labs", "harvey_labs", "harvey labs", "harveyai")
@@ -134,8 +149,12 @@ class HarveyAdapterSettings(BaseModel):
 
     lab_root: Path
     split_file: Path = Path("splits.json")
-    judges: tuple[ModelSettings, ModelSettings]
-    helper: ModelSettings
+    # copilot_chat: LAB's Copilot judge path (two judges, fixed settings).
+    # openai_responses: LAB's OpenAI judge path on a Responses endpoint; one or
+    # two judges, and the filename helper may be null (no helper model).
+    judge_api: JudgeApi = "copilot_chat"
+    judges: tuple[ModelSettings, ...] = Field(min_length=1, max_length=2)
+    helper: ModelSettings | None
     judge_max_prompt_chars: int = Field(default=240_000, gt=0)
     sandbox_image: str = "lab-sandbox:latest"
     shell_timeout: int = Field(default=60, ge=1, le=MAX_EXEC_TIMEOUT_SECONDS)
@@ -154,14 +173,19 @@ class HarveyAdapterSettings(BaseModel):
 
     @model_validator(mode="after")
     def validate_judges(self) -> HarveyAdapterSettings:
-        if self.judges[0].model == self.judges[1].model:
+        if len(self.judges) == 2 and self.judges[0].model == self.judges[1].model:
             raise ValueError("Harvey dual grading requires two distinct judge models")
-        for judge in self.judges:
-            if judge.max_tokens != JUDGE_MAX_TOKENS or judge.temperature != 0.0:
-                raise ValueError(
-                    f"LAB judges require max_tokens={JUDGE_MAX_TOKENS} and "
-                    "temperature=0.0"
-                )
+        if self.judge_api == "copilot_chat":
+            if len(self.judges) != 2:
+                raise ValueError("judge_api copilot_chat requires two judges")
+            if self.helper is None:
+                raise ValueError("judge_api copilot_chat requires a filename helper")
+            for judge in self.judges:
+                if judge.max_tokens != JUDGE_MAX_TOKENS or judge.temperature != 0.0:
+                    raise ValueError(
+                        f"LAB judges require max_tokens={JUDGE_MAX_TOKENS} and "
+                        "temperature=0.0"
+                    )
         if not self.sandbox_image.strip():
             raise ValueError("sandbox_image must be non-empty")
         return self
@@ -191,7 +215,7 @@ class _Trial:
     attempt_dir: Path
     result: dict[str, Any]
     score_paths: tuple[Path, ...]
-    judge_scores: tuple[dict[str, Any], dict[str, Any]]
+    judge_scores: tuple[dict[str, Any], ...]
     dual: dict[str, Any]
 
     @property
@@ -555,6 +579,8 @@ class HarveyAdapter(BenchmarkAdapterV2):
         if self.config.trial_processes:
             # Added only when set, so earlier evaluations keep their inputs.
             settings["trial_processes"] = True
+        if self.config.judge_api != "copilot_chat":
+            settings["judge_api"] = self.config.judge_api
         return {
             "adapter": self.identity().model_dump(mode="json"),
             "adapter_settings": settings,
@@ -697,6 +723,7 @@ class HarveyAdapter(BenchmarkAdapterV2):
                 max_prompt_chars=self.config.judge_max_prompt_chars,
                 parallel=self.config.grading_parallel,
                 call_slots=self._judge_call_slots,
+                judge_api=self.config.judge_api,
             )
             messages = _trace_messages(run.output)
             tool_counts, assistant_turns = _tool_counts(messages)
@@ -737,7 +764,8 @@ class HarveyAdapter(BenchmarkAdapterV2):
                 "grading": {
                     "directory": grading_dir.relative_to(attempt_dir).as_posix(),
                     "scores": {
-                        name: sha256_file(grading_dir / name) for name in SCORE_FILES
+                        name: sha256_file(grading_dir / name)
+                        for name in score_files(len(self.config.judges))
                     },
                 },
                 "score": dual["dual_criterion_pass"],
@@ -881,7 +909,11 @@ class HarveyAdapter(BenchmarkAdapterV2):
         units_dir = output_dir.resolve() / "units"
         if not units_dir.is_dir():
             raise IntegrityError("Harvey evaluation has no units directory")
-        expected_judges = [f"copilot/{judge.model}" for judge in self.config.judges]
+        expected_judges = [
+            judge_label(self.config.judge_api, judge.model)
+            for judge in self.config.judges
+        ]
+        names = score_files(len(expected_judges))
         trials: list[_Trial] = []
         for unit_dir in sorted(path for path in units_dir.iterdir() if path.is_dir()):
             unit = read_json(unit_dir / "unit.json")
@@ -899,14 +931,14 @@ class HarveyAdapter(BenchmarkAdapterV2):
             attempt_dir = result_path.parent
             grading = result["grading"]
             grading_dir = _inside(attempt_dir / str(grading["directory"]), attempt_dir)
-            score_paths = tuple(grading_dir / name for name in SCORE_FILES)
+            score_paths = tuple(grading_dir / name for name in names)
             for path in score_paths:
                 if (
                     not path.is_file()
                     or sha256_file(path) != grading["scores"][path.name]
                 ):
                     raise IntegrityError(f"Harvey judge score hash mismatch: {path}")
-            judge_scores = (read_json(score_paths[0]), read_json(score_paths[1]))
+            judge_scores = tuple(read_json(path) for path in score_paths[:-1])
             for expected, scores in zip(expected_judges, judge_scores, strict=True):
                 if scores.get("judge_model") != expected:
                     raise IntegrityError(f"Harvey judge identity mismatch: {unit_dir}")
@@ -1096,7 +1128,11 @@ def _summarize(trials: Sequence[_Trial], task_ids: Sequence[str]) -> MetricSumma
             TaskState(
                 task_key=rows[0].task_key,
                 task_id=task_id,
-                state=f"{both}/{len(rows)} trials all-pass for both judges",
+                state=(
+                    f"{both}/{len(rows)} trials all-pass for both judges"
+                    if len(rows[0].judge_scores) == 2
+                    else f"{both}/{len(rows)} trials all-pass"
+                ),
                 score=_mean(row.score for row in rows),
                 successes=both,
                 trials=len(rows),
@@ -1126,7 +1162,7 @@ def _summarize(trials: Sequence[_Trial], task_ids: Sequence[str]) -> MetricSumma
     criteria = sum(sum(int(value) for value in t.dual["n_criteria"]) for t in trials)
     judge_pass = [
         _mean(float(bool(trial.judge_scores[index]["all_pass"])) for trial in trials)
-        for index in range(2)
+        for index in range(len(trials[0].judge_scores))
     ]
     both = sum(trial.both_pass for trial in trials)
     return MetricSummary(
@@ -1137,8 +1173,10 @@ def _summarize(trials: Sequence[_Trial], task_ids: Sequence[str]) -> MetricSumma
                 float(trial.dual["dual_all_pass_rate"]) for trial in trials
             ),
             "both_judges_all_pass_rate": both / len(trials),
-            "judge_1_all_pass_rate": judge_pass[0],
-            "judge_2_all_pass_rate": judge_pass[1],
+            **{
+                f"judge_{index}_all_pass_rate": value
+                for index, value in enumerate(judge_pass, start=1)
+            },
             "judge_disagreement_count": sum(
                 not trial.dual["judges_agree"] for trial in trials
             ),

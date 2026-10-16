@@ -47,6 +47,8 @@ from .base import MetaBackend, MetaBackendContext
 from .model_client import (
     RecordedExactModelClient,
     is_infrastructure_exception,
+    nexau_api_type,
+    nexau_reasoning,
     raise_classified_model_error,
 )
 from .preflight import run_model_preflight
@@ -788,7 +790,9 @@ class NexAUMetaBackend(MetaBackend):
                 "max_tokens": settings.max_tokens,
                 "max_retries": 0,
                 "stream": False,
-                "api_type": "openai_chat_completion",
+                "api_type": nexau_api_type(
+                    self.context.config.document.transport
+                ),
             },
             "tools": [
                 {
@@ -830,7 +834,7 @@ class NexAUMetaBackend(MetaBackend):
             "max_tokens": settings.max_tokens,
             "max_retries": 0,
             "stream": False,
-            "api_type": "openai_chat_completion",
+            "api_type": nexau_api_type(self.context.config.document.transport),
         }
         config.retry_attempts = 1
         config.llm_config.extra_params.pop("reasoning", None)
@@ -840,8 +844,11 @@ class NexAUMetaBackend(MetaBackend):
             config.llm_config.extra_params["extra_body"] = extra_body
         else:
             config.llm_config.extra_params.pop("extra_body", None)
-        if settings.reasoning_effort is not None:
-            llm_updates["reasoning"] = {"effort": settings.reasoning_effort}
+        reasoning = nexau_reasoning(
+            self.context.config.document.transport, settings.reasoning_effort
+        )
+        if reasoning is not None:
+            llm_updates["reasoning"] = reasoning
         config.llm_config.update(**llm_updates)
         client = self._model_client(
             settings=settings,

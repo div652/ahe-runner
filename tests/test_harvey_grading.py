@@ -473,3 +473,164 @@ def test_identical_judges_are_rejected(tmp_path: Path) -> None:
             api_key="test-key",
             max_prompt_chars=240000,
         )
+
+
+# --------------------------------------------------------------------------
+# Responses judge (judge_api openai_responses)
+
+
+class FakeResponsesClient:
+    """Scripted Responses-only replacement for RecordedExactModelClient."""
+
+    requests: ClassVar[list[dict[str, Any]]] = []
+    texts: ClassVar[list[str]] = []
+
+    def __init__(self, *, settings: ModelSettings, **_: Any) -> None:
+        self.responses = SimpleNamespace(create=self._create)
+
+    def _create(self, **kwargs: Any) -> Any:
+        FakeResponsesClient.requests.append(kwargs)
+        text = FakeResponsesClient.texts.pop(0)
+        return SimpleNamespace(
+            model=kwargs["model"], status="completed", output_text=text
+        )
+
+    def close(self) -> None:
+        return None
+
+
+def _azure_transport() -> TransportSettings:
+    return TransportSettings(
+        provider="azure_entra",
+        base_url="https://models.example.invalid/openai/v1",
+        token_scope="api://example/.default",
+        api_mode="responses",
+        model_catalog="disabled",
+        negative_control="disabled",
+    )
+
+
+def _responses_judge() -> ModelSettings:
+    return ModelSettings(
+        model=JUDGE_A, max_tokens=8192, reasoning_effort="high", temperature=None
+    )
+
+
+def _grade_responses(tmp_path: Path, run_dir: Path, **kwargs: Any) -> dict[str, Any]:
+    return grading.grade_task(
+        task_id="area/task",
+        task_config={"title": TASK_TITLE, "criteria": _criteria()},
+        run_dir=run_dir,
+        grading_dir=tmp_path / "grading",
+        judges=kwargs.pop("judges", (_responses_judge(),)),
+        helper=kwargs.pop("helper", None),
+        transport=_azure_transport(),
+        api_key="unused",
+        max_prompt_chars=240000,
+        judge_api="openai_responses",
+        **kwargs,
+    )
+
+
+def test_single_responses_judge_writes_lab_shaped_scores(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(grading, "RecordedExactModelClient", FakeResponsesClient)
+    FakeResponsesClient.requests = []
+    FakeResponsesClient.texts = [_verdict("pass"), _verdict("fail")]
+    result = _grade_responses(tmp_path, _run_dir(tmp_path))
+
+    assert result["judges"] == [f"openai/{JUDGE_A}"]
+    assert result["judge_profile"] == grading.SINGLE_JUDGE_PROFILE
+    assert result["dual_criterion_pass"] == 0.5
+    assert result["dual_all_pass_rate"] == 0.0
+    assert result["all_pass"] is False
+    assert result["judges_agree"] is True
+    assert sorted(path.name for path in (tmp_path / "grading").glob("scores_*")) == [
+        "scores_dual.json",
+        "scores_judge-1.json",
+    ]
+    judge_1 = json.loads((tmp_path / "grading" / "scores_judge-1.json").read_text())
+    assert judge_1["judge_transport"]["provider"] == "azure_entra"
+    assert judge_1["judge_transport"]["judge_api"] == "openai_responses"
+    assert judge_1["judge_transport"]["temperature"] is None
+    first = FakeResponsesClient.requests[0]
+    assert first["model"] == JUDGE_A
+    assert first["max_output_tokens"] == 8192
+    assert first["reasoning"] == {"effort": "high", "summary": "auto"}
+    assert "temperature" not in first
+    assert first["text"]["format"]["strict"] is True
+    assert first["text"]["format"]["type"] == "json_schema"
+
+
+def test_responses_judge_drops_schema_on_last_parse_attempt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(grading, "RecordedExactModelClient", FakeResponsesClient)
+    FakeResponsesClient.requests = []
+    FakeResponsesClient.texts = [
+        "not json",
+        _verdict("pass"),
+        _verdict("pass"),
+    ]
+    result = _grade_responses(tmp_path, _run_dir(tmp_path))
+    assert result["all_pass"] is True
+    assert "text" in FakeResponsesClient.requests[0]
+    assert "text" not in FakeResponsesClient.requests[1]
+
+
+def test_disabled_helper_records_no_match(tmp_path: Path) -> None:
+    from harvey_ahe.copilot_deliverable_matcher import DisabledDeliverableMatcher
+
+    matcher = DisabledDeliverableMatcher(artifact_root=tmp_path / "helper")
+    schema = {
+        "type": "object",
+        "properties": {"memo": {"type": ["string", "null"]}},
+        "required": ["memo"],
+        "additionalProperties": False,
+    }
+    assert matcher("prompt", schema) == {"memo": None}
+    record = json.loads(
+        (tmp_path / "helper" / "disabled" / "matches" / "call-0001.json").read_text()
+    )
+    assert record == {"status": "disabled", "matches": {"memo": None}}
+
+
+def test_responses_judge_requires_responses_transport(tmp_path: Path) -> None:
+    with pytest.raises(ConfigurationError, match="api_mode"):
+        grading.RecordedCopilotJudge(
+            settings=_responses_judge(),
+            transport=_transport(),
+            api_key="unused",
+            artifact_dir=tmp_path,
+            max_prompt_chars=1000,
+            judge_api="openai_responses",
+        )
+
+
+def test_copilot_judges_still_require_two_and_a_helper(tmp_path: Path) -> None:
+    with pytest.raises(ConfigurationError, match="two judges"):
+        grading.grade_task(
+            task_id="area/task",
+            task_config={"title": TASK_TITLE, "criteria": _criteria()},
+            run_dir=_run_dir(tmp_path),
+            grading_dir=tmp_path / "grading",
+            judges=(_judge(JUDGE_A),),
+            helper=ModelSettings(model=HELPER, max_tokens=1024, temperature=0.0),
+            transport=_transport(),
+            api_key="test-key",
+            max_prompt_chars=240000,
+        )
+
+
+def test_dual_summary_of_one_judge_matches_that_judge() -> None:
+    rows = [
+        {"verdict": "pass", "reasoning": "ok"},
+        {"verdict": "fail", "reasoning": "no"},
+    ]
+    summary = grading.dual_summary([{"criteria_results": rows}])
+    assert summary["dual_criterion_pass"] == 0.5
+    assert summary["dual_all_pass_rate"] == 0.0
+    assert summary["judges_agree"] is True
+    with pytest.raises(IntegrityError):
+        grading.dual_summary([])

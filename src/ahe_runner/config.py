@@ -8,7 +8,15 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from .errors import ConfigurationError
 from .io import sha256_file
@@ -22,7 +30,8 @@ class ModelSettings(StrictModel):
     model: str
     max_tokens: int = Field(gt=0)
     reasoning_effort: str | None = None
-    temperature: float = Field(default=0.2, ge=0.0, le=2.0)
+    # None sends no temperature (reasoning models on the Responses API).
+    temperature: float | None = Field(default=0.2, ge=0.0, le=2.0)
 
     @field_validator("model")
     @classmethod
@@ -42,10 +51,24 @@ class ModelSettings(StrictModel):
         return str(value)
 
 
+# Added after campaigns had run; left out of the serialized transport while at
+# these defaults so earlier campaign and evaluation identities are unchanged.
+_TRANSPORT_LATER_DEFAULTS: dict[str, Any] = {
+    "provider": "gh_copilot_server",
+    "token_scope": None,
+    "transient_retries": 0,
+    "transient_max_wait_seconds": 120.0,
+}
+
+
 class TransportSettings(StrictModel):
+    # gh_copilot_server: local OpenAI-compatible server, no real key.
+    # azure_entra: bearer token for token_scope from the Azure CLI login.
+    provider: Literal["gh_copilot_server", "azure_entra"] = "gh_copilot_server"
     base_url: str
     api_key_env: str | None = None
-    api_mode: Literal["chat_completions"] = "chat_completions"
+    token_scope: str | None = None
+    api_mode: Literal["chat_completions", "responses"] = "chat_completions"
     stream: Literal[False] = False
     request_timeout_seconds: float = Field(default=300.0, gt=0)
     observable_model_policy: Literal["exact"] = "exact"
@@ -58,6 +81,11 @@ class TransportSettings(StrictModel):
     # any response). The identical request is resent and every failed attempt
     # is kept in the call directory. 0: a hung call fails as before.
     hung_call_retries: int = Field(default=0, ge=0, le=5)
+    # Extra attempts for a call rejected with HTTP 429, a 5xx status or a
+    # connection error. The wait is the server's Retry-After, capped by
+    # transient_max_wait_seconds, else min(60, 2^n) seconds, plus jitter.
+    transient_retries: int = Field(default=0, ge=0, le=100)
+    transient_max_wait_seconds: float = Field(default=120.0, gt=0, le=600)
 
     @field_validator("base_url")
     @classmethod
@@ -66,6 +94,27 @@ class TransportSettings(StrictModel):
         if not normalized.startswith(("http://", "https://")):
             raise ValueError("transport.base_url must be HTTP(S)")
         return normalized
+
+    @model_validator(mode="after")
+    def validate_provider(self) -> TransportSettings:
+        if self.provider == "azure_entra":
+            if not (self.token_scope or "").strip():
+                raise ValueError("provider azure_entra requires token_scope")
+            if self.api_key_env is not None:
+                raise ValueError("provider azure_entra does not use api_key_env")
+            if not self.base_url.startswith("https://"):
+                raise ValueError("provider azure_entra requires an https base_url")
+        elif self.token_scope is not None:
+            raise ValueError("token_scope is only used by provider azure_entra")
+        return self
+
+    @model_serializer(mode="wrap")
+    def serialize(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        data = handler(self)
+        for name, default in _TRANSPORT_LATER_DEFAULTS.items():
+            if name in data and data[name] == default:
+                del data[name]
+        return data
 
 
 class CampaignSettings(StrictModel):

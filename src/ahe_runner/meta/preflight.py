@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import secrets
+import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -13,7 +15,13 @@ from ahe_runner.config import ModelSettings, TransportSettings
 from ahe_runner.errors import InfrastructureError, IntegrityError
 from ahe_runner.io import atomic_write_json
 
-from .model_client import is_infrastructure_exception
+from .model_client import (
+    is_infrastructure_exception,
+    is_transient_exception,
+    openai_credential,
+    responses_reasoning,
+    transient_retry_delay,
+)
 
 
 def run_model_preflight(
@@ -43,9 +51,11 @@ def run_model_preflight(
             "substitution."
         ),
     }
+    if transport.provider != "gh_copilot_server":
+        report["provider"] = transport.provider
     client = OpenAI(
         base_url=transport.base_url,
-        api_key=api_key,
+        api_key=openai_credential(transport, api_key),
         max_retries=0,
         timeout=transport.request_timeout_seconds,
     )
@@ -81,19 +91,41 @@ def run_model_preflight(
             f"exact model {settings.model!r} is absent from the endpoint catalog"
         )
 
-    positive_payload: dict[str, Any] = {
-        "model": settings.model,
-        "messages": [{"role": "user", "content": "Reply with OK only."}],
-        "max_tokens": min(settings.max_tokens, 64),
-        "temperature": settings.temperature,
-        "stream": False,
-    }
-    if settings.reasoning_effort is not None:
-        positive_payload["extra_body"] = {
-            "reasoning": {"effort": settings.reasoning_effort}
+    responses_api = transport.api_mode == "responses"
+    positive_payload: dict[str, Any]
+    if responses_api:
+        positive_payload = {
+            "model": settings.model,
+            "input": "Reply with OK only.",
+            "max_output_tokens": min(settings.max_tokens, 64),
+            "stream": False,
         }
+        if settings.temperature is not None:
+            positive_payload["temperature"] = settings.temperature
+        if settings.reasoning_effort is not None:
+            positive_payload["reasoning"] = responses_reasoning(
+                settings.reasoning_effort
+            )
+        create: Callable[..., Any] = client.responses.create
+    else:
+        positive_payload = {
+            "model": settings.model,
+            "messages": [{"role": "user", "content": "Reply with OK only."}],
+            "max_tokens": min(settings.max_tokens, 64),
+            "stream": False,
+        }
+        if settings.temperature is not None:
+            positive_payload["temperature"] = settings.temperature
+        if settings.reasoning_effort is not None:
+            positive_payload["extra_body"] = {
+                "reasoning": {"effort": settings.reasoning_effort}
+            }
+        create = client.chat.completions.create
+    transient_errors: list[str] = []
     try:
-        positive = client.chat.completions.create(**positive_payload)
+        positive = _create_with_transient_retries(
+            create, positive_payload, transport, transient_errors
+        )
     except Exception as exc:
         report["positive_probe"] = {
             "passed": False,
@@ -124,6 +156,10 @@ def run_model_preflight(
         "passed": True,
         "returned_model": returned_model,
     }
+    if responses_api:
+        report["positive_probe"]["status"] = getattr(positive, "status", None)
+    if transient_errors:
+        report["positive_probe"]["transient_errors"] = transient_errors
 
     negative: dict[str, Any] | None = None
     if transport.negative_control != "disabled":
@@ -131,7 +167,7 @@ def run_model_preflight(
         negative_payload = dict(positive_payload)
         negative_payload["model"] = nonexistent
         try:
-            response = client.chat.completions.create(**negative_payload)
+            response = create(**negative_payload)
         except Exception as exc:
             text = str(exc)
             passed = nonexistent.casefold() in text.casefold()
@@ -167,3 +203,29 @@ def run_model_preflight(
     report["negative_control"] = negative
     atomic_write_json(output_path, report)
     return report
+
+
+def _create_with_transient_retries(
+    create: Callable[..., Any],
+    payload: dict[str, Any],
+    transport: TransportSettings,
+    errors: list[str],
+) -> Any:
+    """Resend a probe rejected for rate limits or 5xx, as model calls are."""
+    while True:
+        try:
+            return create(**payload)
+        except Exception as exc:
+            if (
+                not is_transient_exception(exc)
+                or len(errors) >= transport.transient_retries
+            ):
+                raise
+            errors.append(f"{type(exc).__name__}: {exc}")
+            time.sleep(
+                transient_retry_delay(
+                    exc,
+                    attempt=len(errors),
+                    max_wait=transport.transient_max_wait_seconds,
+                )
+            )
