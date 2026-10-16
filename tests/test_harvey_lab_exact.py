@@ -468,7 +468,9 @@ def test_sandbox_mounts_shared_corpus_in_place_and_seeds_workspace(
     scratch.mkdir()
     _NoStartSandbox.created = []
     monkeypatch.setattr(adapter_module, "Sandbox", _NoStartSandbox)
-    owner = SimpleNamespace(config=SimpleNamespace(shell_timeout=60))
+    owner = SimpleNamespace(
+        config=SimpleNamespace(shell_timeout=60, api_rejection_policy="grade")
+    )
     with pytest.raises(InfrastructureError, match="failed to start"):
         HarveyAdapter._run_in_sandbox(
             owner,  # type: ignore[arg-type]

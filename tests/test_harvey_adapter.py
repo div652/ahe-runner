@@ -20,6 +20,7 @@ from harvey_ahe import adapter as adapter_module
 from harvey_ahe.adapter import (
     PRIMARY_METRIC,
     HarveyAdapter,
+    HarveyAdapterSettings,
     _AgentRun,
     _final_text,
     _run_session,
@@ -29,7 +30,7 @@ from harvey_ahe.grading import JUDGE_MAX_TOKENS, dual_summary
 from harvey_ahe.tasks import PinnedTask, leaf_slug, load_pinned_task
 from harvey_ahe.workspace import RESOURCE_KEY, WorkspaceHandle
 from lab_core.sandbox.sandbox import PodmanError
-from openai import APITimeoutError
+from openai import APIStatusError, APITimeoutError
 
 from ahe_runner.adapter import (
     CandidateValidationRequest,
@@ -319,6 +320,110 @@ def test_provider_context_rejection_is_a_graded_context_overflow(
         run_with(other)
     (_, error, overflow), _ = run_with(ValueError("bad output"))
     assert error == "ValueError: bad output" and overflow is None
+
+
+def _api_error(status: int, message: str) -> APIStatusError:
+    request = httpx.Request("POST", "http://127.0.0.1:9/v1/responses")
+    return APIStatusError(
+        f"Error code: {status} - {message}",
+        response=httpx.Response(status, request=request),
+        body=None,
+    )
+
+
+@pytest.mark.parametrize("status", [400, 403, 404])
+def test_api_rejection_policy(tmp_path: Path, status: int) -> None:
+    """grade keeps the partial run as agent_error; rerun makes it infrastructure."""
+
+    def run_with(exc: Exception, *, rerun: bool) -> Any:
+        class _Failing:
+            def run(self, agent_input: AgentInput) -> AgentOutput:
+                raise exc
+
+            def close(self) -> None:
+                return None
+
+        runtime = type("R", (), {"open_session": lambda self, request: _Failing()})()
+        return _run_session(
+            runtime=runtime,
+            session_id="s",
+            artifact_dir=tmp_path,
+            working_directory=tmp_path,
+            handle=object(),  # type: ignore[arg-type]
+            instructions="task",
+            rerun_api_rejections=rerun,
+        )
+
+    # NexAU wraps the provider error and keeps it as the cause.
+    rejected = _chained(
+        RuntimeError("Error in agent execution: unknown parameter"),
+        _api_error(status, "unknown parameter 'input[2].async_'"),
+    )
+    output, error, overflow = run_with(rejected, rerun=False)
+    assert output is None and overflow is None
+    assert error is not None and error.startswith("RuntimeError: Error in agent")
+
+    with pytest.raises(InfrastructureError, match=f"HTTP {status}.*rerun") as caught:
+        run_with(rejected, rerun=True)
+    assert type(portable_exception(caught.value)) is InfrastructureError
+
+    # A context-length rejection stays a graded context overflow.
+    too_long = _chained(
+        RuntimeError("Error in agent execution"),
+        _api_error(400, "context_length_exceeded"),
+    )
+    _, error, overflow = run_with(too_long, rerun=True)
+    assert error is None and overflow is not None
+    # Errors that are not API rejections are unaffected by the policy.
+    _, error, _ = run_with(ValueError("bad output"), rerun=True)
+    assert error == "ValueError: bad output"
+
+
+def test_api_rejection_policy_setting() -> None:
+    settings = yaml.safe_load(
+        (PROJECT_ROOT / "ahe.yaml").read_text("utf-8")
+    )["project"]["adapter_settings"]
+    assert HarveyAdapterSettings.model_validate(settings).api_rejection_policy == (
+        "grade"
+    )
+    rerun = HarveyAdapterSettings.model_validate(
+        {**settings, "api_rejection_policy": "rerun"}
+    )
+    assert rerun.api_rejection_policy == "rerun"
+    with pytest.raises(ValueError, match="api_rejection_policy"):
+        HarveyAdapterSettings.model_validate(
+            {**settings, "api_rejection_policy": "retry"}
+        )
+
+
+def test_trial_process_passes_the_rerun_flag(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: dict[str, Any] = {}
+
+    class _Runtime:
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(
+        adapter_module.EvaluatedAgentRuntime,
+        "from_process_spec",
+        lambda _spec: _Runtime(),
+    )
+    monkeypatch.setattr(
+        adapter_module, "_run_trial_agent", lambda **kwargs: seen.update(kwargs)
+    )
+    fields: dict[str, Any] = {
+        name: None for name in adapter_module._TrialPayload.__dataclass_fields__
+    }
+    fields["runtime_spec"] = SimpleNamespace(
+        transport=TransportSettings(base_url="http://127.0.0.1:9/v1")
+    )
+    for flag in (False, True):
+        fields["rerun_api_rejections"] = flag
+        payload = adapter_module._TrialPayload(**fields)
+        adapter_module._trial_process_entry(payload, None)
+        assert seen["rerun_api_rejections"] is flag
 
 
 # Candidate validation
