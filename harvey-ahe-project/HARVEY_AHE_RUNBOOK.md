@@ -2128,6 +2128,15 @@ A forced test restart at 06:54 UTC, with nothing running, took 20 seconds;
 the listener, 31 models and the probe were fine. Right after a restart the
 renderer uses 300 to 500 MB.
 
+Applied at 06:56 UTC: campaign amendment 1 (kind `retry_blocked_stage`,
+stage `evaluation.C4.train`, allowance 6 attempts). It accepts the changed
+runner files `cli.py`, `controller.py` and `state.py` with
+`--allow-runner-code-change`; new identity `28bf5400…`. Relaunched at
+06:57 UTC with the guard as `AHE_PRE_STAGE_COMMAND`, appending to
+`c12-run.log`. The guard ran before C4 (renderer 314 MB, no restart).
+Attempt 4 reran only the 119 unfinished trials; the 41 finished ones were
+kept. Calls use gpt-5.6-sol, effort high, `max_tokens` 128000.
+
 ## 6. Known deviations and limits to report with results
 
 - Task scope (campaigns 1 to 8): only 166 of LAB's 2,010 tasks (8%) are
