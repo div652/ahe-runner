@@ -53,6 +53,7 @@ The assistant announces new permanent files before creating them.
 | AHE-024 | The exact token counter of AHE-023 uses o200k_base for every model; Claude's tokenizer turns the same Harvey text into 1.65-1.68 times as many tokens, so `max_context_tokens` means a different amount of text per model | Explained on 2026-10-15 while preparing campaign 9c (claude-opus-4.8); the operator chose to keep the harness unchanged and let Anthropic's rejection end Opus runs, as LAB does, and approved recording; 9c was then dropped | No patch; only GPT models (o200k_base) are evaluated so far |
 | AHE-025 | All concurrent trials run as threads in one Python process, so host-side harness tools such as `grep` queue behind each other; LAB runs every task in its own process | Found on 2026-10-15 during campaign 10's C0 evaluation; the operator approved recording it | Fixed locally: the adapter setting `trial_processes` runs each trial's agent in its own process; campaign 10 was stopped and restarted with it |
 | AHE-026 | When an outage outlasts a stage's attempts, the stage is blocked and the campaign cannot continue, although every attempt failed on infrastructure and no result is in doubt; there is also no hook to keep a long-lived dependency such as the model server healthy between stages | Found on 2026-10-16 when campaign 12's model server crashed during the C4 train evaluation; the operator approved a command that reopens only infrastructure-blocked stages, plus a pre-stage hook | Fixed locally: `ahe retry-blocked-stage` (recorded in `campaign_amendments.json`) and `AHE_PRE_STAGE_COMMAND`; campaign 12 resumed with both |
+| AHE-027 | `ahe extend-rounds` refuses once evolution has closed, so a finished campaign cannot be continued for more rounds; the only option is a new campaign that repeats every finished round | Raised on 2026-10-16 when the operator asked to run campaign 12 (finished at 5 rounds) for 5 more rounds from its last checkpoint | Proposed: `ahe extend-rounds --reopen-closed-evolution` moves the closing stages and their outputs to `superseded/closure-NN/` and records them in the amendment; every other stage is reused |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -2188,3 +2189,93 @@ The operator approved, on 2026-10-16:
 2. Give operators a supported hook between stages for health checks of
    external services.
 
+## AHE-027: a closed campaign cannot be given more rounds
+
+### Plain-language summary
+
+`ahe extend-rounds` lets an operator raise `campaign.rounds` for a running
+campaign. It refuses once evolution has closed, that is once any of the
+stages `evolution.close`, `selection` or `final.complete` exists. Those
+stages are written for the old round count: `evolution.close` stores
+"the last checkpoint is C5", `selection` picked the best of C0..C5 on
+validation, and `final.complete` tested that pick. With a larger round count
+their recorded inputs no longer match, and the stage store stops with
+"stage semantic inputs changed after creation".
+
+So a finished campaign could only be continued by starting a new campaign,
+which repeats every finished round (for campaign 12 about 20 hours of model
+calls) and, because model calls are random, would not even reproduce the
+same C1..C5.
+
+### Evidence
+
+- Campaign 12 (`harvey-lab-campaign-12-gpt-5.6-sol-high-80-20-20`) finished
+  on 2026-10-16 at 18:29 UTC with 5 rounds. Validation selected C5; the final
+  test gave C5 0.722 against C0 0.645 (runbook 5w).
+- The operator asked to run 5 more rounds from C5 on the same model and
+  endpoint. `extend_rounds` refuses: the campaign has all three closing
+  stages.
+- Nothing before closing depends on the round count. The round count is
+  read only by `run`, `run_round`, `close_evolution` and `run_validation`
+  (`controller.py`), and is a stage input only of `evolution.close`. No meta
+  prompt, supplement or Evolve query mentions the total or a last round; the
+  Evolve query names only the current checkpoint (`C{i}`).
+- The meta agents cannot see what closing produced. Their read roots are the
+  training evidence and raw training evaluation, the debugger output,
+  history (built from training evaluations only, `history.py`), attribution,
+  checkpoints, Explore skills and public sources (`run_evolve` in
+  `meta/nexau_backend.py`). `evaluations/*-validation`,
+  `evaluations/*-final-test`, `selection/` and `final/` are never mounted.
+
+### Local decision or repair (proposed)
+
+A new flag, `ahe extend-rounds --reopen-closed-evolution`. Without the flag
+nothing changes: extending a closed campaign is still refused, and the error
+names the flag.
+
+With the flag, in addition to the usual `extend-rounds` checks:
+
+1. Every stage of the campaign must be `completed`. A stage that is running,
+   interrupted or blocked is refused, so nothing is reopened halfway.
+2. The outputs of the closing stages are checked against their recorded
+   hashes, and must lie under `selection/` or `final/`.
+3. A dry run (the default) lists what would move, the previous selection and
+   the previous test scores.
+4. `--apply` moves, without copying or deleting:
+   - the stage records `stages/evolution.close`, `stages/selection` and
+     `stages/final.complete`, and
+   - their outputs (`selection/evolution_closed.json`,
+     `selection/selection.json`, `final/final_test.json`,
+     `final/selected-harness`)
+
+   to `superseded/closure-NN/`, keeping their relative paths, and writes
+   `superseded/closure-NN/reopen.json`. It then appends the usual
+   `extend_rounds` amendment with an extra `reopened_closed_evolution`
+   block: the archive folder, each moved path with its hash, the closed
+   round count, the previous selected checkpoint, and the previous
+   validation and test primary metrics.
+5. The next `ahe resume` reuses every other stage: all rounds so far, all
+   train, validation and test evaluations. It continues with round
+   `old + 1`, then closes evolution at the new round count, evaluates the new
+   checkpoints on validation, selects the best of C0..C{new} by the same rule,
+   and tests C0 and the new pick. A test evaluation that already exists for
+   the same checkpoint is reused, as in any resume.
+
+If the process stops after the moves but before the amendment is written,
+every command refuses the larger round count (identity check), and running
+`ahe extend-rounds --apply` without the flag records the amendment;
+`reopen.json` still documents the move.
+
+### What a report must say
+
+The decision to continue was taken after the 5-round test result was known.
+No meta agent can see validation or test results, so this cannot change what
+Evolve does; it can only change whether a 10-round result exists. A report
+should give both results: the 5-round closure (kept in
+`superseded/closure-01/` and in the amendment) and the 10-round one, and say
+that the campaign was extended after it had closed.
+
+### Upstream recommendations
+
+1. Let an operator continue a closed campaign for more rounds with an audit
+   record of the superseded closure, instead of requiring a new campaign.
