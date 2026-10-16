@@ -7,20 +7,25 @@ is in flight. On 2026-10-16 the renderer of the ``copilot-host`` VS Code window
 crashed with a V8 out-of-memory error after about 46 hours, which closed the GH
 Copilot Server on port 3141 and blocked campaign 12.
 
-The script measures the resident memory of that window's renderer process.
+The script measures the resident memory of that window's renderer process and
+sends one small completion with one tool to ``--probe-model`` (tried twice).
 
-- Below ``--soft-mb``: exit 0 at once.
+- If the probe fails, the server is broken for every client: restart at once.
+- Else, below ``--soft-mb``: exit 0.
 - At or above it: wait up to ``--drain-seconds`` for other clients' connections
   to port 3141 to finish, then restart. If they do not finish, restart only at
   or above ``--hard-mb``; otherwise exit 0 and check again before the next stage.
 
 A restart kills the window's main process (by the PID found below), reopens the
 tmux window ``copilot-host:code`` with the command of
-``~/copilot-host/start-copilot-host.sh``, waits for Copilot Chat to load its
-models, runs "GH Copilot Server: Start Server" with xdotool, and checks the
-listener, ``/v1/models`` and one small completion. Any failed step exits
-non-zero, which the runner records as an infrastructure error without using an
-attempt. Every decision is appended as one JSON line to ``--log``.
+``~/copilot-host/start-copilot-host.sh`` and working directory
+``~/copilot-host`` (VS Code must never inherit a folder that may be deleted:
+its extension host then fails every request with "process.cwd failed"), waits
+for Copilot Chat to load its models, runs "GH Copilot Server: Start Server"
+with xdotool, and checks the listener, ``/v1/models`` and one small completion.
+Any failed step exits non-zero, which the runner records as an infrastructure
+error without using an attempt. Every decision is appended as one JSON line to
+``--log``.
 """
 
 from __future__ import annotations
@@ -92,10 +97,14 @@ def main(argv: list[str] | None = None) -> int:
             "soft_mb": args.soft_mb,
             "hard_mb": args.hard_mb,
         }
-        if args.check or (not args.force and renderer_mb < args.soft_mb):
+        if args.check:
             log("ok", **state)
             return 0
-        if not args.force:
+        probe_error = None if args.force else _probe_error(args.probe_model)
+        if probe_error is None and not args.force and renderer_mb < args.soft_mb:
+            log("ok", **state, probe_model=args.probe_model)
+            return 0
+        if probe_error is None and not args.force:
             deadline = time.monotonic() + args.drain_seconds
             while clients and time.monotonic() < deadline:
                 time.sleep(10)
@@ -103,7 +112,11 @@ def main(argv: list[str] | None = None) -> int:
             if clients and renderer_mb < args.hard_mb:
                 log("deferred_clients_connected", **{**state, "clients": clients})
                 return 0
-        log("restarting", **{**state, "clients": clients, "forced": args.force})
+        log(
+            "restarting",
+            **{**state, "clients": clients, "forced": args.force},
+            probe_error=probe_error,
+        )
         started = time.monotonic()
         _restart(main_pid)
         new_main, new_renderer, new_mb = _measure()
@@ -194,7 +207,18 @@ def _restart(main_pid: int) -> None:
         f"tmux window {SESSION}:{WINDOW} did not close",
     )
     _run(
-        ["tmux", "new-window", "-d", "-t", f"{SESSION}:1", "-n", WINDOW, LAUNCH_COMMAND]
+        [
+            "tmux",
+            "new-window",
+            "-d",
+            "-c",
+            str(HOST_DIR),
+            "-t",
+            f"{SESSION}:1",
+            "-n",
+            WINDOW,
+            LAUNCH_COMMAND,
+        ]
     )
 
     def chat_log() -> Path | None:
@@ -267,7 +291,19 @@ def _listener_exe() -> Path | None:
     return None
 
 
-def _verify(model: str) -> str:
+def _probe_error(model: str) -> str | None:
+    """Return None if the endpoint answers a small completion, else the error."""
+    error = None
+    for _ in range(2):
+        try:
+            _verify(model, timeout=90)
+            return None
+        except (GuardError, OSError, ValueError) as exc:
+            error = str(exc)[:300]
+    return error
+
+
+def _verify(model: str, timeout: float = 300) -> str:
     base = f"http://127.0.0.1:{PORT}/v1"
     with urllib.request.urlopen(f"{base}/models", timeout=30) as response:
         ids = {row["id"] for row in json.load(response).get("data", [])}
@@ -279,6 +315,22 @@ def _verify(model: str) -> str:
         {
             "model": model,
             "messages": [{"role": "user", "content": "Reply with OK only."}],
+            # Requests with tools take a different path in the extension; on
+            # 2026-10-16 only they failed ("process.cwd failed").
+            "tools": [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "noop",
+                        "description": "Does nothing.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {},
+                            "additionalProperties": False,
+                        },
+                    },
+                }
+            ],
             "reasoning": {"effort": "low"},
             "max_tokens": 256,
             "stream": False,
@@ -290,7 +342,7 @@ def _verify(model: str) -> str:
         headers={"Content-Type": "application/json"},
     )
     try:
-        with urllib.request.urlopen(request, timeout=300) as response:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             reply = json.load(response)
     except OSError as exc:
         raise GuardError(f"probe completion failed: {exc}") from exc

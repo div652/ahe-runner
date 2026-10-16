@@ -2114,8 +2114,9 @@ The operator approved, on 2026-10-16:
    `ahe retry-blocked-stage`, and a pre-stage hook `AHE_PRE_STAGE_COMMAND`
    (guide sections 2.5 and 2.6, AHE-026).
 3. A memory guard for the hook: `scripts/copilot_host_memory_guard.py`.
-   Before each stage attempt it measures the renderer's resident memory.
-   Below 2,500 MB it does nothing. At or above it, it waits up to 10 minutes
+   Before each stage attempt it measures the renderer's resident memory
+   (and, since the fix below, sends one small completion with a tool). Below
+   2,500 MB it does nothing. At or above it, it waits up to 10 minutes
    for other clients of port 3141 to finish, then restarts the window and
    checks the listener, `/v1/models` and one small gpt-5.6-sol completion.
    If other clients stay connected, it restarts only at 3,300 MB or more. A
@@ -2136,6 +2137,27 @@ runner files `cli.py`, `controller.py` and `state.py` with
 `c12-run.log`. The guard ran before C4 (renderer 314 MB, no restart).
 Attempt 4 reran only the 119 unfinished trials; the 41 finished ones were
 kept. Calls use gpt-5.6-sol, effort high, `max_tokens` 128000.
+
+**Second block, caused by the guard (07:02-07:16 UTC).** Attempts 4, 5 and
+6 each failed within 3 minutes: every request with tools got HTTP 500
+"ENOENT: process.cwd failed … uv_cwd". The guard's test restart at 06:54 had
+opened the tmux window without a working directory, so VS Code inherited
+the folder the guard was run from, the temporary worktree
+`~/AHE_Harvey_retry`, which was deleted two minutes later. Requests without
+tools still worked, so the guard's probe passed. No trial completed in these
+attempts (still 41), so no result is affected. Fixes in the guard:
+
+- The tmux window now starts in `~/copilot-host` (`tmux new-window -c`).
+- Before every stage the guard also sends one small completion that
+  includes a tool (tried twice). If it fails, the guard restarts the server
+  at once, whatever the memory.
+
+The fixed guard detected the fault and restarted the server at 07:25 UTC (20
+seconds); preflights for gpt-5.6-sol (high), claude-sonnet-5 and gpt-5.5
+passed (`operator-preflight/2026-10-16/c12-restart2-*.json`). Campaign
+amendment 2 (`retry_blocked_stage`, allowance 9, no identity change)
+reopened C4, and the launcher was restarted at 07:27 UTC. Attempt 7 ran
+without server errors.
 
 ## 6. Known deviations and limits to report with results
 
