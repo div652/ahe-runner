@@ -2168,6 +2168,11 @@ an agent error.
 
 Artifacts: `campaign-artifacts/harvey-lab-campaign-12-gpt-5.6-sol-high-80-20-20/`
 
+The campaign was later extended to 10 rounds (section 5x). The extension
+moved `selection/`, `final/` and the three closing stages of this 5-round
+result to `superseded/closure-01/` (the same relative paths below), and the
+pre-extension campaign is also backed up in full (5x).
+
 - `final/final_test.json`: test results of C0 and the selected checkpoint;
 - `final/selected-harness/`: the selected harness (SHA-256 `8c90fb51…`);
 - `selection/selection.json`: validation results of every checkpoint;
@@ -2215,6 +2220,86 @@ higher on both-judges all-pass than the LAB-exact starting harness. Limits:
   apply.
 - Test terminations: C0 had 1 context overflow; C5 had 2 trials that ended
   without a tool call.
+
+## 5x. Campaign 12 extension: rounds 5 -> 10 from C5 (AHE-027)
+
+On 2026-10-16 the operator asked to run campaign 12 for 5 more rounds from
+its last checkpoint (C5), on the same GH Copilot setup, as a reportable
+experiment. Nothing else changed: same splits, seed, evaluated model
+(gpt-5.6-sol, effort high, `max_tokens` 128000), judges (claude-sonnet-5 and
+gpt-5.5), transport (`http://127.0.0.1:3141/v1`, `chat_completions`, the
+server-hosted VS Code listener), concurrency, trials and memory guard.
+
+**Why a new runner feature.** `ahe extend-rounds` refused a closed campaign.
+Raising `rounds` and resuming would have failed too, because the stored
+`evolution.close` stage records `rounds: 5`. AHE-027 adds
+`ahe extend-rounds --reopen-closed-evolution` (runner commits `5e8fb2b`
+design, `060f348` implementation; guide section 2.6). It:
+
+1. requires every stage to be completed and re-verifies the hashes of the
+   closing outputs;
+2. moves the closing result (`stages/evolution.close`, `stages/selection`,
+   `stages/final.complete`, `selection/`, `final/`) to
+   `superseded/closure-NN/` and writes `reopen.json` there with the previous
+   selection and validation/test metrics;
+3. appends an `extend_rounds` amendment with a `reopened_closed_evolution`
+   block to `campaign_amendments.json`.
+
+All other stages are untouched and reused: rounds 1-5, the C0-C5 train,
+validation and test evaluations. A resume then runs rounds 6-10, closes at
+C10, evaluates C6-C10 on validation, selects over C0-C10 with the same rule
+(best validation score; earliest checkpoint on a tie), and tests C0 and the
+selected checkpoint (stored test evaluations are reused).
+
+**Checks before launch** (all passed):
+
+- Information: Evolve and the debugger only read history, evidence, train
+  evaluations, checkpoints and the public benchmark files; never validation,
+  test, `selection/` or `final/`. History is built from train evaluations
+  only. No prompt mentions the total or the last round.
+- Tests: full suite 286 passed; ruff clean.
+- Dry run on campaign 12: changes `config.config_sha256`, `campaign.rounds`
+  and the runner package (`cli.py`, `controller.py`, `state.py`); identity
+  `28bf5400…` -> `6c6ec8bd…`.
+- Backup:
+  `campaign-artifacts/harvey-lab-campaign-12-gpt-5.6-sol-high-80-20-20-backup-before-extension-2026-10-16/`
+  (`cp -a`; `evaluations/` hard-linked with `cp -al`; `diff -rq` identical).
+- Preflights (exact model plus nonexistent-model control):
+  `operator-preflight/2026-10-16/c12x-extension-{gpt-5.6-sol,claude-sonnet-5,gpt-5.5}.json`.
+- Amendment applied 2026-10-16 20:57 UTC (ledger entry 3, `extend_rounds`,
+  identity `6c6ec8bd…`; archive `superseded/closure-01/`):
+
+  ```bash
+  .venv/bin/ahe extend-rounds --config harvey-ahe-project/ahe.yaml \
+    --reason "Operator (div652) 2026-10-16: run campaign 12 for 5 more rounds ..." \
+    --reopen-closed-evolution --allow-runner-code-change --apply
+  ```
+
+- Resume rehearsal (patched `StageStore.run` that refuses to start any stage
+  and re-verifies completed ones; nothing written): the first stage to run
+  is `round.6.debugger`. All 47 stored stages verified: 39 through round 5,
+  plus the 8 validation/test evaluations, whose metrics equal the archived
+  values.
+
+**Launch.** 2026-10-16 21:01:40 UTC, tmux `ahe-c12x`, same launcher as 5v
+(`ahe resume` with `AHE_PRE_STAGE_COMMAND` set to the memory guard, up to
+15 automatic resumes; log `campaign-artifacts/c12-run.log`). The resume
+re-verified the stored stages (about 4 minutes), then started
+`round.6.debugger` at 21:05:28 UTC with the memory guard reporting `ok`; no
+completed stage was rerun. Estimated about 20 hours. Campaign 13 (TRAPI) ran at the same time from
+`~/AHE_Harvey_trapi`, on a different provider.
+
+**Reporting.** Report both results:
+
+- 5 rounds: `superseded/closure-01/` (C5 selected; test 0.722 vs C0
+  0.645; section 5w).
+- 10 rounds: `selection/` and `final/` once the run finishes.
+
+The extension was decided after the 5-round test result was known. Neither
+meta agent can see validation or test data, so this cannot steer evolution.
+But selection now picks among 11 checkpoints instead of 6, so the selected
+checkpoint's validation score is more likely to be inflated by chance (a
+"winner's curse" or selection bias). The test set stays the unbiased check.
 
 ## 6. Known deviations and limits to report with results
 
