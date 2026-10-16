@@ -39,6 +39,7 @@ from .io import (
     sha256_file,
     sha256_json,
     tree_hashes,
+    verify_path_fingerprint,
 )
 from .loading import load_adapter
 from .meta import MetaBackendContext, create_meta_backend
@@ -53,6 +54,8 @@ from .workspace import (
 )
 
 _RUNNER_PACKAGE_IDENTITY = "protected_runner_resources.package"
+_CLOSING_STAGES = ("evolution.close", "selection", "final.complete")
+_CLOSING_OUTPUT_ROOTS = frozenset({"selection", "final"})
 PRE_STAGE_COMMAND_ENV = "AHE_PRE_STAGE_COMMAND"
 PRE_STAGE_TIMEOUT_ENV = "AHE_PRE_STAGE_TIMEOUT_SECONDS"
 
@@ -873,12 +876,17 @@ class CampaignController:
         reason: str,
         apply: bool = False,
         allow_runner_change: bool = False,
+        reopen_closed_evolution: bool = False,
     ) -> dict[str, Any]:
         """Accept a larger ``campaign.rounds`` for an existing campaign.
 
         The operator first raises ``campaign.rounds`` in the configuration file.
         This records the new campaign identity in ``campaign_amendments.json``;
         the original campaign manifest and every stage record stay unchanged.
+
+        With ``reopen_closed_evolution`` a closed campaign can be extended too
+        (AHE-027): the closing stages and their outputs move, unchanged, to
+        ``superseded/closure-NN/`` and are described in the amendment.
         """
         if not reason.strip():
             raise ConfigurationError("extend-rounds needs a non-empty --reason")
@@ -925,15 +933,22 @@ class CampaignController:
                     else ""
                 )
             )
+        stages = self.stage_store.status()
         closing_stages = sorted(
-            row["name"]
-            for row in self.stage_store.status()
-            if row["name"] in {"evolution.close", "selection", "final.complete"}
+            row["name"] for row in stages if row["name"] in _CLOSING_STAGES
         )
+        reopen_plan: dict[str, Any] | None = None
         if closing_stages:
-            raise IntegrityError(
-                "rounds cannot be extended after evolution has closed; "
-                f"existing stages: {closing_stages}"
+            if not reopen_closed_evolution:
+                raise IntegrityError(
+                    "rounds cannot be extended after evolution has closed; "
+                    f"existing stages: {closing_stages}; pass "
+                    "--reopen-closed-evolution to supersede the closure (AHE-027)"
+                )
+            reopen_plan = self._closure_reopen_plan(stages, from_rounds=old_rounds)
+        elif reopen_closed_evolution:
+            raise ConfigurationError(
+                "--reopen-closed-evolution was given, but evolution has not closed"
             )
         identity_sha = sha256_json(identity)
         amendment = {
@@ -947,6 +962,8 @@ class CampaignController:
             "identity_sha256": identity_sha,
             "identity": identity,
         }
+        if reopen_plan is not None:
+            amendment["reopened_closed_evolution"] = reopen_plan
         report = {
             "status": "applied" if apply else "dry_run",
             "campaign_dir": str(self.config.campaign_dir),
@@ -958,11 +975,126 @@ class CampaignController:
             "identity_sha256": identity_sha,
             "ledger": str(self._campaign_amendments_path()),
         }
+        if reopen_plan is not None:
+            report["reopened_closed_evolution"] = reopen_plan
         if not apply:
             return report
+        if reopen_plan is not None:
+            self._archive_closure(reopen_plan, reason=reason.strip())
         self._append_campaign_amendment(manifest, amendment)
         self._write_state()
         return report
+
+    def _closure_reopen_plan(
+        self,
+        stages: list[dict[str, Any]],
+        *,
+        from_rounds: int,
+    ) -> dict[str, Any]:
+        """Check that a closed campaign can be reopened; list what moves."""
+        unfinished = sorted(
+            f"{row['name']} ({row.get('status')})"
+            for row in stages
+            if row.get("status") != "completed"
+        )
+        if unfinished:
+            raise IntegrityError(
+                "evolution can be reopened only when every stage is completed; "
+                f"not completed: {unfinished}"
+            )
+        campaign_dir = self.config.campaign_dir
+        by_name = {row["name"]: row for row in stages}
+        moves: list[dict[str, Any]] = []
+        for name in _CLOSING_STAGES:
+            row = by_name.get(name)
+            if row is None:
+                continue
+            stage_dir = self.stage_store.stage_dir(name)
+            moves.append(
+                {
+                    "kind": "stage_record",
+                    "stage": name,
+                    "path": stage_dir.relative_to(campaign_dir).as_posix(),
+                    "stage_id": row.get("stage_id"),
+                    "semantic_inputs_sha256": row.get("semantic_inputs_sha256"),
+                }
+            )
+            for fingerprint in row.get("outputs") or []:
+                relative = Path(str(fingerprint["path"]))
+                if (
+                    relative.is_absolute()
+                    or ".." in relative.parts
+                    or relative.parts[:1] == ()
+                    or relative.parts[0] not in _CLOSING_OUTPUT_ROOTS
+                ):
+                    raise IntegrityError(
+                        f"closing stage {name} has an output outside "
+                        f"{sorted(_CLOSING_OUTPUT_ROOTS)}: {relative}"
+                    )
+                verify_path_fingerprint(fingerprint, relative_to=campaign_dir)
+                moves.append(
+                    {
+                        "kind": "stage_output",
+                        "stage": name,
+                        "path": relative.as_posix(),
+                        "type": fingerprint.get("type"),
+                        "sha256": fingerprint.get("sha256"),
+                    }
+                )
+        archive_root = campaign_dir / "superseded"
+        number = 1 + sum(1 for path in archive_root.glob("closure-*") if path.is_dir())
+        archive_dir = archive_root / f"closure-{number:02d}"
+        selection = dict(by_name.get("selection", {}).get("data") or {})
+        final = dict(by_name.get("final.complete", {}).get("data") or {})
+        return {
+            "closed_rounds": from_rounds,
+            "archive_dir": archive_dir.relative_to(campaign_dir).as_posix(),
+            "moves": moves,
+            "previous_selected_checkpoint": selection.get("selected_checkpoint"),
+            "previous_selection_rule": selection.get("selection_rule"),
+            "previous_validation_primary": {
+                label: summary.get("primary")
+                for label, summary in dict(
+                    selection.get("validation_summaries") or {}
+                ).items()
+            },
+            "previous_test_primary": {
+                label: summary.get("primary")
+                for label, summary in dict(final.get("test_summaries") or {}).items()
+            },
+        }
+
+    def _archive_closure(self, plan: dict[str, Any], *, reason: str) -> None:
+        """Move the closing stages and outputs into the plan's archive folder."""
+        campaign_dir = self.config.campaign_dir
+        archive_dir = campaign_dir / str(plan["archive_dir"])
+        archive_dir.mkdir(parents=True, exist_ok=False)
+        for move in plan["moves"]:
+            source = campaign_dir / str(move["path"])
+            target = archive_dir / str(move["path"])
+            if not source.exists():
+                raise IntegrityError(
+                    f"closure path disappeared before moving: {source}"
+                )
+            target.parent.mkdir(parents=True, exist_ok=True)
+            mode = source.stat().st_mode
+            if source.is_dir() and not mode & stat.S_IWUSR:
+                # Renaming a folder to a new parent rewrites its ".." entry.
+                source.chmod(mode | stat.S_IWUSR)
+                os.rename(source, target)
+                target.chmod(mode)
+            else:
+                os.rename(source, target)
+        atomic_write_json(
+            archive_dir / "reopen.json",
+            {
+                "schema_version": 1,
+                "kind": "reopened_closed_evolution",
+                "created_at": datetime.now(UTC).isoformat(),
+                "reason": reason,
+                **plan,
+            },
+        )
 
     def retry_blocked_stage(
         self,

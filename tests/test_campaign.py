@@ -17,7 +17,7 @@ from ahe_runner.errors import (
     StageBlockedError,
     StageInterruptedError,
 )
-from ahe_runner.io import atomic_write_json, read_json, sha256_json
+from ahe_runner.io import atomic_write_json, read_json, sha256_json, tree_hashes
 from ahe_runner.meta.scripted import ScriptedMetaBackend
 from ahe_runner.workspace import git_output
 
@@ -404,6 +404,158 @@ def test_extend_rounds_cli_defaults_to_a_dry_run(
     assert cli_main([*args, "--apply"]) == 0
     assert '"status": "applied"' in capsys.readouterr().out
     assert cli_main(["status", "--config", str(config_path)]) == 0
+
+
+_CLOSURE_PATHS = {
+    "stages/evolution.close",
+    "stages/selection",
+    "stages/final.complete",
+    "selection/evolution_closed.json",
+    "selection/selection.json",
+    "final/final_test.json",
+    "final/selected-harness",
+}
+
+
+def test_extend_rounds_reopens_a_closed_campaign(tmp_path: Path) -> None:
+    config_path = make_example_project(tmp_path, rounds=2)
+    closed = CampaignController(load_config(config_path)).run()
+    campaign_dir = Path(closed["campaign_dir"])
+    ledger = campaign_dir / "campaign_amendments.json"
+    manifest_bytes = (campaign_dir / "campaign_manifest.json").read_bytes()
+    kept_before = {
+        path: path.read_bytes()
+        for path in (campaign_dir / "stages").glob("*/stage.json")
+        if f"stages/{path.parent.name}" not in _CLOSURE_PATHS
+    }
+    closure_hashes = {
+        relative: (
+            sha256_json(tree_hashes(campaign_dir / relative))
+            if (campaign_dir / relative).is_dir()
+            else (campaign_dir / relative).read_bytes()
+        )
+        for relative in _CLOSURE_PATHS
+    }
+    selected = closed["selection"]["selected_checkpoint"]
+
+    _set_campaign(config_path, rounds=3)
+    with pytest.raises(IntegrityError, match="--reopen-closed-evolution"):
+        _extend(config_path, apply=True)
+
+    dry_run = _extend(config_path, reopen_closed_evolution=True)
+    assert dry_run["status"] == "dry_run"
+    plan = dry_run["reopened_closed_evolution"]
+    assert plan["closed_rounds"] == 2
+    assert plan["archive_dir"] == "superseded/closure-01"
+    assert {move["path"] for move in plan["moves"]} == _CLOSURE_PATHS
+    assert plan["previous_selected_checkpoint"] == selected
+    assert set(plan["previous_validation_primary"]) == {"C0", "C1", "C2"}
+    assert set(plan["previous_test_primary"]) == {"C0", selected}
+    assert not ledger.exists()
+    assert not (campaign_dir / "superseded").exists()
+    assert all((campaign_dir / relative).exists() for relative in _CLOSURE_PATHS)
+
+    applied = _extend(config_path, apply=True, reopen_closed_evolution=True)
+    assert applied["status"] == "applied"
+    archive = campaign_dir / "superseded" / "closure-01"
+    for relative, before in closure_hashes.items():
+        assert not (campaign_dir / relative).exists()
+        moved = archive / relative
+        assert (
+            sha256_json(tree_hashes(moved)) if moved.is_dir() else moved.read_bytes()
+        ) == before
+    record = read_json(archive / "reopen.json")
+    assert record["reason"] == "operator asked for more rounds"
+    assert record["moves"] == plan["moves"]
+    amendment = read_json(ledger)["amendments"][-1]
+    assert (amendment["from_rounds"], amendment["to_rounds"]) == (2, 3)
+    assert amendment["reopened_closed_evolution"] == plan
+
+    status = CampaignController(load_config(config_path)).resume()
+    assert status["checkpoints"] == ["C0", "C1", "C2", "C3"]
+    assert status["blocked_stages"] == []
+    assert status["interrupted_stages"] == []
+    assert set(status["selection"]["validation_summaries"]) == {
+        "C0",
+        "C1",
+        "C2",
+        "C3",
+    }
+    assert status["final_test"]["no_post_test_evolution"] is True
+    assert (campaign_dir / "final" / "selected-harness" / "agent.yaml").is_file()
+    assert read_json(campaign_dir / "selection" / "evolution_closed.json")[
+        "final_training_checkpoint"
+    ] == ("C3")
+
+    # Every stage outside the closure was reused, byte for byte.
+    assert (campaign_dir / "campaign_manifest.json").read_bytes() == manifest_bytes
+    for path, content in kept_before.items():
+        assert path.read_bytes() == content
+    attempts = {row["name"]: len(row["attempts"]) for row in status["stages"]}
+    assert attempts["evaluation.C0.test"] == 1
+    assert attempts["round.3.evolve"] == 1
+
+    resumed = CampaignController(load_config(config_path)).resume()
+    assert {row["name"]: len(row["attempts"]) for row in resumed["stages"]} == attempts
+
+    _set_campaign(config_path, rounds=4)
+    second = _extend(config_path, apply=True, reopen_closed_evolution=True)
+    assert second["reopened_closed_evolution"]["archive_dir"] == (
+        "superseded/closure-02"
+    )
+    assert second["reopened_closed_evolution"]["closed_rounds"] == 3
+    assert (archive / "reopen.json").is_file()
+    assert len(read_json(ledger)["amendments"]) == 2
+
+
+def test_reopen_closed_evolution_refusals(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    config_path = make_example_project(tmp_path, rounds=1)
+    CampaignController(load_config(config_path)).prepare()
+    _set_campaign(config_path, rounds=2)
+    with pytest.raises(ConfigurationError, match="has not closed"):
+        _extend(config_path, reopen_closed_evolution=True)
+
+    _set_campaign(config_path, rounds=1)
+    campaign_dir = Path(
+        CampaignController(load_config(config_path)).run()["campaign_dir"]
+    )
+    ledger = campaign_dir / "campaign_amendments.json"
+    _set_campaign(config_path, rounds=2)
+
+    stage_path = campaign_dir / "stages" / "evaluation.C1.train" / "stage.json"
+    original = read_json(stage_path)
+    atomic_write_json(stage_path, {**original, "status": "interrupted"})
+    with pytest.raises(IntegrityError, match="every stage is completed"):
+        _extend(config_path, apply=True, reopen_closed_evolution=True)
+    atomic_write_json(stage_path, original)
+
+    selection_path = campaign_dir / "selection" / "selection.json"
+    selection_bytes = selection_path.read_bytes()
+    selection_path.write_text("{}", encoding="utf-8")
+    with pytest.raises(IntegrityError, match="hash mismatch"):
+        _extend(config_path, apply=True, reopen_closed_evolution=True)
+    selection_path.write_bytes(selection_bytes)
+    assert not (campaign_dir / "superseded").exists()
+    assert not ledger.exists()
+
+    args = [
+        "extend-rounds",
+        "--config",
+        str(config_path),
+        "--reason",
+        "more",
+        "--reopen-closed-evolution",
+    ]
+    assert cli_main(args) == 0
+    output = capsys.readouterr().out
+    assert '"status": "dry_run"' in output
+    assert '"reopened_closed_evolution"' in output
+    assert cli_main([*args, "--apply"]) == 0
+    assert '"status": "applied"' in capsys.readouterr().out
+    assert (campaign_dir / "superseded" / "closure-01" / "reopen.json").is_file()
 
 
 def _evolve_fails_while(marker: Path) -> type[ScriptedMetaBackend]:

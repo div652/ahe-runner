@@ -48,6 +48,14 @@ def main(argv: list[str] | None = None) -> int:
     extend_parser.add_argument("--reason", required=True)
     extend_parser.add_argument("--apply", action="store_true")
     extend_parser.add_argument("--allow-runner-code-change", action="store_true")
+    extend_parser.add_argument(
+        "--reopen-closed-evolution",
+        action="store_true",
+        help=(
+            "Also extend a campaign whose evolution has closed: move the closing "
+            "stages and their outputs to superseded/closure-NN/ (AHE-027)."
+        ),
+    )
     retry_parser = subparsers.add_parser(
         "retry-blocked-stage",
         help=(
@@ -118,6 +126,7 @@ def _dispatch(controller: CampaignController, args: argparse.Namespace) -> Any:
             reason=args.reason,
             apply=args.apply,
             allow_runner_change=args.allow_runner_code_change,
+            reopen_closed_evolution=args.reopen_closed_evolution,
         )
     if args.command == "retry-blocked-stage":
         return controller.retry_blocked_stage(

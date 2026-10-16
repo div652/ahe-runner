@@ -183,7 +183,7 @@ code 2 (`cli.py`, `main`). Other Python errors print a normal traceback.
 | `ahe run-validation --config C` | Close evolution, evaluate C0..CN on validation, run `selection` |
 | `ahe run-final-test --config C` | Validation and selection if needed, then the final test and export |
 | `ahe status --config C` | Write and print `campaign_state.json` |
-| `ahe extend-rounds --config C --reason R [--apply] [--allow-runner-code-change]` | After raising `campaign.rounds` in the config, accept the new value for an existing campaign (section 2.6). A dry run unless `--apply` |
+| `ahe extend-rounds --config C --reason R [--apply] [--allow-runner-code-change] [--reopen-closed-evolution]` | After raising `campaign.rounds` in the config, accept the new value for an existing campaign, or with the last flag for a closed one (section 2.6). A dry run unless `--apply` |
 | `ahe retry-blocked-stage --config C --stage S --reason R [--apply] [--allow-runner-code-change]` | Give stage S, blocked only by infrastructure failures, `recovery.maximum_stage_attempts` more attempts (section 2.6). A dry run unless `--apply` |
 
 Neither `conformance` nor `validate` checks the model endpoint or the Docker
@@ -317,7 +317,7 @@ Rules (`extend_rounds` in `controller.py`):
 
 - The round count can only go up.
 - It is refused once `evolution.close`, `selection` or `final.complete`
-  exists.
+  exists, unless `--reopen-closed-evolution` is given (below).
 - `--apply` appends an entry to `campaign_amendments.json`: the reason, the
   old and new round counts, the changed paths and the new identity with its
   hash. `campaign_manifest.json` and all stage records are not changed, so
@@ -325,6 +325,36 @@ Rules (`extend_rounds` in `controller.py`):
 - From then on, commands accept only the identity of the last amendment.
   Amendments must chain from the manifest's hash and match their own hashes;
   an edited ledger stops every command.
+
+**Extending a closed campaign (AHE-027).** After a campaign has closed
+(selection and final test done), `ahe extend-rounds --reopen-closed-evolution`
+lets it continue for more rounds from its last checkpoint. Same steps as
+above; in addition:
+
+- Every stage must be `completed`; a running, interrupted or blocked stage is
+  refused.
+- The outputs of the closing stages are checked against their recorded hashes
+  and must lie under `selection/` or `final/`.
+- The dry run lists what will move, the previous selection and the previous
+  validation and test primary metrics.
+- `--apply` moves (never copies or deletes) the stage folders
+  `stages/evolution.close`, `stages/selection`, `stages/final.complete` and
+  their outputs (`selection/*.json`, `final/final_test.json`,
+  `final/selected-harness`) to `superseded/closure-NN/`, keeping relative
+  paths, and writes `superseded/closure-NN/reopen.json`. The amendment gets a
+  `reopened_closed_evolution` block with the same content.
+- `ahe resume` then reuses every other stage, runs the new rounds, closes
+  evolution at the new round count, evaluates only the new checkpoints on
+  validation, selects among all checkpoints with the same rule, and tests C0
+  and the pick. Test evaluations that already exist are reused.
+- If the process stops between the moves and the amendment, commands refuse
+  the new round count; run `ahe extend-rounds --apply` without the flag to
+  record the amendment.
+
+The decision to continue is made after the earlier test result is known.
+Meta agents never see validation or test results, so this does not change
+evolution, but a report should give both results and say that the campaign
+was extended after it closed.
 
 **Second exception: retrying a stage blocked by infrastructure (AHE-026).**
 If an outage outlasts a stage's attempts (for example the model server is

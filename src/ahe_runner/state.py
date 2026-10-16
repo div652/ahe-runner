@@ -304,8 +304,12 @@ class StageStore:
             rows.append(read_json(path))
         return rows
 
+    def stage_dir(self, name: str) -> Path:
+        """Return the folder that holds stage ``name``'s record and attempts."""
+        return self.root / _stage_directory_name(name)
+
     def _stage_path(self, name: str) -> Path:
-        return self.root / _stage_directory_name(name) / "stage.json"
+        return self.stage_dir(name) / "stage.json"
 
     def _allowed_attempts(self, stage: Mapping[str, Any]) -> int:
         return max(self.maximum_attempts, int(stage.get("attempt_allowance") or 0))

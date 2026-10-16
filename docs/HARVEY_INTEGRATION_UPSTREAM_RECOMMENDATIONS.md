@@ -53,7 +53,7 @@ The assistant announces new permanent files before creating them.
 | AHE-024 | The exact token counter of AHE-023 uses o200k_base for every model; Claude's tokenizer turns the same Harvey text into 1.65-1.68 times as many tokens, so `max_context_tokens` means a different amount of text per model | Explained on 2026-10-15 while preparing campaign 9c (claude-opus-4.8); the operator chose to keep the harness unchanged and let Anthropic's rejection end Opus runs, as LAB does, and approved recording; 9c was then dropped | No patch; only GPT models (o200k_base) are evaluated so far |
 | AHE-025 | All concurrent trials run as threads in one Python process, so host-side harness tools such as `grep` queue behind each other; LAB runs every task in its own process | Found on 2026-10-15 during campaign 10's C0 evaluation; the operator approved recording it | Fixed locally: the adapter setting `trial_processes` runs each trial's agent in its own process; campaign 10 was stopped and restarted with it |
 | AHE-026 | When an outage outlasts a stage's attempts, the stage is blocked and the campaign cannot continue, although every attempt failed on infrastructure and no result is in doubt; there is also no hook to keep a long-lived dependency such as the model server healthy between stages | Found on 2026-10-16 when campaign 12's model server crashed during the C4 train evaluation; the operator approved a command that reopens only infrastructure-blocked stages, plus a pre-stage hook | Fixed locally: `ahe retry-blocked-stage` (recorded in `campaign_amendments.json`) and `AHE_PRE_STAGE_COMMAND`; campaign 12 resumed with both |
-| AHE-027 | `ahe extend-rounds` refuses once evolution has closed, so a finished campaign cannot be continued for more rounds; the only option is a new campaign that repeats every finished round | Raised on 2026-10-16 when the operator asked to run campaign 12 (finished at 5 rounds) for 5 more rounds from its last checkpoint | Proposed: `ahe extend-rounds --reopen-closed-evolution` moves the closing stages and their outputs to `superseded/closure-NN/` and records them in the amendment; every other stage is reused |
+| AHE-027 | `ahe extend-rounds` refuses once evolution has closed, so a finished campaign cannot be continued for more rounds; the only option is a new campaign that repeats every finished round | Raised on 2026-10-16 when the operator asked to run campaign 12 (finished at 5 rounds) for 5 more rounds from its last checkpoint | Implemented locally (offline tests pass): `ahe extend-rounds --reopen-closed-evolution` moves the closing stages and their outputs to `superseded/closure-NN/` and records them in the amendment; every other stage is reused |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -2227,8 +2227,10 @@ same C1..C5.
   `meta/nexau_backend.py`). `evaluations/*-validation`,
   `evaluations/*-final-test`, `selection/` and `final/` are never mounted.
 
-### Local decision or repair (proposed)
+### Local decision or repair
 
+Implemented in `extend_rounds`, `_closure_reopen_plan` and
+`_archive_closure` (`controller.py`), with tests in `tests/test_campaign.py`.
 A new flag, `ahe extend-rounds --reopen-closed-evolution`. Without the flag
 nothing changes: extending a closed campaign is still refused, and the error
 names the flag.
