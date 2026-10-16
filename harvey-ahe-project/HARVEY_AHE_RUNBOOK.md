@@ -2159,6 +2159,63 @@ amendment 2 (`retry_blocked_stage`, allowance 9, no identity change)
 reopened C4, and the launcher was restarted at 07:27 UTC. Attempt 7 ran
 without server errors.
 
+## 5w. Campaign 12: results (complete)
+
+Campaign 12 finished on 2026-10-16 at 18:29 UTC, about 23 hours after it
+started (2026-10-15, about 19:20 UTC), including the 1.5-hour stop in 5v.
+All 5 rounds ran. No trial in any validation or test evaluation ended with
+an agent error.
+
+Artifacts: `campaign-artifacts/harvey-lab-campaign-12-gpt-5.6-sol-high-80-20-20/`
+
+- `final/final_test.json`: test results of C0 and the selected checkpoint;
+- `final/selected-harness/`: the selected harness (SHA-256 `8c90fb51…`);
+- `selection/selection.json`: validation results of every checkpoint;
+- `history/history.md`: training results;
+- `evolve/C<N>/attempt-0001/evolve_result.json`: Evolve's summary of each round.
+
+What each round changed (Evolve's own summaries, shortened):
+
+| Checkpoint | Change |
+|---|---|
+| C1 | Paginated `glob` that lists directories and reports truncation; middleware that bounds oversized tool output |
+| C2 | A corpus-reconciliation skill, with prompt routing and phase gates for exhaustive, set and ranking questions |
+| C3 | Stronger reconciliation proof and partial-read recovery; a read-only "evidence challenger" sub-agent before finishing |
+| C4 | Removed the evidence challenger (regressions); restrictive gates tied to the user's wording; more proof checks |
+| C5 | Prompt and skill refined: context-sensitive population boundaries, boundary sensitivity tests, role/purpose evidence checks |
+
+Mean criterion pass rate (the primary metric; mean of the two judges), and
+the share of trials where both judges passed every criterion:
+
+| Checkpoint | Train (80 tasks x 2) | Validation (20 x 2) | Validation both-pass |
+|---|---:|---:|---:|
+| C0 | 0.631 | 0.639 | 0.250 |
+| C1 | 0.750 | 0.634 | 0.200 |
+| C2 | 0.741 | 0.582 | 0.150 |
+| C3 | 0.715 | 0.637 | 0.225 |
+| C4 | 0.749 | 0.691 | 0.250 |
+| C5 | 0.764 | 0.721 | 0.325 |
+
+Selection picks the best validation score, so **C5** was selected. Test
+(20 tasks x 3 trials, run once, after evolution was closed):
+
+| | Criterion pass | Both judges all-pass | Judge 1 all-pass | Judge 2 all-pass |
+|---|---:|---:|---:|---:|
+| C0 | 0.645 | 0.283 | 0.283 | 0.317 |
+| C5 | 0.722 | 0.417 | 0.417 | 0.417 |
+
+So on unseen test tasks C5 is 0.077 higher on criterion pass and 0.133
+higher on both-judges all-pass than the LAB-exact starting harness. Limits:
+
+- The test set is 20 tasks; one task moving from fail to pass in all 3
+  trials changes all-pass by 0.05.
+- C1 to C3 improved training but not validation. Only C4 and C5 improved
+  both.
+- The model ran through GH Copilot Server; the deviations in section 6
+  apply.
+- Test terminations: C0 had 1 context overflow; C5 had 2 trials that ended
+  without a tool call.
+
 ## 6. Known deviations and limits to report with results
 
 - Task scope (campaigns 1 to 8): only 166 of LAB's 2,010 tasks (8%) are
