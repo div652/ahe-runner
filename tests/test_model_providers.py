@@ -307,6 +307,33 @@ def test_responses_proxy_exposes_only_create(tmp_path: Path) -> None:
         client.responses.retrieve  # noqa: B018
 
 
+def test_resent_tool_calls_use_api_field_names(tmp_path: Path) -> None:
+    from openai.types.responses import ResponseFunctionToolCall
+
+    # What NexAU 0.3.9 resends: the SDK item dumped with Python names.
+    dumped = ResponseFunctionToolCall(
+        arguments="{}", call_id="call_1", name="glob", type="function_call"
+    ).model_dump(mode="json")
+    flagged = dict(dumped, async_=True)
+    output = {"type": "function_call_output", "call_id": "call_1", "output": None}
+    client, sent = _responses_client(tmp_path, [_response()])
+    client.responses.create(
+        model="exact-model",
+        input=[dumped, flagged, output],
+        max_output_tokens=256,
+    )
+    call = {"arguments": "{}", "call_id": "call_1", "name": "glob"}
+    assert sent[0]["input"] == [
+        {**call, "type": "function_call"},
+        {**call, "type": "function_call", "async": True},
+        output,
+    ]
+    request = json.loads(
+        (tmp_path / "calls" / "call-0001" / "request.json").read_text("utf-8")
+    )
+    assert "async_" not in json.dumps(request)
+
+
 def test_responses_mismatch_and_failed_status_fail_closed(tmp_path: Path) -> None:
     client, _ = _responses_client(
         tmp_path, [_response(model="other-model"), _response(status="failed")]

@@ -56,6 +56,8 @@ _RECORDED_HEADERS = frozenset(
 )
 _TOKEN_REFRESH_MARGIN_SECONDS = 300.0
 _TOKEN_COMMAND_TIMEOUT_SECONDS = 120.0
+_TOOL_CALL_ITEM_TYPES = frozenset({"function_call", "custom_tool_call"})
+_RESPONSE_ITEM_ALIASES = {"async_": "async"}
 _TOKEN_PROVIDERS: dict[str, AzureCliTokenProvider] = {}
 _TOKEN_PROVIDERS_LOCK = threading.Lock()
 
@@ -318,6 +320,8 @@ class RecordedExactModelClient:
                 "is provider-default"
             )
         self._set_extra_body(kwargs, extra_body)
+        if "input" in kwargs:
+            kwargs["input"] = wire_input_items(kwargs["input"])
         return self._send("responses", args, kwargs, requested_model)
 
     def _require_model(self, kwargs: dict[str, Any]) -> str:
@@ -540,6 +544,28 @@ class _RecordedResponsesProxy:
         if name.startswith("__"):
             raise AttributeError(name)
         raise IntegrityError(f"responses.{name} is not available on this client")
+
+
+def wire_input_items(value: Any) -> Any:
+    """Give resent tool-call items their API field names and drop nulls.
+
+    NexAU 0.3.9 copies Responses output items into the next request with
+    ``model_dump()``: Python field names, nulls kept. Newer openai SDKs give
+    tool calls ``async_`` (API name ``async``) and a nullable ``namespace``
+    that the API only accepts as a string, so the request is rejected.
+    """
+    if not isinstance(value, list):
+        return value
+    items: list[Any] = []
+    for item in value:
+        if isinstance(item, Mapping) and item.get("type") in _TOOL_CALL_ITEM_TYPES:
+            item = {
+                _RESPONSE_ITEM_ALIASES.get(str(key), str(key)): field
+                for key, field in item.items()
+                if field is not None
+            }
+        items.append(item)
+    return items
 
 
 def responses_reasoning(effort: str) -> dict[str, str]:
