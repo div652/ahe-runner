@@ -152,13 +152,38 @@ is `harvey-ahe-project/ahe-trapi-c0.yaml`; run it with
 | Context cap (NexAU) | 911,793 tokens | same |
 | Judge | claude-sonnet-5 + gpt-5.5 via Copilot | `gpt-6.1-sol_2026-09-29`, effort high, `max_output_tokens` 8,192 (the colleague's judge) |
 | Trials | 1 per task | same |
+| Model-API rejection mid-run (HTTP 4xx, not context length) | graded as `agent_error` (none occurred) | trial rerun (`api_rejection_policy: rerun`) |
+
+### Model-API rejections (`api_rejection_policy`)
+
+If the model API rejects a call partway through a trial (HTTP 4xx other than
+a context-length error, which stays a graded `context_overflow`), NexAU
+stops the run. Two policies, set in the Harvey adapter settings:
+
+- `grade` (default; every earlier campaign): the trial ends as
+  `agent_error` and its partial output is graded, usually low.
+- `rerun`: the trial counts as an infrastructure failure. Its attempt
+  directory keeps `infrastructure_error.json`; the other trials continue;
+  the evaluation stage then stops as interrupted and resuming reruns only
+  the failed trials, up to `recovery.maximum_stage_attempts`. A task
+  rejected that many times blocks the stage for the operator to inspect,
+  instead of being dropped.
+
+Example: the first smoke test hit a client bug that sent a field the API
+rejects (HTTP 400). Under `grade` task 036 was scored 0.333 from the partial
+work; under `rerun` it would have been rerun and the bug surfaced as a
+blocked stage.
+
+The colleague's script reruns such a task up to three times and then drops
+it. Rate limits (429), 5xx errors and timeouts are already infrastructure
+failures under both policies.
 
 Differences that remain against the colleague's run (his code is LAB's own
 loop): NexAU loop instead of LAB's; reasoning items are sent back by their
 encrypted content without item IDs (his are sent with IDs and looked up from
-storage); our runner reruns infrastructure failures until every task is
-graded (his excludes a task after three failed attempts); no 2-hour wall
-clock per run; our judge prompt length cap (LAB-002).
+storage); a task that keeps failing blocks the stage (his is excluded after
+three failed attempts); no 2-hour wall clock per run; our judge prompt
+length cap (LAB-002).
 
 ## Validation
 

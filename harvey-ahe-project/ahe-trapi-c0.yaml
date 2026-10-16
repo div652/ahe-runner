@@ -56,6 +56,10 @@ project:
     grading_attempts: 2
     attribution_min_task_delta: 0.0
     trial_processes: true
+    # As the colleague's run: an API rejection mid-run reruns the trial
+    # instead of grading the partial work (the default, grade, was used by
+    # every earlier campaign; 9b had no such errors).
+    api_rejection_policy: rerun
   adapter_dependency_paths:
     - ./benchmark_adapter.py
     - ./harvey_ahe

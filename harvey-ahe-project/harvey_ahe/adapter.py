@@ -29,11 +29,12 @@ from collections.abc import Iterable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import lab_core.evaluation.scoring as lab_scoring
 from lab_core.evaluation.scoring import pandoc_version
 from lab_core.sandbox.sandbox import PodmanError, Sandbox
+from openai import APIStatusError
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ahe_runner.adapter import (
@@ -170,6 +171,11 @@ class HarveyAdapterSettings(BaseModel):
     # host-side harness tools of concurrent trials do not queue on one
     # interpreter. Grading stays in this process.
     trial_processes: bool = False
+    # A model-API rejection mid-run (HTTP 4xx other than a context-length
+    # error). grade: the trial ends as agent_error and its partial work is
+    # graded, as in earlier campaigns. rerun: it is an infrastructure failure,
+    # so the trial runs again on resume (up to the stage attempt limit).
+    api_rejection_policy: Literal["grade", "rerun"] = "grade"
 
     @model_validator(mode="after")
     def validate_judges(self) -> HarveyAdapterSettings:
@@ -841,6 +847,7 @@ class HarveyAdapter(BenchmarkAdapterV2):
             runtime_dir=runtime_dir,
             environment=environment,
             harness_dir=harness_dir,
+            rerun_api_rejections=self.config.api_rejection_policy == "rerun",
         )
         try:
             run = run_in_child(
@@ -881,6 +888,7 @@ class HarveyAdapter(BenchmarkAdapterV2):
                 runtime_dir=runtime_dir,
                 environment=environment,
                 harness_dir=harness_dir,
+                rerun_api_rejections=self.config.api_rejection_policy == "rerun",
             )
         finally:
             verify_shared_documents(task)
@@ -977,6 +985,7 @@ def _run_trial_agent(
     runtime_dir: Path,
     environment: _Environment,
     harness_dir: Path,
+    rerun_api_rejections: bool = False,
 ) -> _AgentRun:
     if task.shared_documents:
         # Mounted read-only by the sandbox; its hash was checked on load.
@@ -1008,6 +1017,7 @@ def _run_trial_agent(
             working_directory=scratch / "nexau_cwd",
             handle=handle,
             instructions=task.instructions,
+            rerun_api_rejections=rerun_api_rejections,
         )
         elapsed = time.monotonic() - started
         health = sandbox.exec("true", timeout=HEALTH_CHECK_TIMEOUT_SECONDS)
@@ -1040,6 +1050,7 @@ class _TrialPayload:
     runtime_dir: Path
     environment: _Environment
     harness_dir: Path
+    rerun_api_rejections: bool = False
 
 
 def _trial_process_entry(payload: _TrialPayload, request_slots: Any) -> _AgentRun:
@@ -1059,6 +1070,7 @@ def _trial_process_entry(payload: _TrialPayload, request_slots: Any) -> _AgentRu
                 runtime_dir=payload.runtime_dir,
                 environment=payload.environment,
                 harness_dir=payload.harness_dir,
+                rerun_api_rejections=payload.rerun_api_rejections,
             )
         finally:
             runtime.close()
@@ -1082,6 +1094,7 @@ def _run_session(
     working_directory: Path,
     handle: WorkspaceHandle,
     instructions: str,
+    rerun_api_rejections: bool = False,
 ) -> tuple[AgentOutput | None, str | None, str | None]:
     session = runtime.open_session(
         AgentSessionRequest(
@@ -1109,6 +1122,12 @@ def _run_session(
                 )
             if _is_infrastructure(exc):
                 raise
+            status = _api_rejection_status(exc)
+            if rerun_api_rejections and status is not None:
+                raise InfrastructureError(
+                    f"model API rejected a call (HTTP {status}); the trial will "
+                    f"be rerun: {type(exc).__name__}: {str(exc)[:1000]}"
+                ) from exc
             return None, f"{type(exc).__name__}: {exc}", None
         return output, None, None
     finally:
@@ -1423,6 +1442,13 @@ def _provider_context_error(exc: BaseException) -> str | None:
         text = str(item)
         if any(marker in text.casefold() for marker in _PROVIDER_CONTEXT_ERRORS):
             return text[:500]
+    return None
+
+
+def _api_rejection_status(exc: BaseException) -> int | None:
+    for item in _cause_chain(exc):
+        if isinstance(item, APIStatusError) and 400 <= item.status_code < 500:
+            return item.status_code
     return None
 
 
