@@ -55,13 +55,15 @@
 # 80 train / 20 validation / 20 test split stratified by 9b difficulty
 # (splits-firm-knowledge-80-20-20.json, built by
 # scripts/make_splits_firm_knowledge_c12.py), 5 rounds (estimated about 20-21
-# hours; runbook 5u).
+# hours; runbook 5u). It closed at 5 rounds (C5 selected; runbook 5w), and on
+# 2026-10-16 the operator extended it to 10 rounds from C5 with
+# `ahe extend-rounds --reopen-closed-evolution` (AHE-027; runbook 5x).
 schema_version: 1
 
 campaign:
   name: harvey-lab-campaign-12-gpt-5.6-sol-high-80-20-20
   artifacts_dir: ./campaign-artifacts/harvey-lab-campaign-12-gpt-5.6-sol-high-80-20-20
-  rounds: 5
+  rounds: 10
   root_seed: 42
 
 project:
