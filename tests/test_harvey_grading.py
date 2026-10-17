@@ -14,7 +14,13 @@ from harvey_ahe import grading
 from lab_core.evaluation.judge import PROMPTS_DIR
 
 from ahe_runner.config import ModelSettings, TransportSettings
-from ahe_runner.errors import ConfigurationError, InfrastructureError, IntegrityError
+from ahe_runner.errors import (
+    PROVIDER_BLOCKED_MARKER,
+    ConfigurationError,
+    InfrastructureError,
+    IntegrityError,
+    ProviderBlockedError,
+)
 
 JUDGE_A = "judge-model-a"
 JUDGE_B = "judge-model-b"
@@ -410,6 +416,32 @@ def test_retries_exhausted_raise_infrastructure_error(tmp_path: Path) -> None:
             max_prompt_chars=240000,
         )
     assert (tmp_path / "attempt" / "grading-2").is_dir()
+
+
+def test_provider_block_stops_grading_without_retry(tmp_path: Path) -> None:
+    """A judge-side provider block is neither retried nor a configuration error."""
+    FakeClient.behaviors[JUDGE_A] = _raise(
+        ProviderBlockedError(f"{PROVIDER_BLOCKED_MARKER}: 403 PrincipalBlocked")
+    )
+
+    with pytest.raises(ProviderBlockedError, match=PROVIDER_BLOCKED_MARKER):
+        grading.grade_with_retries(
+            attempts=3,
+            grading_root=tmp_path / "attempt",
+            task_id="area/task",
+            task_config={"title": TASK_TITLE, "criteria": _criteria()},
+            run_dir=_run_dir(tmp_path),
+            judges=(_judge(JUDGE_A), _judge(JUDGE_B)),
+            helper=ModelSettings(model=HELPER, max_tokens=1024, temperature=0.0),
+            transport=_transport(),
+            api_key="test-key",
+            max_prompt_chars=240000,
+        )
+    report = json.loads(
+        (tmp_path / "attempt" / "grading-1" / "grading_error.json").read_text()
+    )
+    assert report["classification"] == "provider_blocked"
+    assert not (tmp_path / "attempt" / "grading-2").exists()
 
 
 def test_non_transient_errors_are_not_retried(tmp_path: Path) -> None:

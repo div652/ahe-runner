@@ -13,7 +13,13 @@ import openai
 import pytest
 
 from ahe_runner.config import ModelSettings, TransportSettings
-from ahe_runner.errors import ConfigurationError, InfrastructureError, IntegrityError
+from ahe_runner.errors import (
+    PROVIDER_BLOCKED_MARKER,
+    ConfigurationError,
+    InfrastructureError,
+    IntegrityError,
+    ProviderBlockedError,
+)
 from ahe_runner.meta import model_client as client_module
 from ahe_runner.meta.model_client import (
     AzureCliTokenProvider,
@@ -369,12 +375,12 @@ def test_transient_errors_wait_and_are_recorded(
     )
     client.responses.create(model="exact-model", input="hello")
     assert len(sent) == 3 and sent[0] == sent[1] == sent[2]
-    assert sleeps == [7.0, 4.0]
+    assert sleeps == [7.0, 10.0]
     call = tmp_path / "calls" / "call-0001"
     recorded = json.loads((call / "response.json").read_text("utf-8"))
     assert [row["retry_delay_seconds"] for row in recorded["transient_attempts"]] == [
         7.0,
-        4.0,
+        10.0,
     ]
     assert (call / "transient-attempt-2.json").is_file()
 
@@ -423,15 +429,131 @@ def test_retry_delay_honours_retry_after_and_caps(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(client_module.random, "uniform", lambda *_: 0.0)
+    # Exponential back-off from 5 s is the floor, even under a shorter hint.
     assert transient_retry_delay(
         _status_error(429, {"retry-after-ms": "1500"}), attempt=1, max_wait=120
-    ) == pytest.approx(1.5)
+    ) == pytest.approx(5.0)
+    assert transient_retry_delay(
+        _status_error(429, {"retry-after": "56"}), attempt=2, max_wait=120
+    ) == pytest.approx(56.0)
     assert transient_retry_delay(
         _status_error(429, {"retry-after": "60"}), attempt=1, max_wait=30
     ) == pytest.approx(30.0)
-    assert transient_retry_delay(
-        _status_error(503, {}), attempt=8, max_wait=120
-    ) == pytest.approx(60.0)
+    assert [
+        transient_retry_delay(_status_error(503, {}), attempt=n, max_wait=120)
+        for n in (1, 2, 3, 4, 5, 6, 8)
+    ] == pytest.approx([5.0, 10.0, 20.0, 40.0, 80.0, 120.0, 120.0])
+
+
+def test_retry_delay_jitter_spreads_synchronised_clients(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bounds: list[tuple[float, float]] = []
+
+    def uniform(low: float, high: float) -> float:
+        bounds.append((low, high))
+        return high
+
+    monkeypatch.setattr(client_module.random, "uniform", uniform)
+    delay = transient_retry_delay(
+        _status_error(429, {"retry-after": "56"}), attempt=1, max_wait=120
+    )
+    assert bounds == [(0.0, 28.0)] and delay == pytest.approx(84.0)
+
+
+def _blocked_error() -> Exception:
+    request = httpx.Request("POST", f"{AZURE_URL}/responses")
+    body = {
+        "error": "PrincipalBlocked",
+        "message": "TRAPI: Request blocked. Your client sent excessive retries.",
+        "reason": "retry-flood",
+        "scope": "principal",
+    }
+    return openai.PermissionDeniedError(
+        f"Error code: 403 - {body}",
+        response=httpx.Response(403, request=request),
+        body=body,
+    )
+
+
+def test_principal_block_stops_all_requests_to_the_endpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(client_module, "_BLOCKED_ENDPOINTS", {})
+    monkeypatch.setattr(client_module.time, "sleep", lambda _: None)
+    client, sent = _responses_client(
+        tmp_path / "first",
+        [_status_error(429, {}), _blocked_error(), _response()],
+        _azure(transient_retries=5),
+    )
+    with pytest.raises(ProviderBlockedError, match=PROVIDER_BLOCKED_MARKER):
+        client.responses.create(model="exact-model", input="hello")
+    assert len(sent) == 2
+    error = json.loads(
+        (tmp_path / "first" / "calls" / "call-0001" / "error.json").read_text()
+    )
+    assert error["type"] == "ProviderBlockedError"
+    assert len(error["transient_attempts"]) == 1
+
+    # Any other client in the process refuses before sending anything.
+    other, other_sent = _responses_client(tmp_path / "other", [_response()])
+    with pytest.raises(ProviderBlockedError, match="earlier"):
+        other.responses.create(model="exact-model", input="hello")
+    assert other_sent == []
+    refused = json.loads(
+        (tmp_path / "other" / "calls" / "call-0001" / "error.json").read_text()
+    )
+    assert refused["sent"] is False
+    assert isinstance(ProviderBlockedError("x"), InfrastructureError)
+
+
+def test_other_403s_are_not_provider_blocks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(client_module, "_BLOCKED_ENDPOINTS", {})
+    request = httpx.Request("POST", f"{AZURE_URL}/responses")
+    denied = openai.PermissionDeniedError(
+        "Error code: 403 - no access to deployment",
+        response=httpx.Response(403, request=request),
+        body=None,
+    )
+    client, _ = _responses_client(tmp_path, [denied, _response()])
+    with pytest.raises(openai.PermissionDeniedError):
+        client.responses.create(model="exact-model", input="hello")
+    assert client_module._BLOCKED_ENDPOINTS == {}
+
+
+def test_workload_id_header_is_stable_per_log_dir_and_azure_only(
+    tmp_path: Path,
+) -> None:
+    def build(transport: TransportSettings, log_dir: Path) -> Any:
+        return RecordedExactModelClient(
+            transport=transport,
+            api_key="unused",
+            settings=_settings(),
+            log_dir=log_dir,
+        )
+
+    first = build(_azure(), tmp_path / "a")
+    again = build(_azure(), tmp_path / "a")
+    other = build(_azure(), tmp_path / "b")
+    header = "X-TRAPI-Workload-ID"
+    value = first._base.default_headers[header]  # type: ignore[attr-defined]
+    assert value.startswith("ahe-runner-") and len(value) == len("ahe-runner-") + 16
+    assert again._base.default_headers[header] == value  # type: ignore[attr-defined]
+    assert other._base.default_headers[header] != value  # type: ignore[attr-defined]
+
+    local = build(
+        TransportSettings(base_url="http://127.0.0.1:9/v1"), tmp_path / "local"
+    )
+    assert header not in local._base.default_headers  # type: ignore[attr-defined]
+
+    client, _ = _responses_client(tmp_path / "rec", [_response()])
+    client.responses.create(model="exact-model", input="hello")
+    request = json.loads(
+        (tmp_path / "rec" / "calls" / "call-0001" / "request.json").read_text()
+    )
+    assert request["workload_id"].startswith("ahe-runner-")
 
 
 # --------------------------------------------------------------------------

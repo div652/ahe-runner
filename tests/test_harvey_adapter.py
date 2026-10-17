@@ -44,7 +44,13 @@ from ahe_runner.adapter import (
 )
 from ahe_runner.child_process import portable_exception
 from ahe_runner.config import ModelSettings, TransportSettings
-from ahe_runner.errors import ConfigurationError, InfrastructureError, IntegrityError
+from ahe_runner.errors import (
+    PROVIDER_BLOCKED_MARKER,
+    ConfigurationError,
+    InfrastructureError,
+    IntegrityError,
+    ProviderBlockedError,
+)
 from ahe_runner.evaluation import verify_evaluation_output
 from ahe_runner.evidence import verify_evidence_bundle
 from ahe_runner.runtime import AgentInput, AgentOutput, AgentSessionRequest
@@ -377,6 +383,112 @@ def test_api_rejection_policy(tmp_path: Path, status: int) -> None:
     # Errors that are not API rejections are unaffected by the policy.
     _, error, _ = run_with(ValueError("bad output"), rerun=True)
     assert error == "ValueError: bad output"
+
+
+def _blocked_403() -> APIStatusError:
+    return _api_error(
+        403,
+        "{'error': 'PrincipalBlocked', 'reason': 'retry-flood', "
+        "'scope': 'principal'}",
+    )
+
+
+@pytest.mark.parametrize("rerun", [False, True])
+def test_provider_block_ends_the_session_as_a_block(
+    tmp_path: Path, rerun: bool
+) -> None:
+    def run_with(exc: Exception) -> Any:
+        class _Failing:
+            def run(self, agent_input: AgentInput) -> AgentOutput:
+                raise exc
+
+            def close(self) -> None:
+                return None
+
+        runtime = type("R", (), {"open_session": lambda self, request: _Failing()})()
+        return _run_session(
+            runtime=runtime,
+            session_id="s",
+            artifact_dir=tmp_path,
+            working_directory=tmp_path,
+            handle=object(),  # type: ignore[arg-type]
+            instructions="task",
+            rerun_api_rejections=rerun,
+        )
+
+    # Neither a graded agent error nor an ordinary rerun: the block is kept.
+    for inner in (
+        ProviderBlockedError(f"{PROVIDER_BLOCKED_MARKER}: 403"),
+        _blocked_403(),
+    ):
+        wrapped = _chained(RuntimeError("Error in agent execution"), inner)
+        with pytest.raises(ProviderBlockedError) as caught:
+            run_with(wrapped)
+        assert type(portable_exception(caught.value)) is ProviderBlockedError
+
+
+def test_unit_provider_block_is_recorded_and_aborts(tmp_path: Path) -> None:
+    recorded: list[dict[str, Any]] = []
+    store = SimpleNamespace(
+        begin_attempt=lambda unit: (1, tmp_path),
+        record_infrastructure_failure=lambda unit, *, attempt, error: recorded.append(
+            error
+        ),
+    )
+    unit = SimpleNamespace(task_id="area/task", trial=1)
+
+    def execute(**_: Any) -> None:
+        # Grading keeps only messages, so the marker is matched by text too.
+        raise InfrastructureError(
+            f"grading failed after 2 attempt(s): grading-1: {PROVIDER_BLOCKED_MARKER}"
+        )
+
+    fake = SimpleNamespace(_execute_unit=execute)
+    with pytest.raises(ProviderBlockedError, match=PROVIDER_BLOCKED_MARKER):
+        HarveyAdapter._run_unit(
+            fake,  # type: ignore[arg-type]
+            store=store,  # type: ignore[arg-type]
+            unit=unit,  # type: ignore[arg-type]
+            request=None,  # type: ignore[arg-type]
+            runtime=None,  # type: ignore[arg-type]
+            environment=None,  # type: ignore[arg-type]
+        )
+    assert len(recorded) == 1 and recorded[0]["error_type"] == "InfrastructureError"
+
+    def ordinary(**_: Any) -> None:
+        raise InfrastructureError("podman timed out")
+
+    failure = HarveyAdapter._run_unit(
+        SimpleNamespace(_execute_unit=ordinary),  # type: ignore[arg-type]
+        store=store,  # type: ignore[arg-type]
+        unit=unit,  # type: ignore[arg-type]
+        request=None,  # type: ignore[arg-type]
+        runtime=None,  # type: ignore[arg-type]
+        environment=None,  # type: ignore[arg-type]
+    )
+    assert failure is not None and "podman timed out" in failure
+
+
+def test_provider_block_leaves_unstarted_units_pending() -> None:
+    started: list[str] = []
+
+    def run_unit(*, unit: Any, **_: Any) -> str | None:
+        started.append(unit)
+        if unit == "u0":
+            raise ProviderBlockedError(PROVIDER_BLOCKED_MARKER)
+        return None
+
+    units = [f"u{n}" for n in range(6)]
+    fake = SimpleNamespace(_run_unit=run_unit)
+    with pytest.raises(ProviderBlockedError):
+        HarveyAdapter._run_pending(
+            fake,  # type: ignore[arg-type]
+            SimpleNamespace(pending_units=lambda: units),  # type: ignore[arg-type]
+            SimpleNamespace(max_concurrency=1),  # type: ignore[arg-type]
+            None,  # type: ignore[arg-type]
+            None,  # type: ignore[arg-type]
+        )
+    assert started == ["u0"]
 
 
 def test_api_rejection_policy_setting() -> None:

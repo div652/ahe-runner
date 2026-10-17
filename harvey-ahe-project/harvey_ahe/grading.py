@@ -35,7 +35,13 @@ from lab_core.evaluation.scoring import score_rubric
 from lab_core.harness.adapters.copilot import resolve_copilot_base_url
 
 from ahe_runner.config import ModelSettings, TransportSettings
-from ahe_runner.errors import ConfigurationError, InfrastructureError, IntegrityError
+from ahe_runner.errors import (
+    PROVIDER_BLOCKED_MARKER,
+    ConfigurationError,
+    InfrastructureError,
+    IntegrityError,
+    ProviderBlockedError,
+)
 from ahe_runner.io import atomic_write_json
 from ahe_runner.meta.model_client import (
     RecordedExactModelClient,
@@ -405,6 +411,8 @@ def grade_with_retries(
         grading_dir = grading_root / f"grading-{number}"
         try:
             return grading_dir, grade_task(grading_dir=grading_dir, **grade_kwargs)
+        except ProviderBlockedError:
+            raise
         except InfrastructureError as exc:
             failures.append(f"grading-{number}: {type(exc).__name__}: {exc}")
     raise InfrastructureError(
@@ -434,8 +442,19 @@ def _raise_for_grading_errors(
     if not errors:
         return
     types = {row["error_type"] for row in errors}
+    blocked = next(
+        (
+            row["reasoning"]
+            for row in errors
+            if row["error_type"] == "ProviderBlockedError"
+            or PROVIDER_BLOCKED_MARKER in row["reasoning"]
+        ),
+        None,
+    )
     if "IntegrityError" in types:
         classification = "integrity"
+    elif blocked is not None:
+        classification = "provider_blocked"
     elif types <= _RETRYABLE_ERROR_TYPES:
         classification = "retryable"
     else:
@@ -447,6 +466,8 @@ def _raise_for_grading_errors(
     summary = f"{len(errors)} criterion verdict(s) could not be graded: {sorted(types)}"
     if classification == "integrity":
         raise IntegrityError(summary)
+    if classification == "provider_blocked":
+        raise ProviderBlockedError(f"{summary}; {blocked}")
     if classification == "retryable":
         raise RetryableGradingError(summary)
     raise ConfigurationError(summary)

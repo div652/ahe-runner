@@ -60,10 +60,12 @@ from ahe_runner.adapter import (
 from ahe_runner.child_process import run_in_child
 from ahe_runner.config import ModelSettings
 from ahe_runner.errors import (
+    PROVIDER_BLOCKED_MARKER,
     CandidateValidationError,
     ConfigurationError,
     InfrastructureError,
     IntegrityError,
+    ProviderBlockedError,
 )
 from ahe_runner.evaluation import evaluation_request_sha256
 from ahe_runner.evaluation_store import EvaluationStore, EvaluationUnit
@@ -680,6 +682,11 @@ class HarveyAdapter(BenchmarkAdapterV2):
                     "message": str(exc),
                 },
             )
+            blocked = _provider_block(exc)
+            if blocked is not None:
+                # Stop the whole evaluation: every further call would be refused
+                # and would prolong the block. Unstarted units stay pending.
+                raise ProviderBlockedError(blocked) from exc
             return f"{unit.task_id}#{unit.trial}: {type(exc).__name__}: {exc}"
         return None
 
@@ -1079,6 +1086,9 @@ def _trial_process_entry(payload: _TrialPayload, request_slots: Any) -> _AgentRu
         for item in _cause_chain(exc):
             if isinstance(item, _FATAL_ERRORS):
                 raise item  # noqa: B904
+        blocked = _provider_block(exc)
+        if blocked is not None:
+            raise ProviderBlockedError(blocked) from exc
         if _is_infrastructure(exc) and not isinstance(
             exc, (InfrastructureError, PodmanError)
         ):
@@ -1113,6 +1123,9 @@ def _run_session(
             )
         except Exception as exc:
             _raise_if_fatal(exc)
+            blocked = _provider_block(exc)
+            if blocked is not None:
+                raise ProviderBlockedError(blocked) from exc
             overflow = _provider_context_error(exc)
             if overflow is not None:
                 return (
@@ -1449,6 +1462,23 @@ def _api_rejection_status(exc: BaseException) -> int | None:
     for item in _cause_chain(exc):
         if isinstance(item, APIStatusError) and 400 <= item.status_code < 500:
             return item.status_code
+    return None
+
+
+def _provider_block(exc: BaseException) -> str | None:
+    """Message of a provider block anywhere in the chain, else None.
+
+    Matched by text too, because trial-process and grading wrappers keep
+    only the message of the original error.
+    """
+    for item in _cause_chain(exc):
+        text = str(item)
+        if (
+            isinstance(item, ProviderBlockedError)
+            or PROVIDER_BLOCKED_MARKER in text
+            or "PrincipalBlocked" in text
+        ):
+            return text[:2000]
     return None
 
 

@@ -21,6 +21,14 @@ class InfrastructureError(AHERunnerError):
     """External infrastructure failed before producing a valid outcome."""
 
 
+# Kept in the message so the block survives wrapping and process boundaries.
+PROVIDER_BLOCKED_MARKER = "model provider blocked this principal"
+
+
+class ProviderBlockedError(InfrastructureError):
+    """The model provider blocked this principal; stop sending it requests."""
+
+
 class CandidateValidationError(AHERunnerError):
     """An evolved harness failed deterministic validation."""
 

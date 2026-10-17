@@ -12,6 +12,7 @@ import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +26,13 @@ from openai import (
 )
 
 from ahe_runner.config import ModelSettings, TransportSettings
-from ahe_runner.errors import ConfigurationError, InfrastructureError, IntegrityError
+from ahe_runner.errors import (
+    PROVIDER_BLOCKED_MARKER,
+    ConfigurationError,
+    InfrastructureError,
+    IntegrityError,
+    ProviderBlockedError,
+)
 from ahe_runner.io import atomic_write_json, sha256_json
 
 _PROTECTED_EXTRA_BODY_FIELDS = frozenset(
@@ -66,6 +73,18 @@ _TOKEN_PROVIDERS_LOCK = threading.Lock()
 _REQUEST_SLOTS: dict[str, tuple[int, Any]] = {}
 _REQUEST_SLOTS_LOCK = threading.Lock()
 _SLOT_CONTEXT = multiprocessing.get_context("spawn")
+
+# TRAPI asks clients that share one Entra identity to send a distinct, stable
+# workload ID each, so that its retry protection can isolate them.
+_WORKLOAD_HEADER = "X-TRAPI-Workload-ID"
+# Transient retries: exponential back-off from this base, never shorter than
+# the server's Retry-After, plus up to this fraction of random extra wait so
+# that clients rate-limited together do not retry together.
+_BACKOFF_BASE_SECONDS = 5.0
+_BACKOFF_JITTER_FRACTION = 0.5
+# Endpoints that blocked this principal, per process: no further requests.
+_BLOCKED_ENDPOINTS: dict[str, str] = {}
+_BLOCKED_ENDPOINTS_LOCK = threading.Lock()
 
 
 def _shared_request_slots(transport: TransportSettings) -> Any | None:
@@ -210,14 +229,31 @@ def openai_credential(
     return api_key
 
 
-def build_openai_client(transport: TransportSettings, api_key: str) -> OpenAI:
+def build_openai_client(
+    transport: TransportSettings,
+    api_key: str,
+    *,
+    workload_id: str | None = None,
+) -> OpenAI:
     """OpenAI SDK client for the transport's provider, without SDK retries."""
+    headers = (
+        {_WORKLOAD_HEADER: workload_id}
+        if workload_id is not None and transport.provider == "azure_entra"
+        else None
+    )
     return OpenAI(
         base_url=transport.base_url,
         api_key=openai_credential(transport, api_key),
         max_retries=0,
         timeout=transport.request_timeout_seconds,
+        default_headers=headers,
     )
+
+
+def workload_id_for(log_dir: Path) -> str:
+    """A stable ID per call log, that is per agent session or judge."""
+    digest = sha256(str(log_dir.resolve()).encode()).hexdigest()[:16]
+    return f"ahe-runner-{digest}"
 
 
 class RecordedExactModelClient:
@@ -231,7 +267,12 @@ class RecordedExactModelClient:
         settings: ModelSettings,
         log_dir: Path,
     ) -> None:
-        self._base = build_openai_client(transport, api_key)
+        self._workload_id = (
+            workload_id_for(log_dir) if transport.provider == "azure_entra" else None
+        )
+        self._base = build_openai_client(
+            transport, api_key, workload_id=self._workload_id
+        )
         self._transport = transport
         self._settings = settings
         self._log_dir = log_dir
@@ -373,6 +414,11 @@ class RecordedExactModelClient:
                 "args": _json_safe(args),
                 "kwargs": request_payload,
                 "request_sha256": sha256_json(request_payload),
+                **(
+                    {"workload_id": self._workload_id}
+                    if self._workload_id is not None
+                    else {}
+                ),
             },
         )
         hung_attempts: list[dict[str, Any]] = []
@@ -380,6 +426,15 @@ class RecordedExactModelClient:
         response_headers: dict[str, str] | None = None
         while True:
             waited: dict[str, float] = {}
+            blocked = _endpoint_block(self._transport.base_url)
+            if blocked is not None:
+                error = {
+                    "type": "ProviderBlockedError",
+                    "message": f"{PROVIDER_BLOCKED_MARKER} earlier: {blocked}",
+                    "sent": False,
+                }
+                atomic_write_json(call_dir / "error.json", error)
+                raise ProviderBlockedError(error["message"])
             try:
                 with _request_slot(self._request_slots, waited):
                     if api == "responses":
@@ -393,6 +448,15 @@ class RecordedExactModelClient:
                 break
             except Exception as exc:
                 error = {**_error_payload(exc), **waited}
+                if is_principal_blocked(exc):
+                    _record_endpoint_block(self._transport.base_url, str(exc))
+                    error["type"] = "ProviderBlockedError"
+                    if transient_attempts:
+                        error["transient_attempts"] = transient_attempts
+                    atomic_write_json(call_dir / "error.json", error)
+                    raise ProviderBlockedError(
+                        f"{PROVIDER_BLOCKED_MARKER}: {str(exc)[:1500]}"
+                    ) from exc
                 if (
                     is_hung_call_exception(exc)
                     and len(hung_attempts) < self._transport.hung_call_retries
@@ -619,10 +683,33 @@ def transient_retry_delay(
     attempt: int,
     max_wait: float,
 ) -> float:
-    """Server Retry-After when given, else exponential; capped, plus jitter."""
+    """Exponential back-off, at least the server's Retry-After; capped; jittered.
+
+    Attempt n waits max(Retry-After, 5 * 2^(n-1)) seconds, capped at
+    ``max_wait``, plus a random extra of up to half of that.
+    """
     advised = _retry_after_seconds(getattr(exc, "response", None))
-    base = advised if advised is not None else float(min(60, 2**attempt))
-    return min(max(base, 0.0), max_wait) + random.uniform(0.0, 1.0)
+    backoff = _BACKOFF_BASE_SECONDS * 2 ** min(max(attempt - 1, 0), 16)
+    base = min(max(advised or 0.0, backoff, 0.0), max_wait)
+    return base + random.uniform(0.0, base * _BACKOFF_JITTER_FRACTION)
+
+
+def is_principal_blocked(exc: BaseException) -> bool:
+    """HTTP 403 from a provider that blocked the whole identity (TRAPI)."""
+    if not isinstance(exc, APIStatusError) or exc.status_code != 403:
+        return False
+    text = f"{exc} {getattr(exc, 'body', '') or ''}"
+    return "PrincipalBlocked" in text or "retry-flood" in text
+
+
+def _record_endpoint_block(base_url: str, message: str) -> None:
+    with _BLOCKED_ENDPOINTS_LOCK:
+        _BLOCKED_ENDPOINTS.setdefault(base_url, message[:1500])
+
+
+def _endpoint_block(base_url: str) -> str | None:
+    with _BLOCKED_ENDPOINTS_LOCK:
+        return _BLOCKED_ENDPOINTS.get(base_url)
 
 
 def _retry_after_seconds(response: Any) -> float | None:
