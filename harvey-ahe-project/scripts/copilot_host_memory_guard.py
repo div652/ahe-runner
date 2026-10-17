@@ -10,8 +10,10 @@ Copilot Server on port 3141 and blocked campaign 12.
 The script measures the resident memory of that window's renderer process and
 sends one small completion with one tool to ``--probe-model`` (tried twice).
 
+- If the window has no renderer process (it crashed; seen on 2026-10-17 during
+  a 2.7-hour evaluation that started at 2161 MB), restart at once.
 - If the probe fails, the server is broken for every client: restart at once.
-- Else, below ``--soft-mb``: exit 0.
+- Else, below ``--soft-mb`` (1500 MB since 2026-10-17, from 2500): exit 0.
 - At or above it: wait up to ``--drain-seconds`` for other clients' connections
   to port 3141 to finish, then restart. If they do not finish, restart only at
   or above ``--hard-mb``; otherwise exit 0 and check again before the next stage.
@@ -63,7 +65,7 @@ class GuardError(RuntimeError):
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--soft-mb", type=int, default=2500)
+    parser.add_argument("--soft-mb", type=int, default=1500)
     parser.add_argument("--hard-mb", type=int, default=3300)
     parser.add_argument("--drain-seconds", type=int, default=600)
     parser.add_argument("--probe-model", default="gpt-5.6-sol")
@@ -87,7 +89,10 @@ def main(argv: list[str] | None = None) -> int:
             handle.write(line + "\n")
 
     try:
-        main_pid, renderer_pid, renderer_mb = _measure()
+        # A crashed window leaves the main process without a renderer and
+        # nothing on the port; restart it like an unhealthy one.
+        main_pid, renderer_pid, renderer_mb = _measure(require_renderer=False)
+        crashed = renderer_pid is None
         clients = _client_connections()
         state = {
             "main_pid": main_pid,
@@ -98,13 +103,19 @@ def main(argv: list[str] | None = None) -> int:
             "hard_mb": args.hard_mb,
         }
         if args.check:
-            log("ok", **state)
+            log("ok" if not crashed else "renderer_missing", **state)
             return 0
-        probe_error = None if args.force else _probe_error(args.probe_model)
-        if probe_error is None and not args.force and renderer_mb < args.soft_mb:
+        healthy_candidate = not args.force and not crashed
+        probe_error = _probe_error(args.probe_model) if healthy_candidate else None
+        if (
+            probe_error is None
+            and healthy_candidate
+            and renderer_mb is not None
+            and renderer_mb < args.soft_mb
+        ):
             log("ok", **state, probe_model=args.probe_model)
             return 0
-        if probe_error is None and not args.force:
+        if probe_error is None and healthy_candidate and renderer_mb is not None:
             deadline = time.monotonic() + args.drain_seconds
             while clients and time.monotonic() < deadline:
                 time.sleep(10)
@@ -116,6 +127,7 @@ def main(argv: list[str] | None = None) -> int:
             "restarting",
             **{**state, "clients": clients, "forced": args.force},
             probe_error=probe_error,
+            renderer_missing=crashed,
         )
         started = time.monotonic()
         _restart(main_pid)
@@ -170,7 +182,7 @@ def _processes() -> list[dict[str, object]]:
     return rows
 
 
-def _measure() -> tuple[int, int, int]:
+def _measure(*, require_renderer: bool = True) -> tuple[int, int | None, int | None]:
     rows = _processes()
     mains = [
         row for row in rows if row["type"] is None and str(USER_DATA) in row["args"]
@@ -181,6 +193,8 @@ def _measure() -> tuple[int, int, int]:
         )
     renderers = [row for row in rows if row["type"] == "renderer"]
     if not renderers:
+        if not require_renderer:
+            return int(mains[0]["pid"]), None, None
         raise GuardError("copilot-host VS Code has no renderer process")
     largest = max(renderers, key=lambda row: int(row["rss_kb"]))
     return int(mains[0]["pid"]), int(largest["pid"]), int(largest["rss_kb"]) // 1024
