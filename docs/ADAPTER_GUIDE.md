@@ -368,8 +368,31 @@ concurrency request.
 Do not include fresh preflight timestamps, nonces, or process IDs in
 `semantic_inputs`. They are attempt evidence, not run identity.
 
-If the adapter makes its own calls to the same model endpoint—for example, a
-benchmark-native judge—join the runner's endpoint-wide request budget:
+If the adapter makes its own calls to the same model endpoint (for example,
+a benchmark-native judge), prefer the runner's recorded client. It applies
+the campaign's credentials, wire API, request slots, token admission control,
+retries, and provider-block handling, and records every call:
+
+```python
+from ahe_runner.config import ModelSettings
+from ahe_runner.model_requests import RecordedExactModelClient
+
+judge = RecordedExactModelClient(
+    transport=request.transport,
+    api_key=request.api_key,
+    settings=ModelSettings(model="exact-judge-model", max_tokens=4096),
+    log_dir=unit_dir / "judge_calls",
+)
+```
+
+Call `judge.responses.create(...)` when the judge's wire API is `responses`,
+otherwise `judge.chat.completions.create(...)`. A judge served on a different
+wire API from the transport default sets `api_mode` in its `ModelSettings`.
+
+A client that must stay outside the recorded facade can still use
+`build_openai_client(request.transport, request.api_key)` for credentials,
+which covers `token_command` authentication. To join the endpoint-wide
+request budget, wrap its calls:
 
 ```python
 from ahe_runner.model_requests import model_request_slot
@@ -384,6 +407,11 @@ limit. Recorded evaluated/meta calls, children created through
 `model_request_slot()` then share one queue. `timing` contains
 `slot_wait_seconds` when a queue is configured. Unwrapped adapter clients and
 custom child-process implementations cannot be throttled by the runner.
+
+Never resend a call that failed with a provider block.
+`is_provider_blocked_failure(exc)` recognises one, even after wrapping or
+across a process boundary. Raise it, or an `InfrastructureError` carrying its
+message, so the stage ends and queued units stay pending.
 
 Return native metrics in `EvaluationResult`. `artifact_hashes` should exclude
 the result files that contain those hashes, avoiding recursive identity. It
@@ -512,6 +540,15 @@ Return:
 
 This attribution becomes evidence for the next Evolve round.
 
+A coarse primary metric gives Evolve little signal. When each trial scores 0
+or 1 (for example "every rubric criterion passed") and there are only a few
+trials per task, most tasks look unchanged between checkpoints even when the
+work improved. Use a finer secondary metric as a tie-break: when a task's
+primary score is equal, decide improved or regressed by the secondary metric,
+and record which metric decided each task, for example in
+`TransitionSummary.metadata["decided_by"] = {task_key: metric_name}`. Use the
+same ordered metrics in `selection_key()`.
+
 ## `selection_key()`
 
 Return a deterministic tuple used to rank validation summaries.
@@ -590,6 +627,35 @@ The helper recognizes conservative provider markers such as
 rejection in HTTP 500. The runner excludes those errors from generic
 infrastructure classification; the adapter still owns the benchmark-specific
 outcome text, trace, and score.
+
+A provider may also refuse one agent request mid-trial for another reason,
+such as a content filter or a malformed request (HTTP 400 or 422). Apply the
+campaign's `request.provider_rejection_policy` instead of choosing per run:
+
+```python
+from ahe_runner.errors import InfrastructureError
+from ahe_runner.model_requests import provider_rejection_message
+
+rejection = provider_rejection_message(exc)
+if rejection is not None:
+    if request.provider_rejection_policy == "rerun":
+        raise InfrastructureError(rejection) from exc
+    return record_graded_agent_error("provider_rejection", rejection)
+```
+
+Classify inside the process that ran the trial, where the exception's cause
+chain still exists, and pass only the decision across a process boundary.
+Report the number of rejected trials, for example as
+`summary.metrics["provider_rejected_trials"]`. Under `rerun`, a high count
+biases the result towards trials that make fewer calls.
+
+One unit's infrastructure failure ends the evaluation attempt, so an
+unattended campaign would stop on every transient fault. Where the runtime is
+healthy, retry a unit that failed on infrastructure a bounded number of times
+inside the same attempt, with back-off, and keep every failed unit attempt.
+End the attempt only when failures persist. Abnormal child-process
+termination must still end the attempt. For the remaining stops, operators
+can use `ahe supervise`.
 
 Do not raise it for:
 

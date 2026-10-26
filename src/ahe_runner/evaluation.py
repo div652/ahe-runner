@@ -8,6 +8,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .adapter import EvaluationRequest, EvaluationResult, EvaluationTrialFact
+from .config import model_identity, transport_identity
 from .errors import IntegrityError
 from .io import read_json, sha256_file, sha256_json, tree_hashes
 
@@ -37,16 +38,22 @@ class VerifiedEvaluation:
 
 
 def evaluation_request_payload(request: EvaluationRequest) -> dict[str, Any]:
+    # Execution-only settings, such as concurrency, retries, and pacing, are
+    # excluded so they can change while an evaluation resumes (AHE-042).
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "checkpoint": request.checkpoint,
         "harness_sha256": sha256_json(tree_hashes(request.harness_dir)),
         "split": request.split.model_dump(mode="json"),
         "trials": request.trials,
         "root_seed": request.root_seed,
-        "model": request.model.model_dump(mode="json"),
-        "transport": request.transport.model_dump(mode="json"),
-        "max_concurrency": request.max_concurrency,
+        "model": model_identity(request.model),
+        "transport": transport_identity(request.transport),
+        **(
+            {"provider_rejection_policy": request.provider_rejection_policy}
+            if request.provider_rejection_policy != "grade"
+            else {}
+        ),
     }
 
 

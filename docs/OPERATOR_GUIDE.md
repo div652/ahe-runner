@@ -254,6 +254,7 @@ transport:
   negative_control: required
   max_concurrent_requests: 4
   hung_call_retries: 0
+  transient_retries: 0
 
 meta:
   backend: nexau
@@ -334,6 +335,132 @@ middleware or the local NexAU sandbox as an OS security boundary.
 Model IDs sent to the endpoint are exact and unprefixed. Do not use
 `openai/<id>` or `copilot/<id>` in this file.
 
+### Identity settings and execution settings
+
+A campaign's identity covers everything that can change a result: models,
+harness, splits, metric, prompts, seeds, the endpoint and wire API, and trial
+counts. Changing any of them on resume is refused.
+
+Execution settings decide how the campaign runs but cannot change a
+completed result. They may change between resumes:
+
+- `transport`: `api_key_env`, `token_command`, `token_refresh_margin_seconds`,
+  `request_timeout_seconds`, `model_catalog`, `negative_control`,
+  `max_concurrent_requests`, `hung_call_retries`, `transient_retries`,
+  `transient_max_wait_seconds`, `provider_block_markers`,
+  `provider_block_seconds`, `client_id_header`, the `token_budget_*` fields,
+  and `model_rejection_phrases`;
+- `evaluation.max_concurrency`, `debugger.max_concurrency`, and
+  `meta.max_concurrent_model_calls`;
+- everything under `recovery`.
+
+Each change is appended to `campaign_amendments.json` as an
+`execution_settings` entry with the before and after values, so reports can
+say which settings each part of the campaign ran under.
+
+### Provider rejections in the middle of a trial
+
+A provider sometimes refuses one agent request mid-trial with HTTP 400 or
+422 that is not a context-length error, for example a content filter.
+`evaluation.provider_rejection_policy` defines the outcome:
+
+- `grade` (default): the trial is kept and its partial work is graded as an
+  agent outcome;
+- `rerun`: the trial is an infrastructure failure and runs again on resume,
+  up to the stage attempt budget.
+
+The two policies give different scores for the same harness, so the policy
+is part of campaign identity. Under `rerun`, a high rejection rate biases
+results towards trials that make fewer calls; adapters should report the
+count (see the adapter guide).
+
+### Wire API, authentication, and rate limits
+
+The runner speaks two OpenAI wire APIs:
+
+| `api_mode` | System prompt | Reasoning between turns | Token budget field |
+|---|---|---|---|
+| `chat_completions` (default) | system message | not carried | `max_tokens` |
+| `responses` | `instructions` | reasoning items resent each turn | `max_output_tokens` |
+
+`transport.api_mode` applies to every model. A model can override it with
+`models.<role>.api_mode`, for a gateway that serves different model families
+on different APIs. Set `temperature: null` for models that reject the
+parameter; the runner then sends none and rejects any harness attempt to send
+one.
+
+The runtime always applies the configured wire API. If the harness manifest
+protects `llm_config.api_type`, keep it consistent (`openai_responses` for the
+Responses API, `openai_chat_completion` otherwise); `ahe validate` warns when
+they differ.
+
+Authentication is either a static key from `api_key_env`, or
+`token_command`, an operator command that prints a bearer token:
+
+```yaml
+transport:
+  base_url: https://gateway.example.com/openai/v1
+  api_mode: responses
+  token_command: >-
+    az account get-access-token --scope api://example/.default --output json
+  token_refresh_margin_seconds: 300
+  client_id_header: X-Workload-ID      # optional stable per-session ID
+```
+
+The command may print the raw token, or JSON with `accessToken`,
+`access_token`, or `token`, and optionally `expires_on`/`expires_at` (epoch
+seconds) or `expires_in`. A token without an expiry is refreshed after 30
+minutes. Each process caches its own token; tokens are never written to disk.
+
+For rate-limited providers:
+
+```yaml
+transport:
+  transient_retries: 6               # HTTP 429, 5xx, connection errors
+  transient_max_wait_seconds: 120
+  provider_block_markers: [PrincipalBlocked, retry-flood]
+  provider_block_seconds: 1800
+  token_budget_per_minute: 400000    # optional admission control
+  token_budget_chars_per_token: 3.0
+  token_budget_cut: 0.7
+  token_budget_floor: 0.3
+  token_budget_recover_seconds: 600
+```
+
+- **Retries.** Attempt n waits `max(Retry-After, 5 × 2^(n-1))` seconds, capped
+  at `transient_max_wait_seconds`, plus up to 50% random extra, so clients
+  refused together do not retry together. Every failed attempt is kept as
+  `transient-attempt-N.json` in the call folder.
+- **Provider blocks.** A 403 whose body names a configured marker means the
+  provider blocked this client. Every process on the host stops sending to
+  that endpoint for `provider_block_seconds`. Later calls fail without being
+  sent (`"sent": false`), and the stage ends as infrastructure. Do not
+  relaunch immediately; `ahe supervise` stops on a block.
+- **Admission control.** With `token_budget_per_minute`, every process on the
+  host shares a per-model 60-second token window. A request is sent only when
+  its estimate (request characters ÷ `token_budget_chars_per_token` plus the
+  output cap) fits. Each 429 multiplies the budget by `token_budget_cut`, down
+  to `token_budget_floor` of the configured value, and pauses every client for
+  the advised wait. Each quiet `token_budget_recover_seconds` restores 10%.
+  Advertised limits and remaining-token headers are not trusted, because
+  providers have refused well below them. Start below the advertised limit
+  and keep the estimate conservative (3 characters per token rarely
+  undercounts).
+
+Endpoint state shared by processes lives under `$AHE_RUNNER_STATE_DIR`, or
+`<tmp>/ahe-runner-<uid>` when it is unset. The model preflight uses the same
+retries, window, and block handling as recorded calls.
+
+`ahe status` reports `transient_attempt_count`, `rate_limited_attempt_count`,
+and `provider_blocked_calls` next to the hung-call counts.
+
+Each evaluation stage records its route fingerprint in `stage.json`, and
+`selection.json` and `final_test.json` repeat it: the endpoint, wire API, authentication
+kind, model settings, where the system prompt is placed, and whether
+reasoning is carried between turns. The same harness and model can score
+differently through different routes, so compare evaluations only when their
+route fingerprints match, or report the difference.
+
 ### GH Copilot Server
 
 Before a live run, explicitly confirm:
@@ -341,7 +468,7 @@ Before a live run, explicitly confirm:
 1. the exact loopback endpoint instance;
 2. the exact model ID currently returned by `GET /v1/models`;
 3. reasoning effort, including an intentional provider default;
-4. `chat_completions` and non-streaming mode;
+4. the wire API (`chat_completions` or `responses`) and non-streaming mode;
 5. task/attempt scope and model-call concurrency;
 6. start-of-prompt recall near the configured input limit;
 7. a comparative probe showing that requested reasoning effort changes
@@ -350,6 +477,12 @@ Before a live run, explicitly confirm:
 Keep the unauthenticated extension on loopback. The runner performs a fresh
 positive probe and nonexistent-model negative control for every model-backed
 stage attempt, then verifies the observable response label on every call.
+
+The model preflight's negative control accepts a refusal that names the
+nonexistent model, carries a structured model error code (such as
+`model_not_found` or `model_not_supported`), or matches a known gateway
+phrase. Add gateway-specific wording with `transport.model_rejection_phrases`
+rather than disabling the control.
 
 The standard API cannot prove that a proxy retained the beginning of a long
 prompt or honored a reasoning setting. Run those two behavioral probes for
@@ -467,7 +600,35 @@ ahe resume --config /path/to/my-ahe-project/ahe.yaml
 
 Resume verifies and skips completed stages. Evaluation resumes only incomplete
 units. Evolve starts from the interrupted attempt's last committed Git `HEAD`
-and exposes archived dirty state as recovery evidence.
+and exposes archived dirty state as recovery evidence. Execution settings,
+such as concurrency, retries, pacing, and attempt limits, may be changed
+before a resume; the change is recorded in `campaign_amendments.json`.
+
+For unattended campaigns, let the runner resume for you:
+
+```bash
+ahe supervise --config /path/to/my-ahe-project/ahe.yaml \
+  --max-consecutive-failures 5 \
+  --initial-backoff-seconds 60 --max-backoff-seconds 1800
+```
+
+`supervise` runs the campaign in a fresh process each time. After an
+infrastructure stop it waits with exponential back-off and jitter, then
+resumes. The failure count resets whenever a run completes at least one more
+stage. It stops, and reports why, on:
+
+- a blocked stage, or a configuration or integrity error (operator needed);
+- a provider block (do not relaunch until the block lifts);
+- `--max-consecutive-failures` stops in a row without progress.
+
+Every launch and decision is appended to `reports/supervisor.jsonl`.
+Combine it with `AHE_PRE_STAGE_COMMAND` to restart unhealthy local services.
+
+If you drive the runner from your own Python script instead, put the code
+that creates `CampaignController` under `if __name__ == "__main__":`.
+Process-isolated trials start with the `spawn` method, which re-imports the
+parent script; the runner refuses to start a campaign inside a trial process
+and says so.
 
 Do not delete a failed attempt to make resume proceed. Its identity and
 artifacts are part of the recovery contract.
@@ -565,12 +726,68 @@ Validation evaluates every checkpoint, then the adapter selects one through
 its deterministic native key. Final test evaluates C0 and the selected
 checkpoint only. Test results never trigger further evolution.
 
+### Evaluate a fixed harness
+
+To measure a harness without evolving it (a baseline on all tasks, a selected
+checkpoint on held-out tasks, more trials, or another route), use
+`ahe evaluate` with the campaign configuration:
+
+```bash
+# A campaign checkpoint on the test split
+ahe evaluate --config ahe.yaml --output ./evals/c5-test --checkpoint C5 --split test
+
+# Any conformant harness folder on chosen tasks, with more trials and a seed
+ahe evaluate --config ahe.yaml --output ./evals/new-harness \
+  --harness ./candidate-harness --tasks ./tasks.json \
+  --trials 5 --seed 7 --label candidate
+```
+
+`--tasks` is a JSON list (or one task ID per line) of tasks from one split.
+Trials default to that split's configured count, and the seed defaults to
+`campaign.root_seed`. The output folder must be outside the campaign
+artifacts. It holds a frozen copy of the harness, the verified adapter
+evaluation, its own stage record, and `evaluation_report.json` with the
+summary and route fingerprint. Rerunning the same command resumes or reuses
+it; a different command for the same folder is refused.
+
+Compare two evaluations task by task:
+
+```bash
+ahe compare --baseline ./evals/c0-test --candidate ./evals/c5-test
+ahe compare --baseline campaign-artifacts/<campaign>/evaluations/C0-final-test \
+  --candidate ./evals/c5-test
+```
+
+The result gives the primary-metric delta, the mean per-task score delta, a
+95% paired task-bootstrap interval, and the minimum detectable difference. It
+warns when the evaluations used different routes, task sets, or primary
+metrics.
+
+### Read selection and final-test uncertainty
+
+Selection still picks the best `adapter.selection_key`, earliest checkpoint
+first on ties. `selection.json` and `final_test.json` now also report how
+certain each decision is:
+
+- `uncertainty.selected_vs_baseline`: the selected checkpoint against C0;
+- `uncertainty.selected_vs_each_candidate`: the selected checkpoint's paired
+  difference from every other checkpoint;
+- `uncertainty.candidates_not_distinguishable_from_selected`: checkpoints
+  whose interval against the selected one includes zero;
+- `minimum_detectable_difference`: the half-width of a 95% interval for the
+  paired mean. A difference smaller than this is within the measured noise.
+
+With small validation sets the top validation score is partly luck. When
+several candidates are indistinguishable from the selected one, report that,
+and confirm the choice with `ahe evaluate` on more tasks or trials before
+claiming an improvement. Report the interval with every final-test delta.
+
 ## 10. Read the outputs
 
 ```text
 campaign-artifacts/<campaign>/
 ├── campaign_manifest.json
-├── campaign_amendments.json   # only after extend-rounds
+├── campaign_amendments.json   # after extend-rounds or execution changes
 ├── campaign_state.json
 ├── checkpoints/C0..CN/
 ├── workspaces/
@@ -582,6 +799,7 @@ campaign-artifacts/<campaign>/
 ├── history/
 ├── attribution/
 ├── stages/
+├── reports/supervisor.jsonl   # only under ahe supervise
 ├── selection/selection.json
 ├── superseded/closure-NN/     # only after a reopened closure
 └── final/
@@ -615,6 +833,9 @@ The complete lineage remains available:
   failed attempt.
 - valid low or zero reward: completed benchmark evidence, never an
   infrastructure retry.
-- campaign identity changed: use a new `artifacts_dir`; immutable inputs cannot
-  change in place. The only exception is a larger `campaign.rounds`, recorded
-  with `extend-rounds`.
+- campaign identity changed: use a new `artifacts_dir`; result-affecting
+  inputs cannot change in place. A larger `campaign.rounds` is recorded with
+  `extend-rounds`; execution settings may change freely and are recorded
+  automatically.
+- deleting a throwaway campaign: checkpoint and stage files are written
+  read-only, so run `chmod -R u+w <artifacts_dir>` before removing it.

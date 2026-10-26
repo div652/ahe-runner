@@ -465,12 +465,20 @@ def test_model_call_retry_summary_uses_immutable_attempt_files(
         "hung_attempt_count": 3,
         "calls_resent": 2,
         "calls_failed_after_resends": 1,
+        "configured_transient_retries": 0,
+        "transient_attempt_count": 0,
+        "rate_limited_attempt_count": 0,
+        "provider_blocked_calls": 0,
     }
     assert summarize_model_call_retries(tmp_path, configured_retries=0) == {
         "configured_extra_attempts": 0,
         "hung_attempt_count": 0,
         "calls_resent": 0,
         "calls_failed_after_resends": 0,
+        "configured_transient_retries": 0,
+        "transient_attempt_count": 0,
+        "rate_limited_attempt_count": 0,
+        "provider_blocked_calls": 0,
     }
 
 

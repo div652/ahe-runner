@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import secrets
+from collections.abc import Callable
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -13,7 +15,37 @@ from ahe_runner.config import ModelSettings, TransportSettings
 from ahe_runner.errors import InfrastructureError, IntegrityError
 from ahe_runner.io import atomic_write_json
 
-from .model_client import is_hung_call_exception, is_infrastructure_exception
+from .endpoint import (
+    TokenWindow,
+    cause_chain,
+    responses_reasoning,
+    send_with_endpoint_policy,
+    token_provider,
+    wire_api,
+)
+from .model_client import (
+    _request_slot,
+    _shared_request_slots,
+    is_infrastructure_exception,
+)
+
+# Structured error codes that say the requested model itself was refused.
+_MODEL_REJECTION_CODES = frozenset(
+    {
+        "model_not_found",
+        "model_not_supported",
+        "unsupported_model",
+        "invalid_model",
+        "deploymentnotfound",
+    }
+)
+# Wording of gateways that refuse an unknown model without naming it or giving
+# a code. Each phrase must say the model was refused, so a rejection for any
+# other reason (bad input, authentication) still fails the control.
+_MODEL_REJECTION_PHRASES = (
+    "this model does not support the responses endpoint",
+    "the requested model is not supported",
+)
 
 
 def run_model_preflight(
@@ -23,12 +55,14 @@ def run_model_preflight(
     settings: ModelSettings,
     output_path: Path,
 ) -> dict[str, Any]:
+    api = wire_api(transport, settings)
     report: dict[str, Any] = {
         "schema_version": 1,
         "status": "running",
         "checked_at": datetime.now(UTC).isoformat(),
         "base_url": transport.base_url,
-        "api_mode": transport.api_mode,
+        "api_mode": api,
+        "authentication": "token_command" if transport.token_command else "api_key",
         "stream": False,
         "requested_model": settings.model,
         "reasoning_effort": settings.reasoning_effort,
@@ -48,9 +82,10 @@ def run_model_preflight(
             "require an independent per-model transport probe."
         ),
     }
+    provider = token_provider(transport)
     client = OpenAI(
         base_url=transport.base_url,
-        api_key=api_key,
+        api_key=provider() if provider is not None else api_key,
         max_retries=0,
         timeout=transport.request_timeout_seconds,
     )
@@ -86,51 +121,59 @@ def run_model_preflight(
             f"exact model {settings.model!r} is absent from the endpoint catalog"
         )
 
-    positive_payload: dict[str, Any] = {
-        "model": settings.model,
-        "messages": [{"role": "user", "content": "Reply with OK only."}],
-        "max_tokens": min(settings.max_tokens, 64),
-        "temperature": settings.temperature,
-        "stream": False,
-    }
-    if settings.reasoning_effort is not None:
-        positive_payload["extra_body"] = {
-            "reasoning": {"effort": settings.reasoning_effort}
+    positive_payload: dict[str, Any]
+    create: Callable[..., Any]
+    if api == "responses":
+        positive_payload = {
+            "model": settings.model,
+            "input": "Reply with OK only.",
+            "max_output_tokens": min(settings.max_tokens, 64),
+            "stream": False,
         }
-    positive_hung_attempts: list[dict[str, Any]] = []
-    while True:
-        try:
-            positive = client.chat.completions.create(**positive_payload)
-            break
-        except Exception as exc:
-            detail = _probe_error_payload(
-                exc,
-                attempt=len(positive_hung_attempts) + 1,
+        if settings.reasoning_effort is not None:
+            positive_payload["reasoning"] = responses_reasoning(
+                settings.reasoning_effort
             )
-            if (
-                is_hung_call_exception(exc)
-                and len(positive_hung_attempts) < transport.hung_call_retries
-            ):
-                detail["will_retry"] = True
-                positive_hung_attempts.append(detail)
-                continue
-            report["positive_probe"] = {
-                "passed": False,
-                **detail,
-                "attempt_count": len(positive_hung_attempts) + 1,
-                **(
-                    {"hung_attempts": positive_hung_attempts}
-                    if positive_hung_attempts
-                    else {}
-                ),
+        create = client.responses.create
+    else:
+        positive_payload = {
+            "model": settings.model,
+            "messages": [{"role": "user", "content": "Reply with OK only."}],
+            "max_tokens": min(settings.max_tokens, 64),
+            "stream": False,
+        }
+        if settings.reasoning_effort is not None:
+            positive_payload["extra_body"] = {
+                "reasoning": {"effort": settings.reasoning_effort}
             }
-            if is_infrastructure_exception(exc):
-                report["status"] = "infrastructure_failed"
-                atomic_write_json(output_path, report)
-                raise InfrastructureError(str(exc)) from exc
-            report["status"] = "failed"
+        create = client.chat.completions.create
+    if settings.temperature is not None:
+        positive_payload["temperature"] = settings.temperature
+    window = (
+        TokenWindow(transport, settings.model)
+        if transport.token_budget_per_minute is not None
+        else None
+    )
+    try:
+        positive, positive_retries = _probe(transport, create, positive_payload, window)
+    except Exception as exc:
+        hung, transient = getattr(_root(exc), "ahe_attempts", ([], []))
+        report["positive_probe"] = {
+            "passed": False,
+            **_probe_error_payload(exc, attempt=len(hung) + len(transient) + 1),
+            "attempt_count": len(hung) + len(transient) + 1,
+            **({"hung_attempts": hung} if hung else {}),
+            **({"transient_attempts": transient} if transient else {}),
+        }
+        if is_infrastructure_exception(exc):
+            report["status"] = "infrastructure_failed"
             atomic_write_json(output_path, report)
-            raise
+            if isinstance(exc, InfrastructureError):
+                raise
+            raise InfrastructureError(str(exc)) from exc
+        report["status"] = "failed"
+        atomic_write_json(output_path, report)
+        raise
     returned_model = getattr(positive, "model", None)
     if returned_model != settings.model:
         report["status"] = "failed"
@@ -138,12 +181,7 @@ def run_model_preflight(
             "passed": False,
             "returned_model": returned_model,
             "error": "observable model mismatch",
-            "attempt_count": len(positive_hung_attempts) + 1,
-            **(
-                {"hung_attempts": positive_hung_attempts}
-                if positive_hung_attempts
-                else {}
-            ),
+            **positive_retries,
         }
         atomic_write_json(output_path, report)
         raise IntegrityError(
@@ -152,77 +190,61 @@ def run_model_preflight(
     report["positive_probe"] = {
         "passed": True,
         "returned_model": returned_model,
-        "attempt_count": len(positive_hung_attempts) + 1,
-        **({"hung_attempts": positive_hung_attempts} if positive_hung_attempts else {}),
+        **positive_retries,
     }
+    if api == "responses":
+        report["positive_probe"]["status"] = getattr(positive, "status", None)
 
     negative: dict[str, Any] | None = None
     if transport.negative_control != "disabled":
         nonexistent = f"ahe-negative-control-{secrets.token_hex(16)}"
         negative_payload = dict(positive_payload)
         negative_payload["model"] = nonexistent
-        negative_hung_attempts: list[dict[str, Any]] = []
-        while True:
-            try:
-                response = client.chat.completions.create(**negative_payload)
-            except Exception as exc:
-                detail = _probe_error_payload(
-                    exc,
-                    attempt=len(negative_hung_attempts) + 1,
-                )
-                if (
-                    is_hung_call_exception(exc)
-                    and len(negative_hung_attempts) < transport.hung_call_retries
-                ):
-                    detail["will_retry"] = True
-                    negative_hung_attempts.append(detail)
-                    continue
-                text = str(exc)
-                passed = nonexistent.casefold() in text.casefold()
-                negative = {
-                    "requested_model": nonexistent,
-                    "passed": passed,
-                    **detail,
-                    "attempt_count": len(negative_hung_attempts) + 1,
-                    **(
-                        {"hung_attempts": negative_hung_attempts}
-                        if negative_hung_attempts
-                        else {}
-                    ),
-                }
-                if not passed and is_infrastructure_exception(exc):
-                    report["status"] = "infrastructure_failed"
-                    report["negative_control"] = negative
-                    atomic_write_json(output_path, report)
-                    raise InfrastructureError(str(exc)) from exc
-                if not passed and transport.negative_control == "required":
-                    report["status"] = "failed"
-                    report["negative_control"] = negative
-                    atomic_write_json(output_path, report)
-                    raise IntegrityError(
-                        "negative control failed without identifying the nonexistent "
-                        f"model {nonexistent!r}"
-                    ) from exc
-                break
-            else:
-                negative = {
-                    "requested_model": nonexistent,
-                    "passed": False,
-                    "returned_model": getattr(response, "model", None),
-                    "error": "nonexistent model unexpectedly generated a response",
-                    "attempt_count": len(negative_hung_attempts) + 1,
-                    **(
-                        {"hung_attempts": negative_hung_attempts}
-                        if negative_hung_attempts
-                        else {}
-                    ),
-                }
-                if transport.negative_control == "required":
-                    report["status"] = "failed"
-                    report["negative_control"] = negative
-                    atomic_write_json(output_path, report)
-                    raise IntegrityError(negative["error"])
-                break
+        try:
+            response, negative_retries = _probe(
+                transport, create, negative_payload, window
+            )
+        except Exception as exc:
+            hung, transient = getattr(_root(exc), "ahe_attempts", ([], []))
+            identified_by = _negative_control_rejection(exc, nonexistent, transport)
+            passed = identified_by is not None
+            negative = {
+                "requested_model": nonexistent,
+                "passed": passed,
+                "identified_by": identified_by,
+                **_probe_error_payload(exc, attempt=len(hung) + len(transient) + 1),
+                "attempt_count": len(hung) + len(transient) + 1,
+                **({"hung_attempts": hung} if hung else {}),
+                **({"transient_attempts": transient} if transient else {}),
+            }
+            if not passed and is_infrastructure_exception(exc):
+                report["status"] = "infrastructure_failed"
+                report["negative_control"] = negative
+                atomic_write_json(output_path, report)
+                if isinstance(exc, InfrastructureError):
+                    raise
+                raise InfrastructureError(str(exc)) from exc
+            if not passed and transport.negative_control == "required":
+                report["status"] = "failed"
+                report["negative_control"] = negative
+                atomic_write_json(output_path, report)
+                raise IntegrityError(
+                    "negative control failed without identifying the nonexistent "
+                    f"model {nonexistent!r}"
+                ) from exc
+        else:
+            negative = {
+                "requested_model": nonexistent,
+                "passed": False,
+                "returned_model": getattr(response, "model", None),
+                "error": "nonexistent model unexpectedly generated a response",
+                **negative_retries,
+            }
+            if transport.negative_control == "required":
+                report["status"] = "failed"
+                report["negative_control"] = negative
+                atomic_write_json(output_path, report)
+                raise IntegrityError(negative["error"])
 
     report["status"] = "completed"
     report["negative_control"] = negative
@@ -238,3 +260,69 @@ def _probe_error_payload(exc: BaseException, *, attempt: int) -> dict[str, Any]:
         "status_code": getattr(exc, "status_code", None),
         "attempt": attempt,
     }
+
+
+def _probe(
+    transport: TransportSettings,
+    create: Callable[..., Any],
+    payload: dict[str, Any],
+    window: TokenWindow | None,
+) -> tuple[Any, dict[str, Any]]:
+    """Send a probe under the same endpoint policy as recorded model calls."""
+
+    slots = _shared_request_slots(transport)
+
+    def slot(waited: dict[str, float]) -> Any:
+        if slots is None:
+            return nullcontext()
+        return _request_slot(slots, waited)
+
+    response, _waited, hung, transient = send_with_endpoint_policy(
+        transport=transport,
+        model=str(payload["model"]),
+        send=lambda: create(**payload),
+        payload=payload,
+        window=window,
+        on_retry=lambda _kind, _error: None,
+        slot=slot,
+        error_payload=lambda exc: _probe_error_payload(exc, attempt=0),
+    )
+    return response, {
+        "attempt_count": len(hung) + len(transient) + 1,
+        **({"hung_attempts": hung} if hung else {}),
+        **({"transient_attempts": transient} if transient else {}),
+    }
+
+
+def _root(exc: BaseException) -> BaseException:
+    for current in cause_chain(exc):
+        if hasattr(current, "ahe_attempts"):
+            return current
+    return exc
+
+
+def _negative_control_rejection(
+    exc: BaseException,
+    model: str,
+    transport: TransportSettings,
+) -> str | None:
+    """How the error shows that the nonexistent model was refused, if it does."""
+
+    text = str(exc).casefold()
+    if model.casefold() in text:
+        return "model_name"
+    status = getattr(exc, "status_code", None)
+    if status not in (400, 404):
+        return None
+    body = getattr(exc, "body", None)
+    code = getattr(exc, "code", None)
+    if isinstance(body, dict):
+        error = body.get("error", body)
+        if isinstance(error, dict):
+            code = error.get("code") or code
+    if isinstance(code, str) and code.casefold() in _MODEL_REJECTION_CODES:
+        return "error_code"
+    phrases = (*_MODEL_REJECTION_PHRASES, *transport.model_rejection_phrases)
+    if any(phrase.casefold() in text for phrase in phrases):
+        return "model_rejection_phrase"
+    return None

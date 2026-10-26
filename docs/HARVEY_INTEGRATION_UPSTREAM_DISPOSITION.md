@@ -1,13 +1,13 @@
 # Harvey Integration Upstream Disposition
 
-This document records the upstream review of AHE-001 through AHE-027 from
+This document records the upstream review of AHE-001 through AHE-043 from
 `HARVEY_INTEGRATION_UPSTREAM_RECOMMENDATIONS.md`. The findings were checked
 against the generic runner rather than accepted as Harvey-specific
 requirements.
 
 The resulting changes intentionally contain no Harvey task data, prompts,
 metrics, adapter code, campaign artifacts, or benchmark-specific policy. They
-form the AHE Runner 0.7.0 hardening boundary.
+form the AHE Runner 0.8.0 hardening boundary.
 
 ## Summary
 
@@ -40,6 +40,22 @@ form the AHE Runner 0.7.0 hardening boundary.
 | AHE-025 | Trial-execution contention and observability gap | Accepted with an ownership boundary: adapters still choose their worker model, while the runner provides an opt-in spawned evaluated-trial seam that preserves preflight and endpoint policy. Every evaluated session now records protected per-tool wall time. Harvey's `trial_processes` setting remains local. |
 | AHE-026 | Recovery and operations gap | Fixed in `ahe retry-stage` rather than a second command: a blocked, retryable stage whose every attempt failed on infrastructure or was abandoned receives `recovery.maximum_stage_attempts` more attempts, recorded in `stage.json` as `attempt_allowance` and a `manual_retries` event. Stages with any agent, candidate, or benchmark failure stay bounded. `AHE_PRE_STAGE_COMMAND` runs an operator health check before each new attempt; its failure consumes no attempt. Harvey's `--allow-runner-code-change` flag and model-host memory guard were not adopted. |
 | AHE-027 | Campaign-continuation gap | Fixed: `ahe extend-rounds` (dry run unless `--apply`) accepts only a larger `campaign.rounds`, recorded in a hash-chained `campaign_amendments.json`. `--reopen-closed-evolution` hash-verifies and moves the closing stages and `selection/`/`final/` outputs to `superseded/closure-NN/`, then resume reuses every other stage. The runner-code-change override was not adopted. |
+| AHE-028 | Provider and wire-API gap | Fixed generically: `api_mode: responses` per transport or per model (system prompt as `instructions`, reasoning items resent between turns), `token_command` authentication refreshed in-process (covers Entra ID through the Azure CLI and any other token issuer), and bounded `transient_retries` using the AHE-031 schedule. Harvey's `provider: azure_entra` setting was not adopted; `token_command` subsumes it. |
+| AHE-029 | Serialization bug | Fixed in the recorded client: resent Responses tool-call items get API field names and drop nulls. A test runs a real NexAU multi-turn tool call through the Responses API. The fix belongs in NexAU as well. |
+| AHE-030 | Undefined outcome | Fixed as campaign policy: `evaluation.provider_rejection_policy` (`grade` or `rerun`) is identity, reaches adapters as `EvaluationRequest.provider_rejection_policy`, and the public `provider_rejection_message()` classifies HTTP 400/422 refusals narrowly. The adapter applies the policy and reports the count; the runner cannot verify adapter compliance. |
+| AHE-031 | Retry-flood risk | Fixed: jittered exponential back-off is the only resend schedule; a 403 with a configured block marker opens a host-wide circuit breaker for `provider_block_seconds`, recorded calls and preflights stop without sending, and `ahe supervise` stops instead of relaunching. The TRAPI workload header became a generic `client_id_header`. An endpoint-wide retry budget was deferred. |
+| AHE-032 | Rate-limit pacing gap | Fixed: host-wide per-model token admission control with multiplicative decrease and gradual recovery (`token_budget_*`), shared by recorded calls and preflights. Header-based pacing and TRAPI-specific gateway pauses were not adopted, because the headers proved unreliable. Status reports transient and 429 counts; achieved tokens per minute is deferred. |
+| AHE-033 | Preflight brittleness | Fixed: the negative control accepts the model name, a structured model error code, a built-in gateway phrase, or `transport.model_rejection_phrases`. Recorded wordings from two gateways are offline test fixtures. |
+| AHE-034 | Per-role transport gap | Partly fixed: per-model `api_mode` and `temperature: null` (no temperature sent). Fully separate per-role endpoints and authentication, and a validated model capability profile, are deferred. |
+| AHE-035 | Route comparability | Fixed: every evaluation stage, `selection.json`, `final_test.json`, and `ahe evaluate` report record a route fingerprint; `ahe compare` warns when routes differ. Behavioural probes of system-prompt placement remain operator evidence. |
+| AHE-036 | Coarse-metric attribution | No runner change needed: `compare()` and `selection_key()` are adapter-owned and already accept ordered metrics. The adapter guide now prescribes a secondary-metric tie-break and recording the deciding metric. |
+| AHE-037 | Evidence gap for never-passing tasks | Deferred: four adapter interface additions for 44–53% more agent runs per round, which produced a passing run on only 1–4 tasks per round with no measured effect. Pointing the Debugger at earlier passing trials of the same task is the cheaper first step. |
+| AHE-038 | Unattended-operation gap | Fixed with `ahe supervise`: fresh-process resumes with back-off, progress-aware failure counting, and stops on blocked stages, configuration or integrity errors, and provider blocks. Unit-level retries inside an attempt are adapter guidance, because adapters own units. |
+| AHE-039 | Fixed-harness evaluation gap | Fixed with `ahe evaluate` (checkpoint or harness, split or task list, trials, seed) and `ahe compare`. Appending trials to an existing evaluation and splitting one evaluation across endpoints are deferred. |
+| AHE-040 | Selection noise | Fixed for reporting: paired task-bootstrap intervals, minimum detectable differences, and checkpoints indistinguishable from the selected one in `selection.json` and `final_test.json`. Noise-aware selection rules and validation sizing are deferred, because they change the selection method. |
+| AHE-041 | Evolution plateau | Deferred: a plateau rule in the core Evolve prompt, parent-checkpoint choice, and branching search change the AHE method and its prompt fidelity, on evidence from one campaign. The new uncertainty reports give operators the noise band. |
+| AHE-042 | Identity granularity | Fixed: execution settings are excluded from campaign identity, evaluation stage inputs, and the evaluation request hash; changes are recorded automatically as `execution_settings` amendments. Later result-affecting fields are omitted at their default, enforced by a pinned identity test. Mid-campaign guidance amendments are deferred. |
+| AHE-043 | Small operator hazards | Fixed: a controller built inside a spawned trial process that re-ran an unguarded operator script fails with a clear message, and child exit errors name the cause. Deleting read-only throwaway campaigns is documented rather than given a destructive command. |
 
 ## Important design decisions
 
@@ -162,6 +178,37 @@ superseded results cannot influence later evolution. Because the operator may
 decide to continue after reading the test result, the Operator Guide requires
 a report to give both closures.
 
+### Providers, rate limits, and blocks
+
+The Harvey branches added TRAPI- and CAO-specific settings. Upstream keeps the
+mechanisms and drops the provider names. Authentication is a token command,
+not a provider enum. The workload header is a configurable header name.
+Provider blocks are recognised by configurable 403 markers. Endpoint state
+that must be shared by processes (blocks and the token window) lives in a
+per-user state directory, locked with `flock`. Recorded calls and preflight
+probes use one send policy, so a preflight cannot retry around a block or
+the window. Adapter-owned judges are expected to use the same recorded
+client.
+
+### Identity and execution
+
+Campaign identity used to be the entire configuration, so changing a retry
+count or a concurrency limit forced a new campaign. The identity now covers
+result-affecting settings only. Execution settings can change between
+resumes, and every change is recorded. The evaluation request hash excludes
+them too, so an in-progress evaluation resumes under new limits.
+`LATER_RESULT_DEFAULTS` is the rule for future fields; a pinned test fails when
+a field is added without being classified.
+
+### Uncertainty without a new selection rule
+
+AHE-040's evidence shows that small validation sets cannot separate close
+checkpoints. Upstream reports the uncertainty: paired task-bootstrap
+intervals over per-task scores, deterministic for the same summaries, plus
+the list of checkpoints indistinguishable from the selected one. The
+selection rule itself is unchanged, so earlier campaigns keep their meaning.
+Noise-aware selection is left as an explicit future method choice.
+
 ### Metric changes
 
 Metric semantics cannot be proven from unrestricted natural-language
@@ -225,7 +272,7 @@ termination reason, trace policy, and grade.
 
 ## Generic regression coverage
 
-The 0.7.0 hardening changes add or extend coverage for:
+The 0.8.0 hardening changes add or extend coverage for:
 
 - evaluated-model preflight caching, proofs, and failures;
 - per-session resources and isolation;
@@ -254,7 +301,16 @@ The 0.7.0 hardening changes add or extend coverage for:
 - hash-chained round extensions, tamper detection, and refusal of any other
   identity change, including runner code;
 - reopening a closed campaign with byte-for-byte reuse of earlier stages and
-  archived closures.
+  archived closures;
+- Responses API calls, including a real NexAU multi-turn tool call, resent
+  tool-call serialization, and wire-API enforcement;
+- token-command authentication, client ID headers, jittered transient
+  resends, host-wide provider blocks, and token admission control;
+- negative-control recognition of gateway codes and phrases;
+- identity and execution separation, recorded execution amendments, and the
+  pinned identity field set;
+- `ahe supervise`, `ahe evaluate`, `ahe compare`, uncertainty reports, the
+  re-entered-script guard, and provider-rejection classification.
 
 Validation results are recorded separately after the implementation commit so
 the tested source identity remains explicit.

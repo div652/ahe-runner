@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import inspect
+import multiprocessing
 import os
 import platform
 import shutil
@@ -27,7 +28,12 @@ from .adapter import (
     benchmark_interface_for,
 )
 from .change_manifest import load_change_manifest
-from .config import ResolvedConfig
+from .config import (
+    ResolvedConfig,
+    execution_settings,
+    model_identity,
+    transport_identity,
+)
 from .errors import CandidateValidationError, ConfigurationError, IntegrityError
 from .evaluation import verify_evaluation_output
 from .evidence import verify_evidence_bundle
@@ -43,9 +49,11 @@ from .io import (
 )
 from .loading import load_adapter
 from .meta import MetaBackendContext, create_meta_backend
+from .meta.endpoint import nexau_api_type, route_fingerprint
 from .meta.model_client import summarize_model_call_retries
 from .runtime import EvaluatedAgentRuntime
 from .state import StageContext, StageResult, StageStore
+from .statistics import paired_task_comparison, selection_uncertainty
 from .workspace import (
     freeze_checkpoint,
     git_output,
@@ -56,8 +64,9 @@ from .workspace import (
 
 CLOSING_STAGES = ("evolution.close", "selection", "final.complete")
 _CLOSING_OUTPUT_ROOTS = frozenset({"selection", "final"})
-_EXTENDABLE_IDENTITY_FIELDS = frozenset(
-    {"config.config_sha256", "config.document.campaign.rounds"}
+_EXTENDABLE_IDENTITY_FIELDS = frozenset({"config.document.campaign.rounds"})
+_MANIFEST_RECORD_FIELDS = frozenset(
+    {"created_at", "identity_sha256", "execution_settings"}
 )
 PRE_STAGE_COMMAND_ENV = "AHE_PRE_STAGE_COMMAND"
 PRE_STAGE_TIMEOUT_ENV = "AHE_PRE_STAGE_TIMEOUT_SECONDS"
@@ -65,6 +74,7 @@ PRE_STAGE_TIMEOUT_ENV = "AHE_PRE_STAGE_TIMEOUT_SECONDS"
 
 class CampaignController:
     def __init__(self, config: ResolvedConfig) -> None:
+        _refuse_reentered_main()
         self.config = config
         self.adapter: BenchmarkAdapterBase = load_adapter(config)
         self.benchmark_interface = benchmark_interface_for(self.adapter)
@@ -117,7 +127,7 @@ class CampaignController:
                 for name, split in self.splits.items()
             },
             "harness": report,
-            "warnings": self._metric_guidance_warnings(),
+            "warnings": [*self._metric_guidance_warnings(), *self._route_warnings()],
         }
 
     def conformance(self) -> dict[str, Any]:
@@ -310,6 +320,9 @@ class CampaignController:
             "model_call_retries": summarize_model_call_retries(
                 self.config.campaign_dir,
                 configured_retries=(self.config.document.transport.hung_call_retries),
+                configured_transient_retries=(
+                    self.config.document.transport.transient_retries
+                ),
             ),
             "selection": read_json(selection_path)
             if selection_path.is_file()
@@ -324,6 +337,28 @@ class CampaignController:
         result = self.stage_store.retry_blocked(name=name, reason=reason)
         self._write_state()
         return result
+
+    def _evaluated_route(self) -> dict[str, Any]:
+        return route_fingerprint(
+            self.config.document.transport,
+            self.config.document.models.evaluated,
+        )
+
+    def _route_warnings(self) -> list[str]:
+        protected = self.harness_manifest.protected_agent_fields.get(
+            "llm_config.api_type"
+        )
+        configured = nexau_api_type(
+            self.config.document.transport,
+            self.config.document.models.evaluated,
+        )
+        if protected is None or protected == configured:
+            return []
+        return [
+            f"harness manifest protects llm_config.api_type {protected!r}, but the "
+            f"evaluated model is configured for {configured!r}; the runtime "
+            "applies the configured wire API"
+        ]
 
     def _metric_guidance_warnings(self) -> list[str]:
         terms = self.config.document.meta.deprecated_metric_terms
@@ -367,70 +402,86 @@ class CampaignController:
         split_name: SplitName,
     ) -> EvaluationResult:
         request = self._evaluation_request(index, split_name)
-        checkpoint = request.checkpoint
         checkpoint_manifest = verify_checkpoint(self._checkpoint_dir(index))
-        output_dir = request.output_dir
-
-        def action(context: StageContext) -> StageResult:
-            del context
-            if isinstance(self.adapter, BenchmarkAdapterV2):
-                runtime = EvaluatedAgentRuntime(
-                    harness_dir=request.harness_dir,
-                    manifest=self.harness_manifest,
-                    benchmark_interface=self.benchmark_interface,
-                    model=request.model,
-                    transport=request.transport,
-                    api_key=request.api_key,
-                    artifact_root=output_dir / "runtime",
-                    project_root=self.config.project_root,
-                )
-                try:
-                    result = self.adapter.evaluate(request, runtime)
-                finally:
-                    runtime.close()
-            elif isinstance(self.adapter, BenchmarkAdapter):
-                result = self.adapter.evaluate(request)
-            else:
-                raise TypeError(
-                    f"unsupported adapter generation: {type(self.adapter).__name__}"
-                )
-            verify_evaluation_output(request, result)
-            verified = self.adapter.verify_evaluation(
-                VerificationRequest(evaluation=request)
-            )
-            verify_evaluation_output(request, verified)
-            if verified != result:
-                raise IntegrityError("adapter verification disagrees with evaluation")
-            atomic_write_json(
-                output_dir / "adapter_result.json",
-                result.model_dump(mode="json"),
-            )
-            return StageResult(
-                outputs=(output_dir,),
-                data={"evaluation": result.model_dump(mode="json")},
-            )
-
         stage = self.stage_store.run(
-            name=f"evaluation.{checkpoint}.{split_name.value}",
-            semantic_inputs={
-                "checkpoint": checkpoint,
-                "harness_sha256": checkpoint_manifest["harness_sha256"],
-                "split_identity": request.split.identity,
-                "split_task_ids_sha256": sha256_json(request.split.task_ids),
-                "trials": request.trials,
-                "root_seed": self.config.document.campaign.root_seed,
-                "evaluated_model": self.config.document.models.evaluated.model_dump(
-                    mode="json"
-                ),
-                "transport": self.config.document.transport.model_dump(mode="json"),
-                "adapter": self.adapter.identity().model_dump(mode="json"),
-                "adapter_api_generation": adapter_api_generation(self.adapter),
-                "benchmark_interface": self.benchmark_interface.model_dump(mode="json"),
-            },
-            action=action,
+            name=f"evaluation.{request.checkpoint}.{split_name.value}",
+            semantic_inputs=self._evaluation_semantic_inputs(
+                request,
+                harness_sha256=checkpoint_manifest["harness_sha256"],
+            ),
+            action=lambda context: self._evaluation_action(request),
         )
         self._write_state()
         return EvaluationResult.model_validate(stage.data["evaluation"])
+
+    def _evaluation_action(self, request: EvaluationRequest) -> StageResult:
+        """Run, verify, and record one evaluation through the adapter."""
+
+        output_dir = request.output_dir
+        if isinstance(self.adapter, BenchmarkAdapterV2):
+            runtime = EvaluatedAgentRuntime(
+                harness_dir=request.harness_dir,
+                manifest=self.harness_manifest,
+                benchmark_interface=self.benchmark_interface,
+                model=request.model,
+                transport=request.transport,
+                api_key=request.api_key,
+                artifact_root=output_dir / "runtime",
+                project_root=self.config.project_root,
+            )
+            try:
+                result = self.adapter.evaluate(request, runtime)
+            finally:
+                runtime.close()
+        elif isinstance(self.adapter, BenchmarkAdapter):
+            result = self.adapter.evaluate(request)
+        else:
+            raise TypeError(
+                f"unsupported adapter generation: {type(self.adapter).__name__}"
+            )
+        verify_evaluation_output(request, result)
+        verified = self.adapter.verify_evaluation(
+            VerificationRequest(evaluation=request)
+        )
+        verify_evaluation_output(request, verified)
+        if verified != result:
+            raise IntegrityError("adapter verification disagrees with evaluation")
+        atomic_write_json(
+            output_dir / "adapter_result.json",
+            result.model_dump(mode="json"),
+        )
+        return StageResult(
+            outputs=(output_dir,),
+            data={
+                "evaluation": result.model_dump(mode="json"),
+                "route": route_fingerprint(request.transport, request.model),
+            },
+        )
+
+    def _evaluation_semantic_inputs(
+        self,
+        request: EvaluationRequest,
+        *,
+        harness_sha256: str,
+    ) -> dict[str, Any]:
+        return {
+            "checkpoint": request.checkpoint,
+            "harness_sha256": harness_sha256,
+            "split_identity": request.split.identity,
+            "split_task_ids_sha256": sha256_json(request.split.task_ids),
+            "trials": request.trials,
+            "root_seed": request.root_seed,
+            "evaluated_model": model_identity(request.model),
+            "transport": transport_identity(request.transport),
+            "adapter": self.adapter.identity().model_dump(mode="json"),
+            "adapter_api_generation": adapter_api_generation(self.adapter),
+            "benchmark_interface": self.benchmark_interface.model_dump(mode="json"),
+            **(
+                {"provider_rejection_policy": request.provider_rejection_policy}
+                if request.provider_rejection_policy != "grade"
+                else {}
+            ),
+        }
 
     def _evaluation_request(
         self,
@@ -453,6 +504,9 @@ class CampaignController:
             transport=self.config.document.transport,
             api_key=self.config.api_key,
             max_concurrency=self.config.document.evaluation.max_concurrency,
+            provider_rejection_policy=(
+                self.config.document.evaluation.provider_rejection_policy
+            ),
         )
 
     def _ensure_evidence(self, index: int) -> Path:
@@ -847,6 +901,11 @@ class CampaignController:
                 label: result.summary.model_dump(mode="json")
                 for label, result in summaries.items()
             },
+            "uncertainty": selection_uncertainty(
+                {label: result.summary for label, result in summaries.items()},
+                selected=selected,
+            ),
+            "route": self._evaluated_route(),
         }
         path = self.config.campaign_dir / "selection" / "selection.json"
         atomic_write_json(path, payload)
@@ -896,6 +955,15 @@ class CampaignController:
             },
             "selected_harness_sha256": sha256_json(expected_hashes),
             "no_post_test_evolution": True,
+            "uncertainty": (
+                paired_task_comparison(
+                    results["C0"].summary,
+                    results[selected].summary,
+                )
+                if selected != "C0"
+                else None
+            ),
+            "route": self._evaluated_route(),
         }
         path = final_dir / "final_test.json"
         atomic_write_json(path, payload)
@@ -1141,7 +1209,7 @@ class CampaignController:
         base = {
             key: value
             for key, value in manifest.items()
-            if key not in {"created_at", "identity_sha256"}
+            if key not in _MANIFEST_RECORD_FIELDS
         }
         if sha256_json(base) != manifest.get("identity_sha256"):
             raise IntegrityError("campaign manifest does not match its identity hash")
@@ -1181,8 +1249,16 @@ class CampaignController:
             return []
         return [
             {
-                key: amendment.get(key)
-                for key in ("kind", "created_at", "reason", "from_rounds", "to_rounds")
+                key: amendment[key]
+                for key in (
+                    "kind",
+                    "created_at",
+                    "reason",
+                    "from_rounds",
+                    "to_rounds",
+                    "changes",
+                )
+                if key in amendment
             }
             | {
                 "reopened_closure": (
@@ -1198,48 +1274,75 @@ class CampaignController:
     def _ensure_campaign_manifest(self) -> dict[str, Any]:
         identity = self._campaign_identity()
         identity_sha = sha256_json(identity)
-        payload = {
-            **identity,
-            "identity_sha256": identity_sha,
-            "created_at": datetime.now(UTC).isoformat(),
-        }
+        execution = execution_settings(self.config.document)
         path = self._campaign_manifest_path()
-        if path.is_file() and self._campaign_amendments_path().is_file():
-            existing = read_json(path)
-            accepted = self._accepted_campaign_identity(existing)
-            if identity != accepted["identity"]:
-                changed = sorted(
-                    key
-                    for key in set(accepted["identity"]) | set(identity)
-                    if accepted["identity"].get(key) != identity.get(key)
+        if not path.is_file():
+            payload = {
+                **identity,
+                "identity_sha256": identity_sha,
+                "created_at": datetime.now(UTC).isoformat(),
+                "execution_settings": execution,
+            }
+            atomic_write_json(path, payload)
+            return payload
+        existing = read_json(path)
+        accepted = self._accepted_campaign_identity(existing)
+        if identity != accepted["identity"]:
+            changed = sorted(
+                key
+                for key in set(accepted["identity"]) | set(identity)
+                if accepted["identity"].get(key) != identity.get(key)
+            )
+            amended = self._campaign_amendments_path().is_file()
+            raise IntegrityError(
+                "campaign identity changed in protected inputs "
+                f"{changed}"
+                + (
+                    " since the last campaign amendment; use a new artifacts directory"
+                    if amended
+                    else "; use a new artifacts directory (or `ahe extend-rounds` "
+                    "if only campaign.rounds was raised)"
                 )
-                raise IntegrityError(
-                    "campaign identity changed in protected inputs "
-                    f"{changed} since the last campaign amendment; "
-                    "use a new artifacts directory"
-                )
-            return existing
-        if path.is_file():
-            existing = read_json(path)
-            comparable = dict(existing)
-            comparable.pop("created_at", None)
-            expected = dict(payload)
-            expected.pop("created_at", None)
-            if comparable != expected:
-                changed = sorted(
-                    key
-                    for key in set(comparable) | set(expected)
-                    if key not in {"created_at", "identity_sha256"}
-                    and comparable.get(key) != expected.get(key)
-                )
-                raise IntegrityError(
-                    "campaign identity changed in protected inputs "
-                    f"{changed}; use a new artifacts directory "
-                    "(or `ahe extend-rounds` if only campaign.rounds was raised)"
-                )
-            return existing
-        atomic_write_json(path, payload)
-        return payload
+            )
+        self._record_execution_changes(existing, accepted, execution)
+        return existing
+
+    def _record_execution_changes(
+        self,
+        manifest: dict[str, Any],
+        accepted: dict[str, Any],
+        execution: dict[str, Any],
+    ) -> None:
+        """Append any change of execution-only settings to the ledger."""
+
+        previous = dict(manifest.get("execution_settings") or {})
+        ledger_path = self._campaign_amendments_path()
+        if ledger_path.is_file():
+            for amendment in read_json(ledger_path).get("amendments") or []:
+                if "execution_settings" in amendment:
+                    previous = dict(amendment["execution_settings"])
+        if previous == execution:
+            return
+        changes = sorted(
+            key
+            for key in set(previous) | set(execution)
+            if previous.get(key) != execution.get(key)
+        )
+        self._append_campaign_amendment(
+            manifest,
+            {
+                "kind": "execution_settings",
+                "created_at": datetime.now(UTC).isoformat(),
+                "reason": "execution-only settings changed on resume",
+                "changes": changes,
+                "before": {key: previous.get(key) for key in changes},
+                "after": {key: execution.get(key) for key in changes},
+                "execution_settings": execution,
+                "previous_identity_sha256": accepted["identity_sha256"],
+                "identity_sha256": accepted["identity_sha256"],
+                "identity": accepted["identity"],
+            },
+        )
 
     def _campaign_identity(self) -> dict[str, Any]:
         adapter_source = inspect.getsourcefile(type(self.adapter))
@@ -1252,7 +1355,7 @@ class CampaignController:
         )
         package_root = Path(__file__).resolve().parent
         identity = {
-            "schema_version": 2,
+            "schema_version": 3,
             "runner_version": __version__,
             "python": platform.python_version(),
             "nexau_version": importlib.metadata.version("nexau"),
@@ -1333,6 +1436,28 @@ class CampaignController:
 
     def _write_state(self) -> None:
         self.status()
+
+
+def _refuse_reentered_main() -> None:
+    """Fail clearly when a spawned trial process re-runs an operator script.
+
+    Spawned children import the parent's ``__main__`` as ``__mp_main__``. An
+    operator script that builds a controller without an
+    ``if __name__ == "__main__":`` guard would otherwise start the campaign
+    again inside every trial process (AHE-043).
+    """
+
+    if multiprocessing.parent_process() is None:
+        return
+    frame = inspect.currentframe()
+    while frame is not None:
+        if frame.f_globals.get("__name__") == "__mp_main__":
+            raise ConfigurationError(
+                "a spawned trial process re-ran the operator script that "
+                "creates the campaign controller; put that code under "
+                "`if __name__ == '__main__':`"
+            )
+        frame = frame.f_back
 
 
 def _pre_stage_timeout() -> float:

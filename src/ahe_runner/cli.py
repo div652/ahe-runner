@@ -9,9 +9,12 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Any
 
+from .adapter import SplitName
 from .config import load_config
 from .controller import CampaignController
 from .errors import AHERunnerError
+from .fixed_evaluation import compare_evaluations, evaluate_fixed
+from .supervisor import supervise
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -59,11 +62,49 @@ def main(argv: list[str] | None = None) -> int:
             "outputs to superseded/closure-NN/."
         ),
     )
+    supervise_parser = subparsers.add_parser(
+        "supervise",
+        help="Run a campaign, resuming after infrastructure stops.",
+    )
+    supervise_parser.add_argument("--config", type=Path, required=True)
+    supervise_parser.add_argument("--max-consecutive-failures", type=int, default=5)
+    supervise_parser.add_argument("--initial-backoff-seconds", type=float, default=60.0)
+    supervise_parser.add_argument("--max-backoff-seconds", type=float, default=1800.0)
+    evaluate_parser = subparsers.add_parser(
+        "evaluate",
+        help="Evaluate one fixed harness or checkpoint on a split or task list.",
+    )
+    evaluate_parser.add_argument("--config", type=Path, required=True)
+    evaluate_parser.add_argument("--output", type=Path, required=True)
+    evaluate_source = evaluate_parser.add_mutually_exclusive_group(required=True)
+    evaluate_source.add_argument("--checkpoint")
+    evaluate_source.add_argument("--harness", type=Path)
+    evaluate_tasks = evaluate_parser.add_mutually_exclusive_group(required=True)
+    evaluate_tasks.add_argument("--split", choices=[name.value for name in SplitName])
+    evaluate_tasks.add_argument("--tasks", type=Path)
+    evaluate_parser.add_argument("--trials", type=int)
+    evaluate_parser.add_argument("--seed", type=int)
+    evaluate_parser.add_argument("--label")
+    compare_parser = subparsers.add_parser(
+        "compare",
+        help="Paired task-level comparison of two evaluations.",
+    )
+    compare_parser.add_argument("--baseline", type=Path, required=True)
+    compare_parser.add_argument("--candidate", type=Path, required=True)
     args = parser.parse_args(argv)
 
     try:
         if args.command == "init-project":
             result = init_project(args.path)
+        elif args.command == "supervise":
+            result = supervise(
+                args.config,
+                max_consecutive_failures=args.max_consecutive_failures,
+                initial_backoff_seconds=args.initial_backoff_seconds,
+                max_backoff_seconds=args.max_backoff_seconds,
+            )
+        elif args.command == "compare":
+            result = compare_evaluations(args.baseline, args.candidate)
         else:
             controller = CampaignController(load_config(args.config))
             result = _dispatch(controller, args)
@@ -119,6 +160,18 @@ def _dispatch(controller: CampaignController, args: argparse.Namespace) -> Any:
             reason=args.reason,
             apply=args.apply,
             reopen_closed_evolution=args.reopen_closed_evolution,
+        )
+    if args.command == "evaluate":
+        return evaluate_fixed(
+            controller,
+            output=args.output,
+            checkpoint=args.checkpoint,
+            harness=args.harness,
+            split=args.split,
+            tasks_file=args.tasks,
+            trials=args.trials,
+            seed=args.seed,
+            label=args.label,
         )
     if args.command == "close-evolution":
         return controller.close_evolution()

@@ -163,6 +163,11 @@ transport:
 export MY_MODEL_API_KEY='your-secret-value'
 ```
 
+For identity-based authentication (for example Microsoft Entra ID), set
+`token_command` instead of `api_key_env`; the runner runs it to obtain and
+refresh a bearer token. For a gateway that speaks the OpenAI Responses API,
+set `api_mode: responses`.
+
 Do not store credentials in YAML. Configuration details are in
 [Operator Guide - Configure the campaign](docs/OPERATOR_GUIDE.md#6-configure-the-campaign);
 the full sample is in
@@ -201,8 +206,9 @@ After both samples succeed:
 5. Copy `ahe.runtime.yaml` to `ahe.research.yaml`, then configure the adapter,
    public source roots, role supplements, research seeds, models, trials,
    concurrency, and `campaign.rounds`.
-6. Use a fresh campaign name and artifacts directory when protected inputs
-   change.
+6. Use a fresh campaign name and artifacts directory when result-affecting
+   inputs change. Execution settings (concurrency, retries, pacing, timeouts,
+   recovery) may change between resumes.
 
 Keep adapter dependencies in the same environment as the runner, but do not
 make an adapter package install a second or unconstrained copy of
@@ -213,7 +219,10 @@ Before the first research spend:
 - preserve near-limit prompt-recall and reasoning-effort probe evidence for
   each model/role transport contract;
 - decide whether timeout hangs should fail fast or use bounded
-  `hung_call_retries`;
+  `hung_call_retries`, and for rate-limited providers set `transient_retries`
+  and, if needed, `token_budget_per_minute`;
+- choose `evaluation.provider_rejection_policy` (`grade` or `rerun`) for
+  mid-trial provider refusals;
 - replace NexAU's character estimate with protected, model-specific context
   accounting when long prompts are possible, for both evaluated and meta
   agents;
@@ -272,6 +281,20 @@ infrastructure failures, such as a long model-server outage. Set
 `AHE_PRE_STAGE_COMMAND` to run a health check before each stage attempt.
 `extend-rounds --reopen-closed-evolution` continues a campaign that has
 already closed and archives the superseded selection and test results.
+
+```bash
+# Resume automatically after infrastructure stops
+ahe supervise --config /path/to/your-project/ahe.research.yaml
+
+# Evaluate a fixed harness or checkpoint, and compare two evaluations
+ahe evaluate --config /path/to/your-project/ahe.research.yaml \
+  --output ./evals/c5-test --checkpoint C5 --split test
+ahe compare --baseline ./evals/c0-test --candidate ./evals/c5-test
+```
+
+Execution settings such as concurrency, retries, and pacing may change
+between resumes and are recorded automatically. Selection and final-test
+reports include paired confidence intervals.
 
 The campaign directory preserves checkpoints, evaluations, traces, evidence,
 model calls, selection, and recovery records. The selected harness is at:

@@ -564,7 +564,18 @@ An optional operator command (`AHE_PRE_STAGE_COMMAND`) runs before each new
 stage attempt. If it fails, the runner stops with an infrastructure error
 before the attempt is recorded.
 
-`campaign.rounds` is the only identity field that may change in place.
+Campaign identity covers result-affecting configuration only. Execution
+settings (`config.EXECUTION_SETTING_PATHS`: credentials, timeouts, preflight
+strictness, concurrency, retries, pacing, and recovery) are excluded from the
+campaign identity, the evaluation stage inputs, and the evaluation request
+hash. Each change is appended automatically to `campaign_amendments.json` as
+an `execution_settings` entry. Result-affecting fields added after the 0.8.0
+identity schema are omitted from identity while at their default
+(`config.LATER_RESULT_DEFAULTS`), so adding a field never changes the identity
+of a campaign that does not use it.
+
+`campaign.rounds` is the only result-affecting identity field that may change
+in place.
 `extend-rounds` appends the new identity to `campaign_amendments.json`, chained
 by hash to the manifest or the previous amendment. All later commands verify
 the chain and compare against its last identity. No stage before closure
@@ -576,8 +587,13 @@ earlier stage is reused.
 
 ## Model transport contract
 
-The default transport uses non-streaming OpenAI-compatible chat completions.
-For every model-calling role, the runner records:
+The transport uses non-streaming OpenAI-compatible chat completions by
+default, or the Responses API (`api_mode: responses`), per transport or per
+model. On the Responses API the system prompt is sent as `instructions` and
+reasoning items are resent across turns; resent tool-call items are
+re-serialized with their API field names before sending. Authentication is a
+static key or an operator `token_command` whose bearer token is refreshed
+in-process before expiry. For every model-calling role, the runner records:
 
 - requested exact model ID;
 - reasoning setting;
@@ -585,7 +601,13 @@ For every model-calling role, the runner records:
 - serialized request bytes and message/tool string-character counts;
 - returned observable model label;
 - response or error;
-- timeout and retry classification.
+- timeout and retry classification;
+- rate-limit and request-ID response headers on the Responses API.
+
+Each evaluation stage also records the route fingerprint in its stage data: endpoint,
+wire API, authentication kind, model settings, system-prompt placement, and
+whether reasoning is carried between turns. Scores depend on the route as well
+as the harness, so cross-evaluation comparisons must check it.
 
 Before a model-backed meta stage, and once before the first evaluated session
 in each evaluation stage attempt, a fresh preflight checks:
@@ -609,9 +631,17 @@ The recorded client disables OpenAI SDK retries, and runner-created NexAU
 agents use one native request attempt by default. An operator may set
 `transport.hung_call_retries` to resend only calls whose request timeout fired
 before any response. The option is bounded, strict-default-off, and records
-every failed attempt plus campaign-level resend counts. Model identity,
-overload, validation, provider context rejection, and other failures are never
-multiplied by this inner loop. Outer stage recovery remains responsible for
+every failed attempt plus campaign-level resend counts.
+`transport.transient_retries` similarly resends HTTP 429, 5xx, and connection
+failures with exponential back-off and proportional jitter, never shorter than
+`Retry-After`. Model identity, validation, provider context rejection, and
+other failures are never multiplied by these inner loops. A 403 naming a
+configured provider-block marker opens a host-wide circuit breaker for the
+endpoint: no process sends to it until `provider_block_seconds` pass, and the
+stage ends as infrastructure. Optional token admission control
+(`token_budget_per_minute`) shares a per-model 60-second window across host
+processes and adapts it multiplicatively to refusals. Preflight probes go
+through the same policy as recorded calls. Outer stage recovery remains responsible for
 genuine infrastructure failures after the configured attempts are exhausted.
 
 Evaluated sessions use the same recorded exact-model client and native NexAU
@@ -757,10 +787,24 @@ ahe status --config PATH
 ahe run-round --config PATH --round N
 ahe retry-stage --config PATH --stage NAME --reason TEXT
 ahe extend-rounds --config PATH --reason TEXT [--apply] [--reopen-closed-evolution]
+ahe supervise --config PATH [--max-consecutive-failures N]
+ahe evaluate --config PATH --output DIR (--checkpoint CN | --harness DIR)
+             (--split NAME | --tasks FILE) [--trials N] [--seed N] [--label TEXT]
+ahe compare --baseline DIR --candidate DIR
 ahe close-evolution --config PATH
 ahe run-validation --config PATH
 ahe run-final-test --config PATH
 ```
+
+`supervise` relaunches `run` in a fresh process after infrastructure stops,
+with back-off, and stops on blocked stages, configuration or integrity
+errors, and provider blocks. `evaluate` runs one fixed harness through the
+same evaluation, verification, and stage machinery in a separate output
+folder; `compare` reports a paired task-level comparison of two evaluations.
+
+Selection and final-test reports include paired task-bootstrap intervals and
+minimum detectable differences (`statistics.py`). They describe uncertainty;
+the selection rule itself is unchanged.
 
 `run` and `resume` use the same idempotent controller. `run` creates a campaign
 when absent; `resume` requires an existing campaign. Both stop on a blocked

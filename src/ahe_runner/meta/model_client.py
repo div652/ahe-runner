@@ -17,13 +17,27 @@ from openai import (
     APIStatusError,
     APITimeoutError,
     InternalServerError,
-    OpenAI,
     RateLimitError,
 )
 
 from ahe_runner.config import ModelSettings, TransportSettings
-from ahe_runner.errors import ConfigurationError, InfrastructureError, IntegrityError
-from ahe_runner.io import atomic_write_json, sha256_json
+from ahe_runner.errors import (
+    ConfigurationError,
+    InfrastructureError,
+    IntegrityError,
+    ProviderBlockedError,
+)
+from ahe_runner.io import atomic_write_json, read_json, sha256_json
+
+from .endpoint import (
+    TokenWindow,
+    build_openai_client,
+    cause_chain,
+    client_id_for,
+    responses_reasoning,
+    send_with_endpoint_policy,
+    wire_api,
+)
 
 _PROTECTED_EXTRA_BODY_FIELDS = frozenset(
     {
@@ -44,6 +58,15 @@ _CONTEXT_OVERFLOW_MARKERS = (
     "model_max_prompt_tokens_exceeded",
     "prompt is too long",
 )
+
+# Response headers worth keeping with each call: rate-limit state and request
+# IDs. Anything else, such as a gateway's backend URL, is not recorded.
+_RECORDED_HEADER_PREFIXES = ("x-ratelimit-",)
+_RECORDED_HEADERS = frozenset(
+    {"retry-after", "retry-after-ms", "x-request-id", "apim-request-id"}
+)
+_TOOL_CALL_ITEM_TYPES = frozenset({"function_call", "custom_tool_call"})
+_RESPONSE_ITEM_ALIASES = {"async_": "async"}
 
 _REQUEST_SLOTS: dict[str, tuple[int, Any]] = {}
 _REQUEST_SLOTS_LOCK = threading.Lock()
@@ -127,17 +150,25 @@ class RecordedExactModelClient:
         settings: ModelSettings,
         log_dir: Path,
     ) -> None:
-        self._base = OpenAI(
-            base_url=transport.base_url,
-            api_key=api_key,
-            max_retries=0,
-            timeout=transport.request_timeout_seconds,
+        self._client_id = (
+            client_id_for(log_dir) if transport.client_id_header is not None else None
+        )
+        self._base = build_openai_client(
+            transport,
+            api_key,
+            client_id=self._client_id,
         )
         self._transport = transport
         self._settings = settings
+        self._wire_api = wire_api(transport, settings)
         self._log_dir = log_dir
         self._lock = threading.Lock()
         self._request_slots = _shared_request_slots(transport)
+        self._window = (
+            TokenWindow(transport, settings.model)
+            if transport.token_budget_per_minute is not None
+            else None
+        )
         self._log_dir.mkdir(parents=True, exist_ok=True)
         self._sequence = max(
             (
@@ -148,40 +179,20 @@ class RecordedExactModelClient:
             default=0,
         )
         self.chat = _RecordedChatProxy(self)
+        self.responses = _RecordedResponsesProxy(self)
 
     def _create(self, *args: Any, **kwargs: Any) -> Any:
-        requested_model = str(kwargs.get("model") or "")
-        if requested_model != self._settings.model:
-            raise IntegrityError(
-                f"model request used {requested_model!r}; "
-                f"expected {self._settings.model!r}"
-            )
+        requested_model = self._require_model(kwargs, api="chat_completions")
         if kwargs.get("stream") not in (None, False):
             raise IntegrityError("streaming model calls are prohibited")
         kwargs["stream"] = False
-        extra_body_value = kwargs.get("extra_body")
-        if extra_body_value is None:
-            extra_body: dict[str, Any] = {}
-        elif isinstance(extra_body_value, Mapping):
-            extra_body = dict(extra_body_value)
-        else:
-            raise IntegrityError("extra_body must be an object")
-        collisions = sorted(_PROTECTED_EXTRA_BODY_FIELDS & set(extra_body))
-        if collisions:
-            raise IntegrityError(
-                "extra_body cannot override protected model fields: "
-                + ", ".join(collisions)
-            )
+        extra_body = self._extra_body(kwargs)
         self._require_setting(
             kwargs,
             name="max_tokens",
             expected=self._settings.max_tokens,
         )
-        self._require_setting(
-            kwargs,
-            name="temperature",
-            expected=self._settings.temperature,
-        )
+        self._require_temperature(kwargs)
         self._reject_alias(kwargs, "max_completion_tokens")
         self._reject_alias(kwargs, "max_output_tokens")
         reasoning = kwargs.pop("reasoning", None)
@@ -207,11 +218,113 @@ class RecordedExactModelClient:
                     "reasoning override is prohibited when campaign reasoning "
                     "is provider-default"
                 )
+        self._set_extra_body(kwargs, extra_body)
+        return self._send(
+            "chat_completions",
+            lambda: self._base.chat.completions.create(*args, **kwargs),
+            args,
+            kwargs,
+            requested_model,
+        )
+
+    def _create_response(self, *args: Any, **kwargs: Any) -> Any:
+        """Responses API call with the campaign's exact model settings."""
+
+        requested_model = self._require_model(kwargs, api="responses")
+        if kwargs.get("stream") not in (None, False):
+            raise IntegrityError("streaming model calls are prohibited")
+        kwargs["stream"] = False
+        extra_body = self._extra_body(kwargs)
+        self._reject_alias(kwargs, "max_tokens")
+        self._reject_alias(kwargs, "max_completion_tokens")
+        self._require_setting(
+            kwargs,
+            name="max_output_tokens",
+            expected=self._settings.max_tokens,
+        )
+        self._require_temperature(kwargs)
+        if kwargs.pop("reasoning_effort", None) is not None:
+            raise IntegrityError("the Responses API takes reasoning.effort only")
+        reasoning = kwargs.pop("reasoning", None)
+        if self._settings.reasoning_effort is not None:
+            expected = responses_reasoning(self._settings.reasoning_effort)
+            if reasoning is not None and reasoning != expected:
+                raise IntegrityError(
+                    f"reasoning was {reasoning!r}; expected {expected!r}"
+                )
+            kwargs["reasoning"] = expected
+        elif reasoning is not None:
+            raise IntegrityError(
+                "reasoning override is prohibited when campaign reasoning "
+                "is provider-default"
+            )
+        self._set_extra_body(kwargs, extra_body)
+        if "input" in kwargs:
+            kwargs["input"] = wire_input_items(kwargs["input"])
+        headers: dict[str, str] = {}
+
+        def send() -> Any:
+            raw = self._base.responses.with_raw_response.create(*args, **kwargs)
+            headers.clear()
+            headers.update(recorded_headers(raw.headers))
+            return raw.parse()
+
+        return self._send(
+            "responses",
+            send,
+            args,
+            kwargs,
+            requested_model,
+            response_headers=headers,
+        )
+
+    def _require_model(self, kwargs: dict[str, Any], *, api: str) -> str:
+        if api != self._wire_api:
+            raise IntegrityError(
+                f"model {self._settings.model!r} is configured for the "
+                f"{self._wire_api} API; the agent called {api}"
+            )
+        requested_model = str(kwargs.get("model") or "")
+        if requested_model != self._settings.model:
+            raise IntegrityError(
+                f"model request used {requested_model!r}; "
+                f"expected {self._settings.model!r}"
+            )
+        return requested_model
+
+    def _extra_body(self, kwargs: dict[str, Any]) -> dict[str, Any]:
+        extra_body_value = kwargs.get("extra_body")
+        if extra_body_value is None:
+            extra_body: dict[str, Any] = {}
+        elif isinstance(extra_body_value, Mapping):
+            extra_body = dict(extra_body_value)
+        else:
+            raise IntegrityError("extra_body must be an object")
+        collisions = sorted(_PROTECTED_EXTRA_BODY_FIELDS & set(extra_body))
+        if collisions:
+            raise IntegrityError(
+                "extra_body cannot override protected model fields: "
+                + ", ".join(collisions)
+            )
+        return extra_body
+
+    @staticmethod
+    def _set_extra_body(kwargs: dict[str, Any], extra_body: dict[str, Any]) -> None:
         if extra_body:
             kwargs["extra_body"] = extra_body
         else:
             kwargs.pop("extra_body", None)
 
+    def _send(
+        self,
+        api: str,
+        send: Any,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+        requested_model: str,
+        *,
+        response_headers: dict[str, str] | None = None,
+    ) -> Any:
         call_dir = self._next_call_dir()
         request_payload = _json_safe(kwargs)
         prompt_accounting = _prompt_accounting(request_payload)
@@ -219,42 +332,53 @@ class RecordedExactModelClient:
             call_dir / "request.json",
             {
                 "created_at": datetime.now(UTC).isoformat(),
+                "api": api,
                 "args": _json_safe(args),
                 "kwargs": request_payload,
                 "request_sha256": sha256_json(request_payload),
                 "prompt_accounting": prompt_accounting,
+                **({"client_id": self._client_id} if self._client_id else {}),
             },
         )
-        hung_attempts: list[dict[str, Any]] = []
-        while True:
-            waited: dict[str, float] = {}
-            try:
-                with _request_slot(self._request_slots, waited):
-                    response = self._base.chat.completions.create(*args, **kwargs)
-                break
-            except Exception as exc:
-                error = {
-                    **_error_payload(exc),
-                    **waited,
-                    "attempt": len(hung_attempts) + 1,
-                }
-                if (
-                    is_hung_call_exception(exc)
-                    and len(hung_attempts) < self._transport.hung_call_retries
-                ):
-                    error["will_retry"] = True
-                    hung_attempts.append(error)
-                    atomic_write_json(
-                        call_dir / f"hung-attempt-{len(hung_attempts)}.json",
-                        error,
-                    )
-                    continue
-                if hung_attempts:
-                    error["hung_attempts"] = hung_attempts
-                atomic_write_json(call_dir / "error.json", error)
-                if is_infrastructure_exception(exc):
-                    raise InfrastructureError(error["message"]) from exc
-                raise
+
+        def record_retry(kind: str, error: dict[str, Any]) -> None:
+            count = len(list(call_dir.glob(f"{kind}-attempt-*.json"))) + 1
+            atomic_write_json(call_dir / f"{kind}-attempt-{count}.json", error)
+
+        try:
+            response, waited, hung, transient = send_with_endpoint_policy(
+                transport=self._transport,
+                model=self._settings.model,
+                send=send,
+                payload=request_payload,
+                window=self._window,
+                on_retry=record_retry,
+                slot=lambda waited: _request_slot(self._request_slots, waited),
+                error_payload=_error_payload,
+            )
+        except ProviderBlockedError as exc:
+            cause = exc.__cause__
+            error = (
+                _error_payload(cause)
+                if cause is not None
+                else {"completed_at": datetime.now(UTC).isoformat(), "sent": False}
+            )
+            error.update({"type": "ProviderBlockedError", "message": str(exc)})
+            self._attach_attempts(error, cause)
+            atomic_write_json(call_dir / "error.json", error)
+            raise
+        except Exception as exc:
+            error = _error_payload(exc)
+            self._attach_attempts(error, exc)
+            atomic_write_json(call_dir / "error.json", error)
+            if is_infrastructure_exception(exc):
+                raise InfrastructureError(error["message"]) from exc
+            raise
+        attempts = {
+            "attempt_count": len(hung) + len(transient) + 1,
+            **({"hung_attempts": hung} if hung else {}),
+            **({"transient_attempts": transient} if transient else {}),
+        }
         returned_model = getattr(response, "model", None)
         if returned_model != self._settings.model:
             error = {
@@ -263,26 +387,40 @@ class RecordedExactModelClient:
                     f"response returned {returned_model!r}; "
                     f"expected {self._settings.model!r}"
                 ),
-                "attempt_count": len(hung_attempts) + 1,
-                **({"hung_attempts": hung_attempts} if hung_attempts else {}),
+                **attempts,
             }
             atomic_write_json(call_dir / "error.json", error)
             raise IntegrityError(error["message"])
-        response_payload = _model_dump(response)
-        atomic_write_json(
-            call_dir / "response.json",
-            {
-                "completed_at": datetime.now(UTC).isoformat(),
-                "requested_model": requested_model,
-                "returned_model": returned_model,
-                "response": response_payload,
-                "attempt_count": len(hung_attempts) + 1,
-                "prompt_accounting": prompt_accounting,
-                **waited,
-                **({"hung_attempts": hung_attempts} if hung_attempts else {}),
-            },
-        )
+        record = {
+            "completed_at": datetime.now(UTC).isoformat(),
+            "requested_model": requested_model,
+            "returned_model": returned_model,
+            "response": _model_dump(response),
+            "prompt_accounting": prompt_accounting,
+            **waited,
+            **attempts,
+            **({"response_headers": response_headers} if response_headers else {}),
+        }
+        if api == "responses" and getattr(response, "status", None) == "failed":
+            failure = getattr(response, "error", None)
+            message = f"response status failed: {failure!r}"
+            atomic_write_json(
+                call_dir / "error.json",
+                {"type": "ResponseFailed", "message": message, **record},
+            )
+            raise InfrastructureError(message)
+        atomic_write_json(call_dir / "response.json", record)
         return response
+
+    @staticmethod
+    def _attach_attempts(error: dict[str, Any], exc: BaseException | None) -> None:
+        hung, transient = getattr(exc, "ahe_attempts", ([], []))
+        error.update(getattr(exc, "ahe_waited", {}))
+        error["attempt"] = len(hung) + len(transient) + 1
+        if hung:
+            error["hung_attempts"] = hung
+        if transient:
+            error["transient_attempts"] = transient
 
     def _require_setting(
         self,
@@ -297,6 +435,17 @@ class RecordedExactModelClient:
                 f"{name} was {received!r}; expected campaign value {expected!r}"
             )
         kwargs[name] = expected
+
+    def _require_temperature(self, kwargs: dict[str, Any]) -> None:
+        expected = self._settings.temperature
+        if expected is not None:
+            self._require_setting(kwargs, name="temperature", expected=expected)
+            return
+        received = kwargs.pop("temperature", None)
+        if received is not None:
+            raise IntegrityError(
+                f"temperature was {received!r}; the campaign sends no temperature"
+            )
 
     def _reject_alias(self, kwargs: dict[str, Any], name: str) -> None:
         if kwargs.pop(name, None) is not None:
@@ -336,6 +485,57 @@ class _RecordedCompletionsProxy:
         return getattr(self._owner._base.chat.completions, name)
 
 
+class _RecordedResponsesProxy:
+    """Only ``create`` is allowed; streaming and other calls fail closed."""
+
+    def __init__(self, owner: RecordedExactModelClient) -> None:
+        self._owner = owner
+
+    def create(self, *args: Any, **kwargs: Any) -> Any:
+        return self._owner._create_response(*args, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("__"):
+            raise AttributeError(name)
+        raise IntegrityError(f"responses.{name} is not available on this client")
+
+
+def wire_input_items(value: Any) -> Any:
+    """Give resent tool-call items their API field names and drop nulls (AHE-029).
+
+    NexAU 0.3.9 copies Responses output items into the next request with
+    ``model_dump()``: Python field names, nulls kept. Newer openai SDKs give
+    tool calls ``async_`` (API name ``async``) and a nullable ``namespace``
+    that the API accepts only as a string, so the request is rejected.
+    """
+
+    if not isinstance(value, list):
+        return value
+    items: list[Any] = []
+    for item in value:
+        if isinstance(item, Mapping) and item.get("type") in _TOOL_CALL_ITEM_TYPES:
+            item = {
+                _RESPONSE_ITEM_ALIASES.get(str(key), str(key)): field
+                for key, field in item.items()
+                if field is not None
+            }
+        items.append(item)
+    return items
+
+
+def recorded_headers(headers: Any) -> dict[str, str]:
+    """Rate-limit state and request IDs; no other response header is kept."""
+
+    if headers is None:
+        return {}
+    kept: dict[str, str] = {}
+    for name, value in headers.items():
+        key = str(name).casefold()
+        if key in _RECORDED_HEADERS or key.startswith(_RECORDED_HEADER_PREFIXES):
+            kept[key] = str(value)
+    return dict(sorted(kept.items()))
+
+
 def completion_text(response: Any) -> str:
     choices = getattr(response, "choices", None)
     if not choices:
@@ -370,7 +570,7 @@ def parse_json_object(text: str) -> dict[str, Any]:
 def context_overflow_message(exc: BaseException) -> str | None:
     """Return the provider context rejection from an exception chain."""
 
-    for current in _cause_chain(exc):
+    for current in cause_chain(exc):
         text = str(current)
         if any(marker in text.casefold() for marker in _CONTEXT_OVERFLOW_MARKERS):
             return text
@@ -384,7 +584,7 @@ def is_context_overflow_exception(exc: BaseException) -> bool:
 def is_infrastructure_exception(exc: BaseException) -> bool:
     if is_context_overflow_exception(exc):
         return False
-    for current in _cause_chain(exc):
+    for current in cause_chain(exc):
         if isinstance(
             current,
             (
@@ -416,50 +616,46 @@ def is_infrastructure_exception(exc: BaseException) -> bool:
     return False
 
 
-def is_hung_call_exception(exc: BaseException) -> bool:
-    """A request timeout (client or endpoint) fired before any response."""
-
-    for current in _cause_chain(exc):
-        if isinstance(current, (APITimeoutError, TimeoutError)):
-            return True
-        if "timed out" in str(current).casefold():
-            return True
-    return False
-
-
 def summarize_model_call_retries(
     root: Path,
     *,
     configured_retries: int,
+    configured_transient_retries: int = 0,
 ) -> dict[str, int]:
-    """Summarize immutable hung-call attempt artifacts under a campaign."""
+    """Summarize immutable resend and provider-block artifacts under a campaign."""
 
-    if configured_retries == 0:
-        return {
-            "configured_extra_attempts": 0,
-            "hung_attempt_count": 0,
-            "calls_resent": 0,
-            "calls_failed_after_resends": 0,
-        }
-    attempts = tuple(root.rglob("hung-attempt-*.json"))
-    call_dirs = {path.parent for path in attempts}
+    hung = tuple(root.rglob("hung-attempt-*.json")) if configured_retries else ()
+    transient = (
+        tuple(root.rglob("transient-attempt-*.json"))
+        if configured_transient_retries
+        else ()
+    )
+    resent = {path.parent for path in (*hung, *transient)}
+    rate_limited = 0
+    for path in transient:
+        try:
+            rate_limited += read_json(path).get("status_code") == 429
+        except (OSError, ValueError):
+            continue
+    blocked = 0
+    for path in root.rglob("error.json"):
+        if path.parent.name.startswith("call-"):
+            try:
+                blocked += read_json(path).get("type") == "ProviderBlockedError"
+            except (OSError, ValueError):
+                continue
     return {
         "configured_extra_attempts": configured_retries,
-        "hung_attempt_count": len(attempts),
-        "calls_resent": len(call_dirs),
+        "hung_attempt_count": len(hung),
+        "calls_resent": len(resent),
         "calls_failed_after_resends": sum(
-            (call_dir / "error.json").is_file() for call_dir in call_dirs
+            (call_dir / "error.json").is_file() for call_dir in resent
         ),
+        "configured_transient_retries": configured_transient_retries,
+        "transient_attempt_count": len(transient),
+        "rate_limited_attempt_count": rate_limited,
+        "provider_blocked_calls": blocked,
     }
-
-
-def _cause_chain(exc: BaseException) -> Iterator[BaseException]:
-    current: BaseException | None = exc
-    seen: set[int] = set()
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
-        yield current
-        current = current.__cause__ or current.__context__
 
 
 def raise_classified_model_error(exc: BaseException) -> None:
@@ -487,7 +683,7 @@ def _model_dump(value: Any) -> Any:
 
 
 def _prompt_accounting(payload: dict[str, Any]) -> dict[str, int]:
-    messages = payload.get("messages")
+    messages = payload.get("messages", payload.get("input"))
     tools = payload.get("tools")
     serialized = json.dumps(
         payload,

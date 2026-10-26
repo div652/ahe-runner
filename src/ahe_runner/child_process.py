@@ -122,7 +122,9 @@ def run_in_child(
             process.join(_JOIN_TIMEOUT_SECONDS)
             raise InfrastructureError(
                 f"child process {process_name} exited with code "
-                f"{process.exitcode} before receiving its payload"
+                f"{process.exitcode} before receiving its payload; if an operator "
+                "script drives the runner, guard it with "
+                "`if __name__ == '__main__':`"
             ) from exc
         except Exception as exc:
             raise ConfigurationError(

@@ -11,7 +11,6 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .errors import ConfigurationError
-from .io import sha256_file
 
 
 class StrictModel(BaseModel):
@@ -22,7 +21,11 @@ class ModelSettings(StrictModel):
     model: str
     max_tokens: int = Field(gt=0)
     reasoning_effort: str | None = None
-    temperature: float = Field(default=0.2, ge=0.0, le=2.0)
+    # None sends no temperature, for models that reject the parameter.
+    temperature: float | None = Field(default=0.2, ge=0.0, le=2.0)
+    # Wire API for this model when it differs from transport.api_mode, for a
+    # gateway that serves model families on different APIs.
+    api_mode: Literal["chat_completions", "responses"] | None = None
 
     @field_validator("model")
     @classmethod
@@ -45,7 +48,11 @@ class ModelSettings(StrictModel):
 class TransportSettings(StrictModel):
     base_url: str
     api_key_env: str | None = None
-    api_mode: Literal["chat_completions"] = "chat_completions"
+    # Operator command that prints a bearer token (raw, or JSON with an expiry)
+    # for identity-based authentication; mutually exclusive with api_key_env.
+    token_command: str | None = None
+    token_refresh_margin_seconds: float = Field(default=300.0, gt=0)
+    api_mode: Literal["chat_completions", "responses"] = "chat_completions"
     stream: Literal[False] = False
     request_timeout_seconds: float = Field(default=300.0, gt=0)
     observable_model_policy: Literal["exact"] = "exact"
@@ -57,6 +64,32 @@ class TransportSettings(StrictModel):
     # Extra attempts for a model call that timed out before any response.
     # Every failed attempt remains in the call trace. 0 preserves fail-fast.
     hung_call_retries: int = Field(default=0, ge=0, le=5)
+    # Extra attempts for HTTP 429, a 5xx status, or a connection error, with
+    # exponential back-off and proportional jitter, never shorter than the
+    # server's Retry-After. Every failed attempt remains in the call trace.
+    transient_retries: int = Field(default=0, ge=0, le=20)
+    transient_max_wait_seconds: float = Field(default=120.0, gt=0, le=600)
+    # A 403 naming one of these markers means the provider blocked this
+    # client: every process on the host stops sending to this endpoint for
+    # provider_block_seconds, and the stage ends as infrastructure.
+    provider_block_markers: list[str] = Field(
+        default_factory=lambda: ["PrincipalBlocked", "retry-flood"]
+    )
+    provider_block_seconds: float = Field(default=1800.0, gt=0)
+    # Header carrying a stable per-session client ID, for providers that
+    # isolate retry protection per workload. None: no header.
+    client_id_header: str | None = None
+    # Admission control: per model, every process on the host shares this
+    # token budget per 60 s window (estimated prompt plus output cap) and
+    # adapts it to refusals. None: off.
+    token_budget_per_minute: int | None = Field(default=None, gt=0)
+    token_budget_chars_per_token: float = Field(default=3.0, gt=0, le=10)
+    token_budget_cut: float = Field(default=0.7, gt=0, le=1)
+    token_budget_floor: float = Field(default=0.3, gt=0, le=1)
+    token_budget_recover_seconds: float = Field(default=600.0, gt=0, le=3600)
+    # Extra error phrases that identify a refused model in the preflight's
+    # negative control, for gateways that refuse without naming the model.
+    model_rejection_phrases: list[str] = Field(default_factory=list)
 
     @field_validator("base_url")
     @classmethod
@@ -65,6 +98,21 @@ class TransportSettings(StrictModel):
         if not normalized.startswith(("http://", "https://")):
             raise ValueError("transport.base_url must be HTTP(S)")
         return normalized
+
+    @field_validator("token_command", "client_id_header")
+    @classmethod
+    def validate_optional_text(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("value must be non-empty when set")
+        return value.strip() if value is not None else None
+
+    @model_validator(mode="after")
+    def validate_authentication(self) -> TransportSettings:
+        if self.token_command is not None and self.api_key_env is not None:
+            raise ValueError(
+                "transport.token_command and transport.api_key_env are exclusive"
+            )
+        return self
 
 
 class CampaignSettings(StrictModel):
@@ -93,6 +141,9 @@ class EvaluationSettings(StrictModel):
     validation_trials: int = Field(default=2, gt=0)
     test_trials: int = Field(default=3, gt=0)
     max_concurrency: int = Field(default=8, gt=0)
+    # Outcome of a provider refusing one agent request mid-trial (HTTP 400/422,
+    # not context length): grade the partial work, or rerun the trial.
+    provider_rejection_policy: Literal["grade", "rerun"] = "grade"
 
 
 class DebuggerSettings(StrictModel):
@@ -245,6 +296,111 @@ class ConfigDocument(StrictModel):
     meta: MetaSettings = Field(default_factory=MetaSettings)
 
 
+# Settings that decide how the campaign runs but cannot change a completed
+# result (AHE-042): concurrency, pacing, retries, timeouts, preflight
+# strictness, credentials, and recovery. They are recorded but kept out of the
+# campaign and evaluation identities, so they may change on resume; every
+# change is appended to the campaign amendments ledger.
+EXECUTION_SETTING_PATHS: tuple[str, ...] = (
+    "transport.api_key_env",
+    "transport.token_command",
+    "transport.token_refresh_margin_seconds",
+    "transport.request_timeout_seconds",
+    "transport.model_catalog",
+    "transport.negative_control",
+    "transport.max_concurrent_requests",
+    "transport.hung_call_retries",
+    "transport.transient_retries",
+    "transport.transient_max_wait_seconds",
+    "transport.provider_block_markers",
+    "transport.provider_block_seconds",
+    "transport.client_id_header",
+    "transport.token_budget_per_minute",
+    "transport.token_budget_chars_per_token",
+    "transport.token_budget_cut",
+    "transport.token_budget_floor",
+    "transport.token_budget_recover_seconds",
+    "transport.model_rejection_phrases",
+    "evaluation.max_concurrency",
+    "debugger.max_concurrency",
+    "meta.max_concurrent_model_calls",
+    "recovery",
+)
+# Result-affecting fields added after the 0.8.0 identity schema. Each is left
+# out of identities while at this default, so adding a field never changes
+# the identity of a campaign that does not use it. A new result-affecting
+# field must be listed here; a new execution field in the list above.
+LATER_RESULT_DEFAULTS: dict[str, Any] = {
+    "models.evaluated.api_mode": None,
+    "models.meta.api_mode": None,
+    "evaluation.provider_rejection_policy": "grade",
+}
+
+
+def identity_document(document: ConfigDocument) -> dict[str, Any]:
+    """The configuration as it enters campaign identity."""
+
+    value = document.model_dump(mode="json")
+    for path in EXECUTION_SETTING_PATHS:
+        _pop_path(value, path)
+    for path, default in LATER_RESULT_DEFAULTS.items():
+        if _get_path(value, path, _MISSING) == default:
+            _pop_path(value, path)
+    return value
+
+
+def execution_settings(document: ConfigDocument) -> dict[str, Any]:
+    """The execution-only settings, by dotted path."""
+
+    value = document.model_dump(mode="json")
+    return {
+        path: _get_path(value, path, None)
+        for path in EXECUTION_SETTING_PATHS
+        if _get_path(value, path, _MISSING) is not _MISSING
+    }
+
+
+def model_identity(model: ModelSettings) -> dict[str, Any]:
+    value = model.model_dump(mode="json")
+    if value.get("api_mode") is None:
+        value.pop("api_mode", None)
+    return value
+
+
+def transport_identity(transport: TransportSettings) -> dict[str, Any]:
+    """Transport fields that can change what the model receives."""
+
+    value = transport.model_dump(mode="json")
+    for path in EXECUTION_SETTING_PATHS:
+        prefix, _, field = path.partition(".")
+        if prefix == "transport":
+            value.pop(field, None)
+    return value
+
+
+_MISSING = object()
+
+
+def _get_path(value: dict[str, Any], path: str, default: Any) -> Any:
+    current: Any = value
+    for part in path.split("."):
+        if not isinstance(current, dict) or part not in current:
+            return default
+        current = current[part]
+    return current
+
+
+def _pop_path(value: dict[str, Any], path: str) -> None:
+    *parents, last = path.split(".")
+    current: Any = value
+    for part in parents:
+        if not isinstance(current, dict) or part not in current:
+            return
+        current = current[part]
+    if isinstance(current, dict):
+        current.pop(last, None)
+
+
 @dataclass(frozen=True, slots=True)
 class ResolvedConfig:
     config_path: Path
@@ -274,11 +430,12 @@ class ResolvedConfig:
         return value
 
     def immutable_snapshot(self) -> dict[str, Any]:
-        document = self.document.model_dump(mode="json")
+        """Result-affecting configuration; execution settings are excluded."""
+
+        document = identity_document(self.document)
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "config_path": str(self.config_path),
-            "config_sha256": sha256_file(self.config_path),
             "project_root": str(self.project_root),
             "artifacts_dir": str(self.artifacts_dir),
             "harness_dir": str(self.harness_dir),

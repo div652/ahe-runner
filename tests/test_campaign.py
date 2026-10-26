@@ -43,6 +43,10 @@ def test_full_deterministic_campaign_and_idempotent_resume(tmp_path: Path) -> No
         "hung_attempt_count": 0,
         "calls_resent": 0,
         "calls_failed_after_resends": 0,
+        "configured_transient_retries": 0,
+        "transient_attempt_count": 0,
+        "rate_limited_attempt_count": 0,
+        "provider_blocked_calls": 0,
     }
     assert status["selection"]["selected_checkpoint"] in {"C1", "C2"}
     assert status["final_test"]["no_post_test_evolution"] is True
@@ -138,7 +142,7 @@ def test_protected_project_input_drift_invalidates_resume(
     controller = CampaignController(load_config(config_path))
     controller.prepare()
     manifest = read_json(controller.config.campaign_dir / "campaign_manifest.json")
-    assert manifest["schema_version"] == 2
+    assert manifest["schema_version"] == 3
     assert manifest["protected_runner_resources"]["package"]["sha256"]
     assert manifest["resolved_meta_inputs"]["prompt_context"]
 
@@ -274,10 +278,7 @@ def test_extend_rounds_continues_the_same_campaign(tmp_path: Path) -> None:
 
     dry_run = _extend(config_path)
     assert dry_run["status"] == "dry_run"
-    assert dry_run["changes"] == [
-        "config.config_sha256",
-        "config.document.campaign.rounds",
-    ]
+    assert dry_run["changes"] == ["config.document.campaign.rounds"]
     assert (dry_run["from_rounds"], dry_run["to_rounds"]) == (2, 3)
     assert not ledger.exists()
 
@@ -638,3 +639,91 @@ def test_retry_stage_reopens_an_infrastructure_exhausted_stage(
         "infrastructure_failed",
         "completed",
     ]
+
+
+def test_execution_settings_change_on_resume_with_an_audit_record(
+    tmp_path: Path,
+) -> None:
+    config_path = make_example_project(tmp_path, rounds=1)
+    controller = CampaignController(load_config(config_path))
+    controller.prepare()
+    campaign_dir = controller.config.campaign_dir
+    manifest_bytes = (campaign_dir / "campaign_manifest.json").read_bytes()
+    ledger = campaign_dir / "campaign_amendments.json"
+
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["transport"]["hung_call_retries"] = 2
+    config["transport"]["transient_retries"] = 6
+    config.setdefault("recovery", {})["maximum_stage_attempts"] = 10
+    config["evaluation"]["max_concurrency"] = 1
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    status = CampaignController(load_config(config_path)).run()
+    assert status["final_test"]["no_post_test_evolution"] is True
+    assert (campaign_dir / "campaign_manifest.json").read_bytes() == manifest_bytes
+    amendment = read_json(ledger)["amendments"][0]
+    assert amendment["kind"] == "execution_settings"
+    assert amendment["changes"] == [
+        "evaluation.max_concurrency",
+        "recovery",
+        "transport.hung_call_retries",
+        "transport.transient_retries",
+    ]
+    assert amendment["before"]["transport.transient_retries"] == 0
+    assert amendment["after"]["transport.transient_retries"] == 6
+    assert status["campaign_amendments"][0]["changes"] == amendment["changes"]
+
+    # Unchanged settings add nothing; a result-affecting change is refused.
+    CampaignController(load_config(config_path)).resume()
+    assert len(read_json(ledger)["amendments"]) == 1
+    config["models"]["evaluated"]["temperature"] = 0.9
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+    with pytest.raises(IntegrityError, match="campaign identity changed"):
+        CampaignController(load_config(config_path)).prepare()
+
+
+def test_identity_excludes_execution_settings_and_later_defaults(
+    tmp_path: Path,
+) -> None:
+    from ahe_runner.config import (
+        EXECUTION_SETTING_PATHS,
+        LATER_RESULT_DEFAULTS,
+        identity_document,
+    )
+
+    config = load_config(make_example_project(tmp_path))
+    document = identity_document(config.document)
+    # Every configuration field is either identity, execution, or a later
+    # result field omitted at its default. A new field must join one of them.
+    assert sorted(document["transport"]) == [
+        "api_mode",
+        "base_url",
+        "observable_model_policy",
+        "stream",
+    ]
+    assert sorted(document["models"]["evaluated"]) == [
+        "max_tokens",
+        "model",
+        "reasoning_effort",
+        "temperature",
+    ]
+    assert "recovery" not in document
+    assert "max_concurrency" not in document["evaluation"]
+    assert "max_concurrency" not in document["debugger"]
+    assert "max_concurrent_model_calls" not in document["meta"]
+    assert all(path.count(".") <= 2 for path in LATER_RESULT_DEFAULTS)
+    assert len(set(EXECUTION_SETTING_PATHS)) == len(EXECUTION_SETTING_PATHS)
+    responses = config.document.model_copy(
+        update={
+            "models": config.document.models.model_copy(
+                update={
+                    "evaluated": config.document.models.evaluated.model_copy(
+                        update={"api_mode": "responses"}
+                    )
+                }
+            )
+        }
+    )
+    assert identity_document(responses)["models"]["evaluated"]["api_mode"] == (
+        "responses"
+    )

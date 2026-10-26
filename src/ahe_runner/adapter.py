@@ -231,6 +231,10 @@ class EvaluationRequest:
     transport: TransportSettings
     api_key: str
     max_concurrency: int
+    # What a provider's refusal of one agent request (HTTP 400/422, other than
+    # context length) means: "grade" the partial work as an agent outcome, or
+    # "rerun" the trial as infrastructure (AHE-030).
+    provider_rejection_policy: Literal["grade", "rerun"] = "grade"
 
 
 @dataclass(frozen=True, slots=True)

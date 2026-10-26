@@ -5,7 +5,7 @@ plan and generated campaign artifacts. It contains confirmed issues, their
 impact, approved branch-local repairs, and recommendations for upstream AHE.
 It does not claim that a local patch has been accepted upstream.
 
-The completed generic upstream review and AHE-001–027 dispositions are in
+The completed generic upstream review and AHE-001–043 dispositions are in
 [`HARVEY_INTEGRATION_UPSTREAM_DISPOSITION.md`](HARVEY_INTEGRATION_UPSTREAM_DISPOSITION.md).
 
 ## Working agreement
@@ -57,6 +57,22 @@ The assistant announces new permanent files before creating them.
 | AHE-025 | All concurrent trials run as threads in one Python process, so host-side harness tools such as `grep` queue behind each other; LAB runs every task in its own process | Found on 2026-10-15 during campaign 10's C0 evaluation; the operator approved recording it | Fixed locally: the adapter setting `trial_processes` runs each trial's agent in its own process; campaign 10 was stopped and restarted with it |
 | AHE-026 | When an outage outlasts a stage's attempts, the stage is blocked and the campaign cannot continue, although every attempt failed on infrastructure and no result is in doubt; there is also no hook to keep a long-lived dependency such as the model server healthy between stages | Found on 2026-10-16 when campaign 12's model server crashed during the C4 train evaluation; the operator approved a command that reopens only infrastructure-blocked stages, plus a pre-stage hook | Fixed locally: `ahe retry-blocked-stage` (recorded in `campaign_amendments.json`) and `AHE_PRE_STAGE_COMMAND`; campaign 12 resumed with both |
 | AHE-027 | `ahe extend-rounds` refuses once evolution has closed, so a finished campaign cannot be continued for more rounds; the only option is a new campaign that repeats every finished round | Raised on 2026-10-16 when the operator asked to run campaign 12 (finished at 5 rounds) for 5 more rounds from its last checkpoint | Implemented locally (offline tests pass): `ahe extend-rounds --reopen-closed-evolution` moves the closing stages and their outputs to `superseded/closure-NN/` and records them in the amendment; every other stage is reused |
+| AHE-028 | The runner speaks only chat completions with a static key: no Responses API (system prompt as `instructions`, reasoning carried between turns), no Entra authentication, and no retry for 429, 5xx or connection errors | Approved on 2026-10-16 to run the colleague's TRAPI setup | Branch-local (`harveybench-trapi`/`-cao`, `2a54cef`): `transport.provider: azure_entra`, `api_mode: responses`, `transient_retries`; new fields omitted from identity at their defaults |
+| AHE-029 | Resent Responses tool-call items carry the SDK's Python field names (`async_`, null `namespace`), so every trial's second call got HTTP 400 | Found in the first TRAPI smoke run on 2026-10-16 | Fixed in the recorded client (`20d6584`) |
+| AHE-030 | A mid-trial 4xx rejection from the provider (other than context length) has no defined outcome; the adapter graded the partial work | Approved on 2026-10-16 | Harvey `api_rejection_policy: grade \| rerun` (`fdb4458`, `a1197de`) |
+| AHE-031 | Synchronized, numerous retries with no workload ID got the operator's TRAPI identity blocked ("retry-flood"); the block was not recognised and runs kept sending | Approved on 2026-10-17 after campaign 13 was blocked | Proportional-jitter back-off, `ProviderBlockedError` endpoint circuit breaker, per-session workload ID, probe-first launcher (`1f718fa`, `0149bd5`) |
+| AHE-032 | The call-count queue does not respect per-minute token limits; providers refuse well below the advertised limit, and every refusal restarted a trial | Approved for campaigns 18 and 19 | Cross-process adaptive token admission control and gateway pauses (`8b65155`) |
+| AHE-033 | The preflight's negative control recognises a model rejection only by the model's name in the error text; the CAO gateway's wording differs per API | Found on 2026-10-22 and 2026-10-23 | Phrase list plus recorded CAO fixtures (`8b65155`, `72ef29d`) |
+| AHE-034 | Every model role shares one transport, wire API and parameter set; a gateway serving Claude and GPT on different APIs, or a model rejecting `temperature`, cannot be configured | Found while preparing campaign 23 on 2026-10-23 | Harvey `helper_api: chat` (`72ef29d`); meta temperatures dropped |
+| AHE-035 | Scores depend on the model route (about +10 points of all-pass on Responses gateways vs the VS Code host for the same harness), but no evaluation records the route | Found in campaigns 15 and 20 (2026-10-20 to 22) | No patch; comparisons are kept within one route |
+| AHE-036 | Attribution compares only the primary metric per task; with a per-trial binary metric (all-pass) and 3 trials, 58 to 62 of 80 tasks look unchanged | Approved on 2026-10-23 | Harvey `objective: all_pass` with a criterion-pass tie-break in selection and attribution (`72ef29d`) |
+| AHE-037 | Tasks that fail every training trial give the Debugger no passing run to compare with | Approved on 2026-10-23 | `evaluation.train_extra_trials`: metric-isolated, evidence-only extra trials in a separate stage (`158d762`); used in campaign 23 |
+| AHE-038 | One unit's infrastructure failure ends the stage attempt and the process, so unattended campaigns need operator-written resume loops | Observed in campaigns 20 and 23 | No patch; launcher loops and a watcher |
+| AHE-039 | No command evaluates a fixed harness or checkpoint on chosen tasks with N trials; campaigns 9b and 13 to 22 used `rounds: 0` configs and a script calling a private controller method | Recorded on 2026-10-24 | No patch |
+| AHE-040 | Validation on 20 tasks × 2 trials picks among 7–11 checkpoints with more noise than the differences between them (winner's curse) | Shown by campaigns 21 and 22 (2026-10-22 to 23); campaigns 23 and 24 and a noise estimate added 2026-10-26 | No patch; paired bootstrap CIs in the runbook |
+| AHE-041 | Evolution has no plateau signal: campaign 23 stayed flat for 9 rounds after round 1 while Evolve kept targeting one failure family, and each round must build on the previous checkpoint | Recorded on 2026-10-24; final results added 2026-10-26 | No patch; campaign 23 ran to completion unchanged |
+| AHE-042 | Settings that cannot change results (retries, concurrency, pacing, attempts) and mid-campaign guidance fixes are part of the campaign identity, forcing new campaigns | Seen in campaign 13b and campaign 23 | No patch; new fields omitted from identity at their defaults |
+| AHE-043 | Smaller items: spawned trials re-run an unguarded operator script; read-only campaign files make throwaway campaigns hard to delete | Recorded on 2026-10-24 | No patch |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -2284,3 +2300,821 @@ that the campaign was extended after it had closed.
 
 1. Let an operator continue a closed campaign for more rounds with an audit
    record of the superseded closure, instead of requiring a new campaign.
+
+## Entries AHE-028 to AHE-043: other model providers, all-pass evolution, evaluation practice
+
+These entries come from work between 2026-10-16 and 2026-10-24, after
+AHE-027. The upstream disposition
+(`HARVEY_INTEGRATION_UPSTREAM_DISPOSITION.md`) covers AHE-001 to AHE-025;
+AHE-026 onward have not been reviewed upstream yet.
+
+Where the code lives:
+
+- The repairs are on the branches `harveybench-trapi` and `harveybench-cao`.
+  Both forked from `harveybench` at `c297722` (AHE-026), before AHE-027 and
+  before the upstream 0.6.0 hardening.
+- `harveybench-cao` contains everything below. The `harveybench-trapi`
+  worktree runs the TRAPI parts, and its newest pacing code is uncommitted
+  there; the same code was committed to `harveybench-cao` as `8b65155`.
+- File references are to `harveybench-cao` at `158d762`.
+
+Campaign numbers refer to the operator runbook. Campaigns 13 to 22 evaluated
+fixed harnesses; campaign 23 is a 10-round evolution that maximizes the
+all-pass rate.
+
+| Endpoint | What it is | Wire API |
+|---|---|---|
+| VS Code host | GH Copilot Server, the VS Code extension used up to campaign 12 | chat completions |
+| TRAPI | an Azure OpenAI gateway authenticated with Microsoft Entra ID | Responses |
+| CAO | a local Copilot API gateway on the operator's Copilot seat | Responses for GPT models, chat completions for Claude |
+
+## AHE-028: one provider and one wire API
+
+### Plain-language summary
+
+The runner could only talk to one kind of endpoint: an OpenAI-compatible
+chat-completions server with a static API key. So it could not run the same
+harness through a gateway that authenticates with Microsoft Entra ID and
+speaks the OpenAI Responses API. That is how a colleague ran the same Harvey
+LAB tasks.
+
+The two paths differ in what the model sees:
+
+| | Chat completions (VS Code host) | Responses (TRAPI) |
+|---|---|---|
+| System prompt | arrives as an ordinary message | sent as `instructions` |
+| Reasoning between turns | lost every turn | carried to the next turn as reasoning items |
+| Token usage and rate-limit headers | not reported | reported |
+
+The runner also had no retry for HTTP 429, 5xx or connection errors. Any of
+them failed the trial.
+
+### Evidence
+
+- `docs/MODEL_PROVIDERS.md` (design `51b4825`, implementation `2a54cef`)
+  compares the two paths.
+- Upstream `ahe-runner` `main` still has
+  `api_mode: Literal["chat_completions"]` and no `transient_retries`
+  (`src/ahe_runner/config.py`).
+
+### Local repair
+
+Approved by the operator on 2026-10-16 and implemented in `2a54cef`.
+
+New `transport` settings:
+
+- `provider: gh_copilot_server | azure_entra`. Entra tokens come from
+  `az account get-access-token`, are cached and refreshed 300 s before
+  expiry, and are passed to the OpenAI client as a callable `api_key`.
+- `api_mode: responses`. The recorded client enforces the model,
+  `max_output_tokens`, temperature (omitted when null) and reasoning effort.
+  The NexAU runtime sends the system prompt as `instructions` and resends
+  reasoning items on the next turn.
+- `transient_retries` and `transient_max_wait_seconds`. A call that fails
+  with 429, 5xx or a connection error is resent, honouring `Retry-After`,
+  and every attempt is recorded. This shares one send loop with
+  `hung_call_retries`.
+
+Settings at their default values are left out of the serialized transport.
+So every earlier campaign and evaluation keeps its identity, and a test pins
+the default dump.
+
+### Upstream recommendations
+
+1. Make the Responses API first-class, including the round trip of
+   reasoning items (summary and encrypted content) across agent turns.
+2. Separate the provider's authentication from the transport. A token
+   callable covers Entra, other cloud identity providers and static keys.
+3. Add bounded transient retries. They should use the retry rules in
+   AHE-031 from the start.
+
+## AHE-029: resent Responses tool calls use the SDK's Python field names
+
+### Plain-language summary
+
+On the Responses API, the agent's earlier output items, including its tool
+calls, are sent back with the next request. NexAU 0.3.9 copies them with
+`model_dump()`, which uses the Python field names of openai SDK 3.29. A tool
+call then has `async_` instead of the API's `async`, and a null `namespace`
+that the API accepts only as a string. The API rejected every trial's second
+call.
+
+### Evidence
+
+The first live two-task smoke run on TRAPI (2026-10-16) failed on every
+trial's second agent call with HTTP 400 "Unknown parameter:
+'input[2].async_'".
+
+### Local repair
+
+Fixed in `20d6584`. Before sending, the recorded client renames `async_` to
+`async` and drops null fields on resent `function_call` and
+`custom_tool_call` items. The request record holds what was actually sent.
+Other items are untouched.
+
+### Upstream recommendations
+
+1. Serialize resent items with their API names, e.g.
+   `model_dump(by_alias=True, exclude_none=True, mode="json")`. Do this in
+   NexAU, or in the runner's recorded client until NexAU does.
+2. Keep a recorded-fixture contract test of a multi-turn tool-calling
+   conversation for each supported wire API and pinned SDK version.
+
+## AHE-030: a model-API rejection in the middle of a trial has no defined outcome
+
+### Plain-language summary
+
+Sometimes the provider rejects one of the agent's calls in the middle of a
+trial with a 4xx error that is not a context-length error: for example a
+content filter, a malformed request, or a model the gateway temporarily
+refuses. The runner had no rule for this. The Harvey adapter graded what the
+agent had written so far as an agent failure.
+
+That is one defensible choice. Rerunning the trial is another, and it is
+what the colleague's TRAPI run did. The two give different scores for the
+same harness.
+
+### Local repair
+
+Approved and implemented on 2026-10-16 (`fdb4458`, tests `a1197de`).
+
+The Harvey adapter setting `api_rejection_policy` takes two values:
+
+- `grade` (default): the trial is kept as an agent error, and its partial
+  output is graded.
+- `rerun`: the trial is recorded as an infrastructure failure and rerun on
+  resume, up to `recovery.maximum_stage_attempts`. A task that is rejected
+  every time blocks the stage instead of being dropped.
+
+Context-length rejections are still graded as context overflows, and 429,
+5xx and timeouts were already infrastructure failures. The error is
+classified inside the trial process, where its cause chain still exists;
+only a flag crosses the process boundary. All TRAPI and CAO campaigns since
+campaign 13 use `rerun`.
+
+### Upstream recommendations
+
+1. Define this outcome in the runner. Upstream 0.6.0 already classifies
+   context rejections. Extend that classifier to other provider rejections,
+   and add a policy setting (grade or rerun) that the adapter cannot
+   silently override.
+2. Count these trials, under each policy, in evaluation summaries. A rerun
+   policy keeps a run only if no call was rejected, so a high rerun rate can
+   bias the result towards trials that make fewer calls.
+
+## AHE-031: client retries got the whole account blocked
+
+### Plain-language summary
+
+TRAPI blocked the operator's identity for "retry flood" and stopped every
+campaign on it for hours. The runner's retries were synchronized and
+numerous, and it did not notice it had been blocked:
+
+- Every call refused in the same rate-limit window waited exactly the
+  `Retry-After` time, plus up to 1 s of jitter, so they all retried in the
+  same second.
+- Each call could retry 40 times, from 4 agent sessions plus 18 judge
+  threads.
+- No call carried a workload ID, so TRAPI saw one client flooding.
+- A 403 block was not recognised: new units kept starting and each sent at
+  least one request, and the operator's launcher relaunched at once.
+
+### Evidence
+
+- Campaign 13 (TRAPI, C0 on 250 tasks) was blocked on 2026-10-16 at
+  23:02 UTC with HTTP 403 `{"error": "PrincipalBlocked", "reason":
+  "retry-flood", "scope": "principal"}`, after 7 of 250 units.
+- TRAPI's message: "Your client sent excessive retries after repeated
+  errors. Correct error handling and use exponential back-off with jitter.
+  If several independent agents or processes share this identity, send a
+  distinct, stable X-TRAPI-Workload-ID header from each so retry protection
+  can isolate them."
+- The block had lifted by 07:30 UTC the next day.
+- Campaigns 14, 14b and 14c were blocked twice more on 2026-10-19 while
+  sharing the endpoint's capacity with other users.
+
+### Local repair
+
+Approved by the operator and implemented on 2026-10-17 in `1f718fa` and
+`0149bd5`:
+
+1. **Back-off:** attempt n waits
+   `base = min(max_wait, max(Retry-After, 5 * 2^(n-1)))` plus a random extra
+   of up to 50% of `base`. With a 56 s `Retry-After`, calls now spread over
+   56 to 84 s.
+2. **Blocks:** a 403 containing `PrincipalBlocked` or `retry-flood` raises
+   `ProviderBlockedError`, an `InfrastructureError`. The endpoint is then
+   marked blocked for the whole process, and later calls fail without being
+   sent (recorded with `"sent": false`).
+3. **Through the adapter:** the Harvey adapter and grader pass a block
+   through unchanged. It is never graded as an agent failure, never rerun
+   as a single trial, and never treated as a configuration error. Queued
+   units stay pending.
+4. **Workload ID:** each Entra request carries
+   `X-TRAPI-Workload-ID: ahe-runner-<hash of the session log dir>`, stable
+   across that session's retries and distinct between sessions and judges.
+5. **Operator side:**
+   - retries were cut from 40 to 6, and judge concurrency from 18 to 4;
+   - a one-request probe (`scripts/probe_trapi.py`) checks the endpoint
+     before each launch;
+   - the launcher waits 30 minutes after a block and 10 minutes after other
+     failures, and never relaunches at once.
+
+### Upstream recommendations
+
+1. Make exponential back-off with proportional jitter the only retry
+   schedule, and apply a retry budget per endpoint, not only per call.
+2. Treat a provider-level block as a circuit breaker for the whole campaign:
+   stop every client of that endpoint, across processes, and end the stage
+   as infrastructure without sending more requests.
+3. Send a stable per-session workload or client ID wherever the provider
+   supports one.
+4. Document that operator relaunch loops must back off after a block. A
+   runner-owned resume supervisor (AHE-038) should do so itself.
+
+## AHE-032: limiting calls in flight does not respect per-minute token limits
+
+### Plain-language summary
+
+`transport.max_concurrent_requests` (AHE-015) limits how many calls are in
+flight. TRAPI limits tokens per minute. Harvey's agent calls are large, about
+127,000 input tokens each, so 4 agents can exceed the limit while well under
+any call cap.
+
+The provider's own numbers could not be used for pacing:
+
+- the advertised limit was 1,000,000 tokens a minute, but requests were
+  refused far below it;
+- the `remaining-tokens` header did not follow the real token use.
+
+Every refusal killed the trial mid-run and restarted it from the beginning.
+
+### Evidence
+
+Campaign 18 ran C5 on the 70 test tasks over two TRAPI endpoints: msri
+(shared within MSR India) and redmond (shared across MSR).
+
+| Endpoint | Calls | Calls per minute | Real tokens per minute | Calls refused with 429 | Real tokens in the 60 s before a refusal |
+|---|---|---|---|---|---|
+| msri | 2,015 | 2.19 | 280,000 | 7% | median about 440,000 (range 290,000 to 520,000) |
+| redmond | 696 | 0.75 | 79,000 | 40% | 110,000 to 310,000 |
+
+On average a trial made 38.8 calls with 127,000 input tokens each.
+
+In the TRAPI C0 runs that campaign 20 was compared with, 39% of units were
+killed by a 429 in the middle of the run and restarted from the beginning.
+
+### Local repair
+
+Approved by the operator and used in campaigns 18 and 19 (committed in
+`8b65155`):
+
+1. **Admission control:** `transport.token_budget_per_minute` gives each
+   model a token budget shared by every process on the host. The log is a
+   file under a per-user directory, locked with `flock`.
+   - A request is sent only if its estimate (prompt JSON characters ÷
+     `token_budget_chars_per_token`, plus the output cap) fits the last 60
+     seconds' budget; otherwise it waits.
+   - Every 429 multiplies the budget by `token_budget_cut`, down to
+     `token_budget_floor` of the original, and pauses every client for the
+     advised wait.
+   - Each `token_budget_recover_seconds` without a 429 restores 10%.
+   - Campaigns 18 and 19 used 4.0 characters per token, cut 0.85, floor 0.6
+     and recovery every 180 s.
+2. **Gateway pauses:** `gateway_pause_seconds` and `gateway_retries` handle
+   TRAPI's account-wide "Rate Limit Exceeded", which carries no rate-limit
+   headers.
+
+### Upstream recommendations
+
+1. Generalize the AHE-015 queue into an endpoint scheduler that limits both
+   calls in flight and tokens per window, shared across processes. Adapt it
+   to refusals (multiplicative decrease, additive increase) rather than
+   trusting the advertised limit or the remaining-tokens header.
+2. Report each endpoint's achieved tokens per minute and refusal rate in
+   `ahe status`. Operators need them for estimates and for choosing
+   concurrency.
+3. Prefer resending a refused call (AHE-022, AHE-028) to failing the trial.
+   Restarting whole trials wastes work and favours trials that make fewer
+   calls.
+
+## AHE-033: the preflight's negative control depends on each gateway's error wording
+
+### Plain-language summary
+
+The model preflight sends a request for a model that does not exist and
+expects it to be refused. It decided "refused because of the model" by
+looking for the model's name in the error text. The CAO gateway refuses
+without naming the model, with a different message on each wire API, so the
+preflight failed on a correctly working endpoint.
+
+### Evidence
+
+On CAO (copilot-api 2.7.30):
+
+- `/responses` (2026-10-22): "this model does not support the responses
+  endpoint";
+- `/chat/completions` (2026-10-23, code `model_not_supported`): "The
+  requested model is not supported."
+
+### Local repair
+
+`_MODEL_REJECTION_PHRASES` in `meta/preflight.py` accepts both phrases
+(`8b65155`, `72ef29d`). `tests/test_cao_gateway.py` replays recorded CAO
+responses offline.
+
+### Upstream recommendations
+
+1. Recognise a model rejection by its structured error code (for example
+   `model_not_found` or `model_not_supported`), and let a provider profile
+   add codes and phrases, instead of a hard-coded phrase list.
+2. Ship recorded per-provider fixtures for the preflight. A gateway upgrade
+   that changes its wording should fail an offline test, not a live
+   campaign.
+
+## AHE-034: every model role shares one wire API and one parameter set
+
+### Plain-language summary
+
+The runner has one `transport` for every model role: the evaluated agent,
+the meta agents, the judges and LAB's filename helper. But a gateway can
+serve different model families on different APIs. On CAO, Claude models are
+served only on chat completions and messages, and GPT-5.6 models only on
+Responses. A campaign that uses both cannot send them through one API.
+
+Models also differ in which parameters they accept. gpt-5.6-sol on Responses
+rejects `temperature`, so campaign 12's meta-agent temperatures could not be
+sent when the meta model moved to that API.
+
+### Evidence
+
+Campaign 23 uses gpt-5.6-luna (agent), gpt-5.6-sol (judge and meta agents)
+and claude-sonnet-5 (filename helper), all through CAO.
+
+### Local repair
+
+- The Harvey adapter setting `helper_api: chat` sends only the helper
+  through chat completions on the same endpoint (`72ef29d`).
+- The meta agents' temperatures were dropped from campaign 23's config.
+
+### Upstream recommendations
+
+1. Allow a per-role transport and wire-API override, each preflighted
+   separately.
+2. Keep a model capability profile: accepted sampling parameters, effort
+   levels, default effort and context size. Validate configs against it at
+   `ahe validate`, rather than learning from a live 400.
+
+## AHE-035: scores depend on the model route, and nothing records it
+
+### Plain-language summary
+
+The same harness, model and tasks scored about 10 points of all-pass higher
+through Responses gateways than through the VS Code host. On the VS Code
+host:
+
+- LAB's system prompt reaches the model as a user message;
+- Copilot Chat adds its own system message first ("Keep your answers short
+  and impersonal", and IDE instructions);
+- reasoning is not carried between turns.
+
+AHE-021 found that this route also cut long prompts and ignored the
+requested effort. None of this is in the campaign identity or the reports.
+So results from different routes look comparable when they are not.
+
+### Evidence
+
+C0 (`harness_lab`), gpt-5.6-sol at high effort, on the same 250 tasks:
+
+| Route | All-pass |
+|---|---|
+| VS Code host, chat completions (campaign 9b) | 20.4% both judges, 22.4% average of the two |
+| CAO, Responses (campaigns 20 and 20b) | 32.4% |
+| TRAPI, Responses (campaigns 13b and 13c) | 29.6% |
+
+- **CAO vs TRAPI:** the paired difference was +0.028 (95% CI −0.020 to
+  +0.076). The agent requests were byte-identical except for the model name
+  and a random cache key.
+- **The judge change:** 9b used two judges and the later runs one. Regrading
+  campaign 12's test runs with a different judge pair moved scores by at
+  most 0.017, so the judges don't explain the gap.
+- **The same 70 tasks:** C0 scored 31.4% on CAO (one trial) and 25.2% on
+  the VS Code host (both judges, three trials).
+
+### Local handling
+
+No AHE patch. Every comparison in the runbook now names the route, and
+checkpoints are compared only within one route.
+
+### Upstream recommendations
+
+1. Record a route fingerprint with every evaluation:
+   - provider;
+   - wire API;
+   - where the system prompt is placed;
+   - whether reasoning is carried between turns;
+   - the model ID the provider returns.
+2. Show the fingerprint in reports, and warn when metrics from different
+   fingerprints are compared.
+3. Extend the AHE-021 behavioural probes with a check of system-prompt
+   placement where the provider makes it observable.
+
+## AHE-036: attribution has no tie-break for a coarse metric
+
+### Plain-language summary
+
+Campaign 23 maximizes the all-pass rate: a trial scores 1 only if the judge
+passes every rubric criterion. With 3 trials a task's all-pass rate can only
+be 0, 1/3, 2/3 or 1. So between two checkpoints many tasks show no change at
+all, even when the work improved: a task can move from 2 of 5 criteria to 4
+of 5 and still score 0. Change attribution compares only the primary metric
+per task, so those tasks gave Evolve no signal.
+
+### Evidence
+
+In campaign 23, 58 to 62 of the 80 training tasks had the same all-pass
+count at consecutive checkpoints. Most of them did change on the criterion
+pass rate:
+
+| Transition | Tasks with equal all-pass | Better on criterion pass | Worse on criterion pass | Equal on both |
+|---|---|---|---|---|
+| C0 → C1 | 58 | 27 | 21 | 10 |
+| C1 → C2 | 62 | 25 | 19 | 18 |
+| C2 → C3 | 62 | 27 | 14 | 21 |
+
+The "better" and "worse" columns are `improved_by_criterion_pass_rate` and
+`regressed_by_criterion_pass_rate` in `attribution/C*/transition.json`.
+Without the tie-break, all of those tasks would have counted as unchanged.
+
+### Local repair
+
+Approved by the operator on 2026-10-23 (`72ef29d`). The Harvey adapter
+setting `objective: all_pass`:
+
+- makes `mean_all_pass_rate` the primary metric and task score;
+- adds the mean criterion pass rate as a second key in `selection_key`;
+- in `compare()`, uses the criterion pass rate for a task whose all-pass
+  rate is unchanged;
+- updates the identity, interface text, evidence overview and meta prompt
+  context to match.
+
+The role supplements and the public adapter contract were rewritten for one
+judge and the all-pass target (`meta_supplements_all_pass/`,
+`benchmark_public_all_pass/ADAPTER.md`), following AHE-018. This branch
+predates upstream's `meta.deprecated_metric_terms` warning, so the check for
+stale wording was done by hand.
+
+### Upstream recommendations
+
+1. Let an adapter declare an ordered list of metrics. Use it both in
+   `selection_key` and in per-task attribution, and record which metric
+   decided each task.
+2. Recommend a secondary metric whenever the primary metric is binary per
+   trial and trials per task are few.
+
+## AHE-037: tasks that never pass give Evolve no example of success
+
+### Plain-language summary
+
+On a task where all 3 training trials fail, the Debugger has only failures
+to read. A successful run is the most useful evidence it can get, because
+comparing it with a failure shows where they diverge. The runner's paired
+passing/failing comparison only applies when the evidence contains both.
+
+The operator asked for up to 2 more trials on such tasks. These extra
+trials go to the Debugger and Evolve as evidence, and must not count in any
+metric.
+
+### Local repair
+
+Approved by the operator on 2026-10-23 and implemented in `158d762`.
+
+How it works:
+
+- **Setting:** `evaluation.train_extra_trials` (default 0, left out of the
+  serialized config at 0).
+- **Stage:** after `evaluation.C<n>.train`, every task with no all-pass
+  trial runs that many more trials, with seeds from a different
+  derivation. They run in a separate stage, `evaluation.C<n>.train-extra`,
+  that resumes on its own.
+- **In the evidence:** the extra trials come after the regular ones (here
+  trials 3 and 4), marked `evidence_only`, with their artifacts under a new
+  read root, `raw_extra_evaluation`. A passing extra trial makes the
+  paired comparison mandatory.
+- **Verification:** evidence verification checks the extra evaluation's
+  record, lineage, numbering, flags and artifact root.
+- **Isolation:** metrics, attribution and selection use only the regular
+  trials. This was checked on campaign 23's artifacts: every task's score
+  and its "k/3" tally match a recount from the 3 regular trials.
+- **Adapter interface:** `EvidenceRequest.extra_evaluation_dir`,
+  `supports_extra_training_trials()`, `extra_evidence_split()` and
+  `extra_evidence_root_seed()`. The controller refuses the setting for an
+  adapter that does not support it.
+
+### Evidence from campaign 23 (gpt-5.6-luna, 2 extra trials)
+
+| Checkpoint | Tasks with 0 of 3 | Extra runs | Passing extra runs | Tasks with a passing extra run |
+|---|---|---|---|---|
+| C0 | 64 | 128 | 5 | 4 |
+| C1 | 55 | 110 | 4 | 3 |
+| C2 | 54 | 108 | 2 | 2 |
+| C3 | 54 | 108 | 3 | 2 |
+| C4 | 54 | 108 | 2 | 2 |
+| C5 | 53 | 106 | 1 | 1 |
+| C6 | 54 | 108 | 6 | 4 |
+
+- **Cost:** the extra runs add 44–53% to each round's 240 regular agent
+  runs.
+- **Yield:** they produce a passing run on only 1 to 4 tasks per round.
+- **Use:** the Debugger cites an extra trial in nearly every diagnosis of a
+  task that has one (53 to 63 diagnoses a round). For example, at C3 it
+  explained task 048's failures by comparing them with its two passing extra
+  trials.
+- **Effect on the score:** the campaign has no control without extra
+  trials, so their effect on the training score is not measured.
+
+### Upstream recommendations
+
+1. Offer evidence augmentation as an optional, metric-isolated stage with
+   the guarantees above.
+2. Consider cheaper positive examples first. The history often already
+   holds a passing trial of the same task from an earlier checkpoint, and
+   the Debugger could be pointed to it. Spend extra trials adaptively, for
+   example sampling until one passes or a budget runs out, rather than a
+   fixed number per task.
+
+## AHE-038: one unit's infrastructure failure stops the whole run
+
+### Plain-language summary
+
+When a single evaluation unit fails on infrastructure, the stage attempt
+ends, `ahe run` exits with code 2, and nothing continues until someone runs
+`ahe resume`. The resume keeps all finished work, so nothing is lost but
+time. But an unattended multi-day campaign needs an outside loop to keep
+resuming, and every operator wrote their own.
+
+### Evidence
+
+- **Campaign 23:** stopped 4 times in its first 17 hours, at 16:48, 17:29,
+  21:15 and 22:31 IST on 2026-10-23. Each stop came from LAB's sandbox
+  start check (`podman info` with a 10-second timeout) timing out under
+  load on the host, in 1, 2, 9 and 3 units. Over the whole 26-hour run it
+  stopped 7 times: 3 more on 2026-10-24 (08:11, 09:39 and 12:00 IST), two
+  from the same `podman info` timeout and one from an agent `RuntimeError`
+  that the adapter classes as infrastructure, each in 1 or 2 units.
+- **Campaign 20:** stopped once the same way, in 9 units.
+- **Operator loops:** `run_c19.sh`, `run_c21.sh`, `run_c23.sh`,
+  `launch_trapi_c0.sh`, and a watcher (`watch_c23.sh`) that relaunches the
+  loop when its 12 invocations run out.
+
+### Local handling
+
+No AHE patch.
+
+### Upstream recommendations
+
+1. Retry a unit that failed on infrastructure, within the same attempt, a
+   bounded number of times with back-off, while the process is healthy.
+   End the attempt only when failures persist or exceed a threshold. The
+   0.6.0 rule that an abnormal child termination ends the attempt can stay
+   as it is: it is about the process's resources, not about a timeout
+   inside one unit.
+2. Alternatively, provide a supported supervisor (`ahe run --supervise`)
+   that resumes after infrastructure failures, with back-off and a cap. It
+   should stop on blocked-stage, configuration and provider-block errors.
+
+## AHE-039: no supported way to evaluate a fixed harness
+
+### Plain-language summary
+
+Campaigns 9b and 13 to 22 only evaluated existing harnesses: a baseline
+on all tasks, a selected checkpoint on held-out tasks, more trials of an
+earlier evaluation, or re-validating checkpoints. The runner has no command
+for that, so each one was assembled from a full-campaign configuration.
+
+### Evidence
+
+How each kind of evaluation was assembled:
+
+- **Running only the evaluation:** a `rounds: 0` config, plus a script
+  (`scripts/run_c0_train_only.py`) that calls the private
+  `controller._ensure_training_evaluation(0)`. With `rounds: 0`, `ahe run`
+  still starts Explore and evaluates validation and test, and
+  `ahe close-evolution` does not freeze C0 on a fresh campaign.
+- **Evaluating a checkpoint:** its harness folder was copied out as the
+  config's `harness_dir` (`harness_c12_C5` … `harness_c12_C10`).
+- **Choosing tasks:** a split file listing them as the training set.
+- **More trials:** a new campaign with another `root_seed` (campaigns 15b
+  and 19).
+- **Two endpoints at once:** separate campaigns with complementary split
+  files (campaigns 18 and 19: 52 tasks on msri, 18 on redmond).
+
+### Upstream recommendations
+
+1. Add `ahe evaluate`:
+   - inputs: a harness folder or a campaign checkpoint, a split name or task
+     list, a trial count and a seed;
+   - output: the same verified evaluation artifacts and metrics as a
+     campaign stage.
+2. Allow adding trials to an existing evaluation, with seeds that continue
+   its sequence.
+3. Optionally, split one evaluation across several endpoints.
+
+## AHE-040: validation is noisier than the differences it decides
+
+### Plain-language summary
+
+Selection picks the checkpoint with the best validation score, and each
+candidate is measured on a small set: campaign 12 used 20 tasks × 2 trials.
+With 7 candidates, the top validation score is likely to be partly luck.
+Re-testing the winner on more tasks showed this.
+
+### Evidence
+
+- **Campaign 12** selected C5 on validation (criterion pass 0.721 vs C0's
+  0.639).
+- **Campaign 21** re-validated C0 and C5–C10 on the same 20 tasks × 2
+  trials. All-pass ranged from 25.0% to 42.5%. C9 ranked first at 42.5%,
+  against 30.0% for C5.
+- **Campaign 22** ran C9 on 70 held-out tasks × 3 trials through CAO:
+  36.2% all-pass.
+  - C5 has no CAO run on these tasks. It scored 35.2% on the VS Code host
+    (campaigns 15 and 15b) and 32.1% on TRAPI (campaigns 18 and 19, 110
+    runs).
+  - C9 − C5 was +0.010 and +0.040, and both 95% CIs include 0. The routes
+    differ (AHE-035), which adds uncertainty.
+  - Even so, C9's 12.5-point validation lead was mostly winner's curse.
+- **Campaign 15:** one trial overstated C5 − C0 on the 70 tasks (+0.164);
+  three trials gave +0.105.
+- **Campaign 23:** paired training differences between C3 and every other
+  evolved checkpoint (C1–C10) are within ±0.03, with 95% task-bootstrap CIs
+  about ±0.05 wide. That is with 80 tasks × 3 trials.
+- **Campaign 23 selection:** validation all-pass across the 11 checkpoints
+  ranged from 10.0% to 25.0%. It picked C3 (25.0%). On the 70 held-out tasks
+  × 3 trials (its 20 test tasks plus campaign 24's 50), C3 − C0 was +0.048
+  all-pass (95% CI −0.024 to +0.119) and +0.120 criterion pass (+0.054 to
+  +0.187). C3's validation lead over C0 was 10 points.
+- **Size of the noise.** Pooled over 170 tasks and 490 regular trials of
+  campaign 23's C0, the run-to-run standard deviation of all-pass within a
+  task is 0.27. It is 0.24–0.28 for every harness and model we measured.
+  Paired C0-vs-evolved runs show a task × harness interaction (the evolved
+  harness helps some tasks and hurts others) with standard deviation
+  0.22–0.27. The 95% bar a difference in mean all-pass must clear is then:
+
+  | Comparison | Trial noise only (same tasks) | Trial noise and task sampling |
+  |---|---|---|
+  | Validation, 20 tasks × 2 trials | ~12 points | ~15 points |
+  | Test, 70 tasks × 3 trials | ~5 points | ~7–8 points |
+  | 250 tasks × 3 trials | ~3 points | ~4 points |
+
+  More trials per task only shrink the trial-noise term. The interaction
+  term shrinks only with more tasks: 70 tasks × infinitely many trials still
+  needs about 5 points.
+
+### Local handling
+
+No AHE patch. The runbook reports paired task-bootstrap CIs for every
+comparison.
+
+### Upstream recommendations
+
+1. Report uncertainty with every selection and final-test comparison: paired
+   task-bootstrap CIs, and the trial count behind each number.
+2. Offer selection rules that account for noise. For example:
+   - re-evaluate the top k candidates with more trials before choosing;
+   - prefer the earlier or simpler checkpoint unless a later one is better
+     by more than the noise band.
+3. Help size validation: from training variance, estimate the trials
+   needed to detect a given difference.
+4. Estimate the noise from data the runner already has. Use the pooled
+   within-task variance of the regular trials, leaving out the evidence-only
+   extra trials (AHE-037), which are selected on outcome. Also use the
+   per-task paired differences between checkpoints. Print the resulting
+   minimum detectable difference next to each selection and final-test
+   comparison.
+
+## AHE-041: evolution has no signal for a plateau
+
+### Plain-language summary
+
+In campaign 23 the training all-pass rate rose in round 1 and stayed flat
+for the remaining nine rounds. Each round fixed the most common early failure the
+Debuggers reported, which was nearly always the same kind (finding and
+reading documents). Nothing told Evolve that its recent changes were within
+the noise, or to try a different failure class or part of the harness.
+
+Each round also builds on the previous checkpoint, whatever its training
+score (`parent_checkpoint = C{i-1}`). Evolve sees every earlier change and
+its attribution verdict, and can roll a change back. It cannot start from
+an earlier, better checkpoint.
+
+### Evidence
+
+| Checkpoint | Training all-pass (80 tasks × 3) | What the round changed |
+|---|---|---|
+| C0 | 11.2% | baseline |
+| C1 | 22.5% | search tools page through and report truncation; matter checklist |
+| C2 | 24.2% | read results carry their source and line coverage |
+| C3 | 25.0% | middleware that tracks unread document ranges |
+| C4 | 23.8% | per-read and per-turn read-output caps, after 20 context-overflow terminations |
+| C5 | 22.9% | candidate tracking and a gate at the finish call |
+| C6 | 24.2% | rolled back C5's finish gate; new "candidate dossier" skill |
+| C7 | 22.9% | extended the coverage middleware and the dossier skill |
+| C8 | 25.4% | glob and grep report the full candidate population; middleware and skill again |
+| C9 | 22.1% | new candidate-reviewer sub-agent |
+| C10 | 22.5% | rolled back C9's sub-agent; source-consistency audit in the middleware |
+
+- **Noise:** every paired difference C*i* − C3 for *i* = 1–10 lies between
+  −0.029 and +0.004, and every 95% CI includes 0 (for example C10 − C3:
+  −0.025, CI −0.071 to +0.017).
+- **Validation agreed:** C7–C10 scored 10.0–12.5% validation all-pass, the
+  lowest of all 11 checkpoints. Selection picked C3, so the last seven rounds
+  added nothing to the final harness (AHE-040 has its test result).
+- **Same failure family throughout:** in round 9, 52 of the 80 diagnoses
+  were the "candidate-set closure" family (finding and reading the right
+  documents).
+- **Dominant failure:** at C3, 54 of the 80 Debugger diagnoses were
+  "incomplete document reading".
+- **Some self-correction:** in round 6 Evolve judged C5's change harmful,
+  rolled it back, and moved from tools and middleware to a skill.
+
+### Local handling
+
+None. The run finished unchanged (2026-10-24) so the record is complete.
+Adding a plateau rule to the role supplements would have changed the campaign
+identity (AHE-042).
+
+### Upstream recommendations
+
+1. Give Evolve the noise band of the training metric, so it can tell a real
+   regression from noise.
+2. Offer, as options:
+   - choosing the parent checkpoint (for example the best by training
+     score, or the best within the noise band);
+   - a short branching search instead of a strict chain.
+3. Put a plateau rule in the core Evolve prompt: when the last rounds stay
+   within the noise, target a different failure class or harness component.
+4. Track, across rounds, which failure classes and components have been
+   targeted, and show that history to Evolve.
+
+## AHE-042: execution settings are part of the campaign identity
+
+### Plain-language summary
+
+Every config field is part of the campaign identity, and the transport block
+is a semantic input of each evaluation stage. Changing a setting that cannot
+change any result therefore makes the campaign impossible to resume:
+
+- retry counts;
+- concurrency;
+- pacing;
+- the maximum number of stage attempts.
+
+So does fixing a meta-agent's guidance mid-campaign. In each case the only
+option was a new campaign that reruns finished work.
+
+### Evidence
+
+- Campaign 13 to 13b changed only these settings, after the AHE-031 block:
+  - `transient_retries` 40 to 6;
+  - `judge_max_concurrent_calls` 18 to 4;
+  - `maximum_stage_attempts` 3 to 10.
+
+  It needed a fresh campaign directory, and the 7 finished units were run
+  again.
+- Every new setting since (the `transport` fields in AHE-028 and AHE-032,
+  `evaluation.train_extra_trials`) had to be dropped from the serialized
+  config at its default, or every existing campaign would have changed
+  identity.
+- Adding a plateau rule to campaign 23's Evolve supplement (AHE-041) would
+  need a new or forked campaign.
+
+### Upstream recommendations
+
+1. Split the config into two groups:
+   - **result-affecting settings**, part of the identity: models, harness,
+     split, metric, prompts and seeds;
+   - **execution settings**, which may change on resume with an audit
+     record: concurrency, retries, pacing, timeouts and recovery.
+2. Allow an audited amendment to meta-agent guidance that takes effect from
+   a named round, like `extend-rounds` (AHE-027). The report must then say
+   which rounds ran under which guidance.
+3. Make "new settings at their default do not change identity" an explicit,
+   tested rule of the config schema.
+
+## AHE-043: smaller items
+
+1. **Spawned trials re-run the operator's script.** Trial child processes
+   use the `spawn` start method, so each child imports the parent's
+   `__main__`. An operator script that drives a `CampaignController` without
+   an `if __name__ == "__main__":` guard starts the controller again inside
+   every child. The only error is "child process exited with code 1" (found
+   in campaign 23's smoke script). Upstream has the same start method
+   (`child_process.py`). Recommendation: start children from a runner-owned
+   module entry point, or detect a re-entered `__main__` and fail with a
+   clear message.
+2. **Throwaway campaigns are hard to delete.** Checkpoint and stage files
+   are written read-only, so deleting a smoke campaign needs
+   `chmod -R u+w` first. Recommendation: an
+   `ahe discard --config` command that archives or removes a campaign
+   directory safely.
