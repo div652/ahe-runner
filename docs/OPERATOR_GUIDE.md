@@ -335,6 +335,42 @@ middleware or the local NexAU sandbox as an OS security boundary.
 Model IDs sent to the endpoint are exact and unprefixed. Do not use
 `openai/<id>` or `copilot/<id>` in this file.
 
+### Evolution algorithm, selection, and pricing
+
+`algorithm` chooses the search; the default is AHE. RRSI and operator
+algorithms are described in [ALGORITHMS.md](ALGORITHMS.md) and
+[RRSI.md](RRSI.md):
+
+```yaml
+algorithm:
+  name: rrsi                  # ahe (default) | rrsi | module.path:Class
+  settings: {}                # the algorithm's own settings
+  role_supplements:           # benchmark briefs for the algorithm's roles
+    proposer: ./rrsi_supplements/proposer.md
+
+selection:
+  policy: null                # null: algorithm default; validation | algorithm
+
+models:
+  evaluated:
+    pricing:                  # cost accounting; required by RRSI's cost rule
+      currency: USD
+      input_per_million: 1.25
+      cached_input_per_million: 0.125
+      cache_write_per_million: 1.25
+      output_per_million: 10.0
+```
+
+`meta.role_supplements` and `meta.explore` configure AHE's roles;
+`algorithm.role_supplements` configures the selected algorithm's roles. The
+NexAU meta backend still requires `meta.explore` with the web extra.
+`ahe validate` reports the algorithm's resolved settings, its selection
+policy, and any problems it finds with the campaign.
+
+Pricing never reaches the provider. Use your provider's published prices per
+million tokens; a gateway such as CAO lists them in its model catalog
+(`GET /v1/models`, `billing.token_prices`).
+
 ### Identity settings and execution settings
 
 A campaign's identity covers everything that can change a result: models,
@@ -679,8 +715,10 @@ changing it does not invalidate resume.
 
 ### Extend a campaign with more rounds
 
-To continue evolution beyond the configured `campaign.rounds`, raise the value
-in the configuration file, then record the change:
+This applies to AHE campaigns; RRSI refuses it because its edit-budget
+schedule depends on the round count. To continue evolution beyond the
+configured `campaign.rounds`, raise the value in the configuration file, then
+record the change:
 
 ```bash
 # edit ahe.yaml: campaign.rounds: 5 -> 10

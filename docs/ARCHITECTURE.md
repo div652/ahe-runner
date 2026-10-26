@@ -14,14 +14,21 @@ One command then performs:
 
 ```text
 freeze C0
--> evaluate C0 on training tasks
--> Explore once
--> repeat N evidence-driven evolution rounds
+-> run the configured evolution algorithm on training evidence
 -> close evolution
--> evaluate C0..CN on held-out validation
--> select one checkpoint
+-> select one checkpoint (on validation data, or the algorithm's pick)
 -> evaluate C0 and the selected checkpoint on final test
 ```
+
+With the default algorithm, AHE, the middle step is:
+
+```text
+evaluate C0 on training tasks
+-> Explore once
+-> repeat N evidence-driven evolution rounds
+```
+
+and selection evaluates C0..CN on held-out validation.
 
 The output is not only a final harness. It is an auditable campaign containing
 every immutable checkpoint, evaluation, evidence bundle, Debugger report,
@@ -49,6 +56,25 @@ benchmark event stream.
 Legacy `BenchmarkAdapter` plugins remain loadable. Version 2 intentionally
 does not claim to support arbitrary agent frameworks. The benchmark protocol
 is pluggable; the harness runtime is NexAU-specific.
+
+## Evolution algorithms
+
+The search strategy is a plugin (`algorithms/`, [ALGORITHMS.md](ALGORITHMS.md)).
+The runner owns the baseline, evaluation, evidence, candidate workspaces and
+validation, immutable checkpoints recorded with their parent (a lineage
+graph; AHE's is a chain), priced cost, meta-agent execution, durable stages,
+selection, and the final test. The algorithm owns which checkpoints to build
+from which parents, which roles to run, which candidates to keep, and which
+checkpoint to ship. It sees only the training split.
+
+`algorithm.name` selects `ahe` (default), `rrsi` ([RRSI.md](RRSI.md)), or an
+operator class. `selection.policy` chooses between validation selection over
+the algorithm's nominees plus C0 and the algorithm's own pick. When the
+algorithm is not the default, its identity, settings, code and resource
+hashes, and role supplements are part of the campaign identity.
+
+The invariants below are AHE's. Every algorithm inherits numbers 1, 3 (for
+every checkpoint it freezes), 4, 5, and 7 from the runner.
 
 ## Core AHE invariants
 
@@ -761,7 +787,10 @@ campaign-artifacts/<campaign>/
 ├── stages/
 ├── selection/
 ├── final/
-└── reports/
+├── reports/
+├── algorithm/       # non-AHE algorithms' own artifacts
+├── candidates/      # validation reports of non-AHE candidates
+└── costs/           # priced cost per trial, when an algorithm asks for it
 ```
 
 The final selected harness is exported to:
@@ -786,9 +815,10 @@ ahe validate --config PATH
 ahe run --config PATH
 ahe resume --config PATH
 ahe status --config PATH
-ahe run-round --config PATH --round N
+ahe run-round --config PATH --round N                       # AHE only
 ahe retry-stage --config PATH --stage NAME --reason TEXT
 ahe extend-rounds --config PATH --reason TEXT [--apply] [--reopen-closed-evolution]
+                                                            # AHE only
 ahe supervise --config PATH [--max-consecutive-failures N]
 ahe evaluate --config PATH --output DIR (--checkpoint CN | --harness DIR)
              (--split NAME | --tasks FILE) [--trials N] [--seed N] [--label TEXT]

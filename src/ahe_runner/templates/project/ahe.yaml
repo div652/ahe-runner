@@ -75,3 +75,12 @@ meta:
   max_running_subagents: 5
   evolve_max_iterations: 500
   explore_max_iterations: 200
+
+# The evolution algorithm. Omitted, it is AHE. See docs/ALGORITHMS.md and
+# docs/RRSI.md for RRSI and for writing your own.
+# algorithm:
+#   name: rrsi
+#   settings:
+#     cost: disabled          # or set models.evaluated.pricing
+# selection:
+#   policy: null              # validation | algorithm; null: algorithm default

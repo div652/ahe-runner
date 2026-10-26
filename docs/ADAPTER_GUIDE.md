@@ -245,6 +245,11 @@ session = runtime.open_session(
         benchmark_tools=(LOOK_UP,),
         context={"task_id": task_id},
         session_resources={"public_repository": repository_index},
+        # The evaluation unit and attempt (EvaluationStore.begin_attempt):
+        # they let the runner price this session's tokens for the trial
+        # that completed the unit.
+        unit_id=unit.unit_id,
+        attempt=attempt,
     )
 )
 try:
@@ -435,11 +440,24 @@ The runner verifies the common envelope before accepting adapter semantics:
 - complete output artifact coverage.
 
 Each `EvaluationTrialFact` contains the evaluation unit ID, native outcome,
-optional native score, termination reason, and a diagnostic class:
-`passing`, `failing`, or `other`. `verify_evaluation()` must independently
-recompute the same facts from protected native artifacts. The diagnostic class
-states whether pass/fail paired Debugger comparison is applicable; it does not
-replace benchmark-native metrics.
+optional native score, termination reason, a diagnostic class (`passing`,
+`failing`, or `other`), and an optional positive `weight`.
+`verify_evaluation()` must independently recompute the same facts from
+protected native artifacts. The diagnostic class states whether pass/fail
+paired Debugger comparison is applicable; it does not replace
+benchmark-native metrics.
+
+Algorithms that score trials themselves (RRSI) use
+sum(weight x score) / sum(weight) over all trials. Set the weight when a
+trial's score is a fraction of a varying number of graded items, for example
+weight = number of rubric criteria and score = fraction passed, which makes
+the result the pooled criterion pass rate. RRSI's `objective.check_metric`
+can assert that this equals one of your summary metrics.
+
+Every agent session should carry `unit_id` and `attempt`. The runtime marks
+the session's folder, and the runner then attributes its recorded token usage
+to the completed attempt of that unit; calls recorded by the adapter's own
+clients (judges, helpers) never count as the agent's cost.
 
 The adapter remains responsible for deciding whether the final text/action
 sequence is a valid benchmark outcome. The runner verifies artifact paths,

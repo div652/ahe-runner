@@ -1,15 +1,23 @@
 # AHE Runner
 
-`ahe-runner` applies Agentic Harness Engineering (AHE) to file-backed NexAU
-agents. You provide:
+`ahe-runner` evolves file-backed NexAU agents. You provide:
 
 1. a **base harness** containing the behavior that may evolve;
 2. a **benchmark adapter** providing tasks, tools, rewards, traces, and splits;
-3. a **campaign configuration** selecting models, transport, and rounds.
+3. a **campaign configuration** selecting models, transport, rounds, and the
+   **evolution algorithm**.
 
-The runner evaluates the base harness, preserves every checkpoint, uses
-Explore/Debugger/Evolve agents to improve it from training evidence, selects on
-validation data, and exports the selected harness after final testing.
+The runner evaluates the base harness, preserves every checkpoint, runs the
+algorithm's search on training evidence, selects the checkpoint to ship, and
+exports it after a final test against the base harness.
+
+Two algorithms are built in, and others can be plugged in
+([ALGORITHMS.md](docs/ALGORITHMS.md)):
+
+| `algorithm.name` | Method |
+|---|---|
+| `ahe` (default) | Agentic Harness Engineering: Explore, per-task Debugger, one global Evolve update per round; selection on validation data |
+| `rrsi` | Regularized Recursive Self-Improvement (arXiv:2609.24972): analyst and digesters, proposer variants under an annealed edit budget, a leakage critic, noise-adjusted and cost-aware acceptance ([RRSI.md](docs/RRSI.md)) |
 
 ## Start with three stages
 
@@ -315,6 +323,8 @@ and [Read the outputs](docs/OPERATOR_GUIDE.md#10-read-the-outputs).
 | [`ADAPTER_GUIDE.md`](docs/ADAPTER_GUIDE.md) | Benchmark execution, tools, metrics, traces, and evidence |
 | [`RUNTIME_BACKED_EXAMPLE.md`](docs/RUNTIME_BACKED_EXAMPLE.md) | Live toy integration walkthrough |
 | [`ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Lifecycle, ownership, recovery, and protection guarantees |
+| [`ALGORITHMS.md`](docs/ALGORITHMS.md) | Choosing or writing an evolution algorithm; selection policies; cost |
+| [`RRSI.md`](docs/RRSI.md) | The RRSI algorithm: method, settings, hyperparameters, artifacts |
 
 Additional references:
 [`V2_DESIGN.md`](docs/V2_DESIGN.md),

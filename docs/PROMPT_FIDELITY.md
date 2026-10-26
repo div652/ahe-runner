@@ -11,6 +11,14 @@ hashed role supplement, but cannot replace the core procedure without creating
 an explicit methodology fork. Resolved prompts are appended to NexAU after
 template rendering, so supplement text is preserved literally.
 
+The rendered part is a single newline, never empty: for an empty system
+prompt NexAU 0.3.9 substitutes its default one-line prompt and drops the
+appended text. From 0.4.0 (commit `bc466ac`) through 0.8.0 the runner set an
+empty system prompt, so meta agents run from this repository's `main` in that
+period received NexAU's default prompt instead of their protected prompt.
+The harveybench branches pass the prompt as a file and were not affected. A
+test now checks the instructions a mocked model endpoint receives.
+
 ## Source Explore
 
 | Original function | Runner translation | Preserved or approved deviation | Executable check |
