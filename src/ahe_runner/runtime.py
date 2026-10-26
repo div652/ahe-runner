@@ -63,6 +63,11 @@ class AgentSessionRequest(RuntimeModel):
     # other session can reach. Unlike `context`, routing never passes through
     # NexAU's process-wide current-context slot.
     session_resources: dict[str, Any] = Field(default_factory=dict)
+    # The evaluation unit and attempt this session belongs to. They let the
+    # runner attribute the session's recorded token usage to the trial that
+    # completed (cost.py); adapters using EvaluationStore should set both.
+    unit_id: str | None = None
+    attempt: int | None = Field(default=None, ge=1)
 
     @field_validator("session_resources")
     @classmethod
@@ -394,6 +399,7 @@ class EvaluatedAgentRuntime:
                 f"session artifact directory escapes evaluation root: {artifact_dir}"
             ) from exc
         artifact_dir.mkdir(parents=True, exist_ok=True)
+        _record_evaluated_session(artifact_dir, request)
         working_directory = _session_working_directory(
             request.working_directory,
             artifact_dir,
@@ -980,3 +986,26 @@ def _model_dump(value: Any) -> dict[str, Any]:
         if isinstance(payload, dict):
             return payload
     raise TypeError(f"expected a serializable NexAU message, got {type(value)!r}")
+
+
+EVALUATED_SESSION_MARKERS = "evaluated_sessions"
+
+
+def _record_evaluated_session(artifact_dir: Path, request: AgentSessionRequest) -> None:
+    """Mark a directory whose model calls are evaluated-agent calls.
+
+    Adapters also record their own model calls (judges, helpers) in the
+    evaluation folder; only directories carrying this marker count as the
+    evaluated agent's usage.
+    """
+
+    atomic_write_json(
+        artifact_dir / EVALUATED_SESSION_MARKERS / f"{request.session_id}.json",
+        {
+            "schema_version": 1,
+            "session_id": request.session_id,
+            "unit_id": request.unit_id,
+            "attempt": request.attempt,
+            "model_calls_dir": "model_calls",
+        },
+    )

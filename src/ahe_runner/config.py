@@ -17,6 +17,30 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class TokenPrices(StrictModel):
+    """Provider prices per million tokens of each usage category."""
+
+    input_per_million: float = Field(ge=0)
+    # Prompt tokens read from the provider's cache; default: the input price.
+    cached_input_per_million: float | None = Field(default=None, ge=0)
+    # Prompt tokens written to the provider's cache; default: the input price.
+    cache_write_per_million: float | None = Field(default=None, ge=0)
+    # Includes reasoning tokens, which providers bill as output.
+    output_per_million: float = Field(ge=0)
+
+
+class LongContextPrices(TokenPrices):
+    # The tier applies to a call whose prompt exceeds this many tokens.
+    above_prompt_tokens: int = Field(gt=0)
+
+
+class ModelPricing(TokenPrices):
+    """Prices used to turn recorded token usage into cost (see cost.py)."""
+
+    currency: str = "USD"
+    long_context: LongContextPrices | None = None
+
+
 class ModelSettings(StrictModel):
     model: str
     max_tokens: int = Field(gt=0)
@@ -26,6 +50,8 @@ class ModelSettings(StrictModel):
     # Wire API for this model when it differs from transport.api_mode, for a
     # gateway that serves model families on different APIs.
     api_mode: Literal["chat_completions", "responses"] | None = None
+    # Prices for cost accounting. They never reach the provider.
+    pricing: ModelPricing | None = None
 
     @field_validator("model")
     @classmethod
@@ -284,6 +310,34 @@ class MetaSettings(StrictModel):
         return normalized
 
 
+class AlgorithmConfig(StrictModel):
+    """The evolution algorithm and its settings (see algorithms/)."""
+
+    # A built-in name ("ahe", "rrsi") or "module.path:Class" for an algorithm
+    # supplied by the operator project.
+    name: str = "ahe"
+    # Validated by the algorithm's own settings model.
+    settings: dict[str, Any] = Field(default_factory=dict)
+    # Operator supplements appended to the algorithm's role prompts, by role.
+    role_supplements: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("algorithm.name must be non-empty")
+        return normalized
+
+
+class SelectionSettings(StrictModel):
+    # How the shipped checkpoint is chosen after evolution closes:
+    # "validation" evaluates the algorithm's nominees (and C0) on the
+    # validation split; "algorithm" takes the algorithm's own pick without a
+    # validation evaluation. None: the algorithm's default.
+    policy: Literal["validation", "algorithm"] | None = None
+
+
 class ConfigDocument(StrictModel):
     schema_version: Literal[1]
     campaign: CampaignSettings
@@ -294,6 +348,8 @@ class ConfigDocument(StrictModel):
     debugger: DebuggerSettings = Field(default_factory=DebuggerSettings)
     recovery: RecoverySettings = Field(default_factory=RecoverySettings)
     meta: MetaSettings = Field(default_factory=MetaSettings)
+    algorithm: AlgorithmConfig = Field(default_factory=AlgorithmConfig)
+    selection: SelectionSettings = Field(default_factory=SelectionSettings)
 
 
 # Settings that decide how the campaign runs but cannot change a completed
@@ -334,6 +390,10 @@ LATER_RESULT_DEFAULTS: dict[str, Any] = {
     "models.evaluated.api_mode": None,
     "models.meta.api_mode": None,
     "evaluation.provider_rejection_policy": "grade",
+    "models.evaluated.pricing": None,
+    "models.meta.pricing": None,
+    "algorithm": {"name": "ahe", "settings": {}, "role_supplements": {}},
+    "selection": {"policy": None},
 }
 
 
@@ -361,9 +421,12 @@ def execution_settings(document: ConfigDocument) -> dict[str, Any]:
 
 
 def model_identity(model: ModelSettings) -> dict[str, Any]:
+    """Model fields that can change what the provider receives."""
+
     value = model.model_dump(mode="json")
     if value.get("api_mode") is None:
         value.pop("api_mode", None)
+    value.pop("pricing", None)
     return value
 
 
@@ -412,6 +475,7 @@ class ResolvedConfig:
     adapter_dependency_paths: tuple[Path, ...]
     meta_agent_source_roots: tuple[Path, ...]
     role_supplements: tuple[tuple[str, Path], ...]
+    algorithm_role_supplements: tuple[tuple[str, Path], ...] = ()
 
     @property
     def campaign_dir(self) -> Path:
@@ -494,6 +558,18 @@ def load_config(path: Path) -> ResolvedConfig:
         for role, value in document.meta.role_supplements.model_dump().items()
         if value is not None
     )
+    algorithm_role_supplements = tuple(
+        (
+            role,
+            _resolve_declared_file(
+                project_root,
+                value,
+                artifacts_dir=artifacts_dir,
+                label=f"algorithm.role_supplements.{role}",
+            ),
+        )
+        for role, value in sorted(document.algorithm.role_supplements.items())
+    )
     return ResolvedConfig(
         config_path=config_path,
         project_root=project_root,
@@ -504,6 +580,7 @@ def load_config(path: Path) -> ResolvedConfig:
         adapter_dependency_paths=adapter_dependency_paths,
         meta_agent_source_roots=meta_agent_source_roots,
         role_supplements=role_supplements,
+        algorithm_role_supplements=algorithm_role_supplements,
     )
 
 

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from ahe_runner.adapter import BenchmarkInterface, MetaPromptContext
-from ahe_runner.config import ResolvedConfig
+from ahe_runner.config import ModelSettings, ResolvedConfig
 from ahe_runner.harness import HarnessManifest
 
 
@@ -19,6 +20,51 @@ class MetaBackendContext:
     benchmark_interface: BenchmarkInterface
     harness_manifest: HarnessManifest
     method_reference: Path
+
+
+@dataclass(frozen=True, slots=True)
+class RoleTool:
+    """A tool an algorithm supplies for one of its roles."""
+
+    name: str
+    description_path: Path  # NexAU *.tool.yaml
+    binding: str  # "module.path:function"
+
+
+@dataclass(frozen=True, slots=True)
+class RoleSpec:
+    """One run of an algorithm-defined meta-agent role.
+
+    The backend supplies model routing, call recording, path-guarded file
+    tools, long-output handling, and context compaction; the algorithm
+    supplies the prompt, the query, the tools, and the roots the role may
+    read and write.
+    """
+
+    role: str  # algorithm role key, for logs and supplements
+    agent_name: str
+    description: str
+    prompt_path: Path
+    query: str
+    runtime_dir: Path
+    max_iterations: int
+    default_root: str
+    read_roots: dict[str, Path] = field(default_factory=dict)
+    write_roots: dict[str, Path] = field(default_factory=dict)
+    # Runner tools by name (read_file, write_file, git_commit, ...), plus
+    # algorithm tools.
+    tools: tuple[str, ...] = ()
+    algorithm_tools: tuple[RoleTool, ...] = ()
+    stop_tools: tuple[str, ...] = ()
+    skills: tuple[Path, ...] = ()
+    supplement: Path | None = None
+    # Extra values tools read from the agent context.
+    context: dict[str, Any] = field(default_factory=dict)
+    # "reader" uses the Debugger's output limits, "writer" the Evolve Agent's.
+    profile: Literal["reader", "writer"] = "reader"
+    settings: ModelSettings | None = None  # None: models.meta
+    # Deterministic stand-in used by the scripted backend (tests, examples).
+    scripted: Callable[[RoleSpec], str] | None = None
 
 
 class MetaBackend(ABC):
@@ -62,3 +108,10 @@ class MetaBackend(ABC):
         output_dir: Path,
     ) -> dict[str, Any]:
         """Continue one logical global Evolve stage."""
+
+    def run_role(self, spec: RoleSpec) -> str:
+        """Run one algorithm-defined role; return its final response."""
+
+        raise NotImplementedError(
+            f"{type(self).__name__} does not run algorithm-defined roles"
+        )

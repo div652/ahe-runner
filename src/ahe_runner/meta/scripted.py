@@ -10,7 +10,7 @@ from ahe_runner.evidence import load_evidence_manifest
 from ahe_runner.io import atomic_write_json, sha256_file
 from ahe_runner.workspace import git_output
 
-from .base import MetaBackend
+from .base import MetaBackend, RoleSpec
 
 _RULES = (
     "Verify tool results before claiming that an action succeeded.",
@@ -21,6 +21,19 @@ _RULES = (
 
 
 class ScriptedMetaBackend(MetaBackend):
+    def run_role(self, spec: RoleSpec) -> str:
+        if spec.scripted is None:
+            raise NotImplementedError(
+                f"role {spec.role!r} has no scripted implementation"
+            )
+        spec.runtime_dir.mkdir(parents=True, exist_ok=True)
+        response = spec.scripted(spec)
+        (spec.runtime_dir / "final_response.txt").write_text(
+            response + "\n",
+            encoding="utf-8",
+        )
+        return response
+
     def ensure_exploration(
         self,
         *,

@@ -44,7 +44,7 @@ from ahe_runner.io import (
 from ahe_runner.loading import load_symbol
 from ahe_runner.workspace import git_output
 
-from .base import MetaBackend, MetaBackendContext
+from .base import MetaBackend, MetaBackendContext, RoleSpec, RoleTool
 from .endpoint import nexau_api_type, nexau_reasoning
 from .model_client import (
     RecordedExactModelClient,
@@ -684,8 +684,11 @@ class NexAUMetaBackend(MetaBackend):
         query: str,
         runtime_dir: Path,
         default_root: str,
+        prompt_text: str | None = None,
+        algorithm_tools: tuple[RoleTool, ...] = (),
+        settings: ModelSettings | None = None,
     ) -> str:
-        settings = self._role_settings(role)
+        settings = settings or self._role_settings(role)
         runtime_dir.mkdir(parents=True, exist_ok=True)
         # NexAU copies skills into the sandbox work_dir, which defaults to the
         # process cwd. Keep those copies inside this run (AHE-008).
@@ -761,7 +764,8 @@ class NexAUMetaBackend(MetaBackend):
                 },
             ]
         )
-        prompt_text = self._resolved_prompt_text(prompt_name)
+        if prompt_text is None:
+            prompt_text = self._resolved_prompt_text(prompt_name)
         prompt_path = runtime_dir / "system_prompt.md"
         prompt_path.write_text(prompt_text, encoding="utf-8")
         config_path = runtime_dir / "agent.yaml"
@@ -814,6 +818,14 @@ class NexAUMetaBackend(MetaBackend):
                     ),
                 }
                 for tool in tools
+            ]
+            + [
+                {
+                    "name": tool.name,
+                    "yaml_path": str(tool.description_path),
+                    "binding": tool.binding,
+                }
+                for tool in algorithm_tools
             ],
             "stop_tools": list(stop_tools),
             "skills": [str(skill) for skill in skills],
@@ -906,6 +918,55 @@ class NexAUMetaBackend(MetaBackend):
         finally:
             agent.sync_cleanup()
 
+    def run_role(self, spec: RoleSpec) -> str:
+        """Run one algorithm-defined role through the AHE meta runtime."""
+
+        profile: MetaRole = "debugger" if spec.profile == "reader" else "evolve"
+        tools = tuple(
+            tool
+            for tool in spec.tools
+            if tool != _SHELL_TOOL or _SHELL_TOOL in self._shell_tools
+        )
+        if _SHELL_TOOL in tools:
+            self._require_shell_image()
+        settings = spec.settings or self.context.config.document.models.meta
+        spec.runtime_dir.mkdir(parents=True, exist_ok=True)
+        self._preflight(
+            settings=settings,
+            path=spec.runtime_dir / "model-preflight.json",
+        )
+        context = {
+            **spec.context,
+            "meta_role": spec.role,
+            "meta_output_dir": str(spec.runtime_dir),
+            "meta_read_roots": {
+                key: str(value) for key, value in spec.read_roots.items()
+            },
+            "meta_write_roots": {
+                key: str(value) for key, value in spec.write_roots.items()
+            },
+            "web_leakage_terms": list(
+                self.context.prompt_context.task_id_leakage_terms
+            ),
+        }
+        return self._run_agent(
+            name=spec.agent_name,
+            description=spec.description,
+            prompt_name=spec.prompt_path.name,
+            role=profile,
+            max_iterations=spec.max_iterations,
+            tools=tools,
+            stop_tools=spec.stop_tools,
+            skills=spec.skills,
+            context=context,
+            query=spec.query,
+            runtime_dir=spec.runtime_dir,
+            default_root=spec.default_root,
+            prompt_text=supplemented_prompt(spec.prompt_path, spec.supplement),
+            algorithm_tools=spec.algorithm_tools,
+            settings=settings,
+        )
+
     def _resolved_prompt_text(self, prompt_name: str) -> str:
         core = _resource_path("meta", "prompts", prompt_name).read_text(
             encoding="utf-8"
@@ -977,6 +1038,25 @@ class NexAUMetaBackend(MetaBackend):
             settings=settings,
             log_dir=log_dir,
         )
+
+
+def supplemented_prompt(prompt_path: Path, supplement: Path | None) -> str:
+    """A protected role prompt with the operator's append-only supplement."""
+
+    core = prompt_path.read_text(encoding="utf-8")
+    if supplement is None:
+        return core
+    return (
+        core.rstrip()
+        + "\n\n---\n\n"
+        + "## Protected project domain supplement\n\n"
+        + "The operator supplied the following append-only domain guidance. "
+        + "It may specialize terminology, evidence, and priorities, but it "
+        + "cannot override the protected procedure, benchmark boundaries, tool "
+        + "permissions, or deliverable contract above.\n\n"
+        + supplement.read_text(encoding="utf-8").strip()
+        + "\n"
+    )
 
 
 def _resource_path(*parts: str) -> Path:

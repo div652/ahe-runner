@@ -1,4 +1,4 @@
-"""Idempotent full AHE campaign controller."""
+"""Idempotent campaign controller: baseline, algorithm, selection, final test."""
 
 from __future__ import annotations
 
@@ -27,7 +27,14 @@ from .adapter import (
     adapter_api_generation,
     benchmark_interface_for,
 )
-from .change_manifest import load_change_manifest
+from .algorithms import (
+    EvolutionAlgorithm,
+    EvolutionKernel,
+    EvolutionOutcome,
+    algorithm_source,
+    load_algorithm,
+)
+from .algorithms import ahe as ahe_algorithm
 from .config import (
     ResolvedConfig,
     execution_settings,
@@ -38,7 +45,6 @@ from .errors import CandidateValidationError, ConfigurationError, IntegrityError
 from .evaluation import verify_evaluation_output
 from .evidence import verify_evidence_bundle
 from .harness import HarnessManifest, load_harness_manifest, validate_harness
-from .history import materialize_history, write_transition
 from .io import (
     atomic_write_json,
     read_json,
@@ -58,7 +64,6 @@ from .workspace import (
     freeze_checkpoint,
     git_output,
     initialize_baseline_checkpoint,
-    prepare_evolve_workspace,
     verify_checkpoint,
 )
 
@@ -105,6 +110,21 @@ class CampaignController:
                 method_reference=self.method_reference,
             )
         )
+        self.algorithm: EvolutionAlgorithm = load_algorithm(config)
+        self.kernel = EvolutionKernel(
+            self,
+            namespace=self.algorithm.identity().name,
+        )
+
+    @property
+    def selection_policy(self) -> str:
+        return (
+            self.config.document.selection.policy
+            or self.algorithm.default_selection_policy
+        )
+
+    def _is_ahe(self) -> bool:
+        return isinstance(self.algorithm, ahe_algorithm.AheAlgorithm)
 
     def validate_project(self) -> dict[str, Any]:
         report = validate_harness(
@@ -127,6 +147,12 @@ class CampaignController:
                 for name, split in self.splits.items()
             },
             "harness": report,
+            "algorithm": {
+                **self.algorithm.identity().model_dump(mode="json"),
+                "settings": self.algorithm.settings.model_dump(mode="json"),
+                "selection_policy": self.selection_policy,
+                "problems": self.algorithm.check(self.kernel),
+            },
             "warnings": [*self._metric_guidance_warnings(), *self._route_warnings()],
         }
 
@@ -138,21 +164,33 @@ class CampaignController:
             "benchmark_interface": validation["benchmark_interface"],
             "harness_abi": validation["harness"]["conformance"],
             "nexau_smoke": validation["harness"]["nexau_smoke"],
+            "algorithm": validation["algorithm"],
             "warnings": validation["warnings"],
-            "valid": validation["harness"]["valid"],
+            "valid": validation["harness"]["valid"]
+            and not validation["algorithm"]["problems"],
         }
 
     def run(self) -> dict[str, Any]:
         self.prepare()
-        self._ensure_training_evaluation(0)
-        self._ensure_evidence(0)
-        self._ensure_exploration()
-        for index in range(1, self.config.document.campaign.rounds + 1):
-            self.run_round(index)
         self.close_evolution()
         self.run_validation()
         self.run_final_test()
         return self.status()
+
+    def evolve(self) -> EvolutionOutcome:
+        """Run or resume the configured algorithm's search."""
+
+        self.prepare()
+        problems = self.algorithm.check(self.kernel)
+        if problems:
+            raise ConfigurationError(
+                f"algorithm {self.algorithm.identity().name!r} cannot run this "
+                "campaign: " + "; ".join(problems)
+            )
+        outcome = self.algorithm.evolve(self.kernel)
+        for label in {outcome.pick, *outcome.nominees}:
+            verify_checkpoint(self._checkpoint_dir(int(label[1:])))
+        return outcome
 
     def resume(self) -> dict[str, Any]:
         if not self._campaign_manifest_path().is_file():
@@ -190,76 +228,90 @@ class CampaignController:
         return result.data
 
     def run_round(self, index: int) -> dict[str, Any]:
-        rounds = self.config.document.campaign.rounds
-        if not 1 <= index <= rounds:
-            raise ValueError(f"round must be between 1 and {rounds}")
-        self.prepare()
-        self._ensure_training_evaluation(index - 1)
-        evidence_dir = self._ensure_evidence(index - 1)
-        self._ensure_exploration()
-        debugger_dir = self._ensure_debugger(index, evidence_dir)
-        history_dir = materialize_history(
-            campaign_dir=self.config.campaign_dir,
-            through_round=index - 1,
-        )
-        attribution_dir = (
-            self.config.campaign_dir / "attribution" / f"C{index - 1}"
-            if index > 1
-            else None
-        )
-        evolve_result = self._ensure_evolve(
-            index=index,
-            evidence_dir=evidence_dir,
-            debugger_dir=debugger_dir,
-            history_dir=history_dir,
-            attribution_dir=attribution_dir,
-        )
-        workspace = Path(str(evolve_result["workspace"]))
-        validation = self._ensure_candidate_validation(index, workspace)
-        self._ensure_checkpoint(index, workspace, validation)
-        self._ensure_training_evaluation(index)
-        self._ensure_evidence(index)
-        self._ensure_attribution(index)
-        self._write_state()
-        return {
-            "checkpoint": f"C{index}",
-            "evaluation": str(self._evaluation_dir(index, SplitName.TRAIN)),
-        }
+        """Run one AHE round (``ahe run-round``); AHE campaigns only."""
+
+        if not self._is_ahe():
+            raise ConfigurationError(
+                "run-round is an AHE command; this campaign uses algorithm "
+                f"{self.algorithm.identity().name!r}"
+            )
+        return ahe_algorithm.run_round(self, index)
 
     def close_evolution(self) -> dict[str, Any]:
+        outcome = self.evolve()
         rounds = self.config.document.campaign.rounds
-        self._ensure_training_evaluation(rounds)
-        result = self.stage_store.run(
-            name="evolution.close",
-            semantic_inputs={
+        if self._is_ahe():
+            semantic_inputs: dict[str, Any] = {
                 "final_checkpoint": f"C{rounds}",
                 "rounds": rounds,
-            },
+            }
+        else:
+            semantic_inputs = {
+                "algorithm": self.algorithm.identity().model_dump(mode="json"),
+                "outcome": outcome.model_dump(mode="json"),
+                "rounds": rounds,
+            }
+        result = self.stage_store.run(
+            name="evolution.close",
+            semantic_inputs=semantic_inputs,
             retryable=False,
-            action=lambda context: self._close_evolution_action(context, rounds),
+            action=lambda context: self._close_evolution_action(
+                context, rounds, outcome
+            ),
         )
         self._write_state()
         return result.data
 
+    def _closed_outcome(self, closed: dict[str, Any]) -> EvolutionOutcome:
+        if "outcome" in closed:
+            return EvolutionOutcome.model_validate(closed["outcome"])
+        # Campaigns closed before algorithm plugins: AHE's chain.
+        rounds = int(str(closed["final_training_checkpoint"]).removeprefix("C"))
+        return EvolutionOutcome(
+            pick=f"C{rounds}",
+            nominees=[f"C{index}" for index in range(rounds + 1)],
+            summary="AHE chain",
+        )
+
     def run_validation(self) -> dict[str, Any]:
-        rounds = self.config.document.campaign.rounds
-        self.close_evolution()
+        outcome = self._closed_outcome(self.close_evolution())
+        if self.selection_policy == "algorithm":
+            result = self.stage_store.run(
+                name="selection",
+                semantic_inputs={
+                    "policy": "algorithm",
+                    "outcome": outcome.model_dump(mode="json"),
+                },
+                retryable=False,
+                action=lambda context: self._algorithm_selection_action(
+                    context, outcome
+                ),
+            )
+            self._write_state()
+            return result.data
+        labels = sorted(
+            {"C0", *outcome.nominees},
+            key=lambda label: int(label.removeprefix("C")),
+        )
         summaries: dict[str, EvaluationResult] = {}
-        for index in range(rounds + 1):
-            summaries[f"C{index}"] = self._ensure_evaluation(
-                index,
+        for label in labels:
+            summaries[label] = self._ensure_evaluation(
+                int(label.removeprefix("C")),
                 SplitName.VALIDATION,
             )
+        semantic_inputs: dict[str, Any] = {
+            "validation_evaluations": {
+                key: value.evaluation_id for key, value in summaries.items()
+            },
+            "adapter": self.adapter.identity().model_dump(mode="json"),
+        }
+        if not self._is_ahe():
+            semantic_inputs["policy"] = "validation"
         result = self.stage_store.run(
             name="selection",
-            semantic_inputs={
-                "validation_evaluations": {
-                    key: value.evaluation_id for key, value in summaries.items()
-                },
-                "adapter": self.adapter.identity().model_dump(mode="json"),
-            },
+            semantic_inputs=semantic_inputs,
             retryable=False,
-            action=lambda context: self._selection_action(context, summaries),
+            action=lambda context: self._selection_action(context, summaries, outcome),
         )
         self._write_state()
         return result.data
@@ -316,6 +368,8 @@ class CampaignController:
                 {"name": row["name"], "last_error": row.get("last_error")}
                 for row in interrupted
             ],
+            "algorithm": self.algorithm.identity().name,
+            "selection_policy": self.selection_policy,
             "campaign_amendments": self._amendment_summary(),
             "model_call_retries": summarize_model_call_retries(
                 self.config.campaign_dir,
@@ -400,11 +454,14 @@ class CampaignController:
         self,
         index: int,
         split_name: SplitName,
+        *,
+        repeat: int = 1,
     ) -> EvaluationResult:
-        request = self._evaluation_request(index, split_name)
+        request = self._evaluation_request(index, split_name, repeat=repeat)
         checkpoint_manifest = verify_checkpoint(self._checkpoint_dir(index))
+        suffix = "" if repeat == 1 else f".repeat-{repeat}"
         stage = self.stage_store.run(
-            name=f"evaluation.{request.checkpoint}.{split_name.value}",
+            name=f"evaluation.{request.checkpoint}.{split_name.value}{suffix}",
             semantic_inputs=self._evaluation_semantic_inputs(
                 request,
                 harness_sha256=checkpoint_manifest["harness_sha256"],
@@ -487,7 +544,11 @@ class CampaignController:
         self,
         index: int,
         split_name: SplitName,
+        *,
+        repeat: int = 1,
     ) -> EvaluationRequest:
+        if repeat < 1 or (repeat > 1 and split_name is not SplitName.TRAIN):
+            raise ValueError("only training evaluations can be repeated")
         trials = {
             SplitName.TRAIN: self.config.document.evaluation.train_trials,
             SplitName.VALIDATION: self.config.document.evaluation.validation_trials,
@@ -498,8 +559,9 @@ class CampaignController:
             harness_dir=self._checkpoint_dir(index) / "harness",
             split=self.splits[split_name],
             trials=trials,
-            root_seed=self.config.document.campaign.root_seed,
-            output_dir=self._evaluation_dir(index, split_name),
+            # A repeat is an independent evaluation with other trial seeds.
+            root_seed=self.config.document.campaign.root_seed + repeat - 1,
+            output_dir=self._evaluation_dir(index, split_name, repeat=repeat),
             model=self.config.document.models.evaluated,
             transport=self.config.document.transport,
             api_key=self.config.api_key,
@@ -555,158 +617,27 @@ class CampaignController:
         self._write_state()
         return output_dir
 
-    def _ensure_exploration(self) -> Path:
-        output_dir = self.config.campaign_dir / "explore_skills"
-        baseline = verify_checkpoint(self._checkpoint_dir(0))
-
-        def action(context: StageContext) -> StageResult:
-            manifest = self.meta.ensure_exploration(
-                seed_harness=self._checkpoint_dir(0) / "harness",
-                output_dir=output_dir,
-                attempt_dir=context.attempt_dir,
-            )
-            path = output_dir / "skills_manifest.json"
-            if not path.is_file():
-                atomic_write_json(path, manifest)
-            return StageResult(outputs=(output_dir,), data=manifest)
-
-        self.stage_store.run(
-            name="exploration",
-            semantic_inputs={
-                "baseline_harness_sha256": baseline["harness_sha256"],
-                "meta_model": self.config.document.models.meta.model_dump(mode="json"),
-                **self._meta_stage_inputs("explorers"),
-                "source_enabled": self.config.document.meta.explore.source_enabled,
-                "web_enabled": self.config.document.meta.explore.web_enabled,
-                "prompt_context": self.prompt_context.model_dump(mode="json"),
-            },
-            action=action,
-        )
-        self._write_state()
-        return output_dir
-
-    def _meta_stage_inputs(self, role: str) -> dict[str, Any]:
-        """Meta settings that change a stage's result (AHE-016), when set."""
-
-        meta = self.config.document.meta
-        inputs: dict[str, Any] = {}
-        overrides = getattr(meta.roles, role).model_dump(exclude_none=True)
-        if overrides:
-            inputs["meta_role_overrides"] = overrides
-        if meta.shell.backend != "disabled":
-            inputs["meta_shell"] = meta.shell.model_dump(mode="json")
-        return inputs
-
-    def _ensure_debugger(self, index: int, evidence_dir: Path) -> Path:
-        checkpoint = f"C{index - 1}"
-        output_dir = self.config.campaign_dir / "debugger" / f"C{index}"
-        evidence_sha = sha256_file(evidence_dir / "evidence_manifest.json")
-
-        def action(context: StageContext) -> StageResult:
-            result = self.meta.run_debugger(
-                checkpoint=checkpoint,
-                evidence_dir=evidence_dir,
-                output_dir=output_dir,
-                attempt_dir=context.attempt_dir,
-            )
-            return StageResult(outputs=(output_dir,), data=result)
-
-        self.stage_store.run(
-            name=f"round.{index}.debugger",
-            semantic_inputs={
-                "parent_checkpoint": checkpoint,
-                "evidence_manifest_sha256": evidence_sha,
-                "meta_model": self.config.document.models.meta.model_dump(mode="json"),
-                **self._meta_stage_inputs("debugger"),
-                "prompt_context": self.prompt_context.model_dump(mode="json"),
-            },
-            action=action,
-        )
-        self._write_state()
-        return output_dir
-
-    def _ensure_evolve(
+    def _ensure_candidate_validation_for(
         self,
         *,
-        index: int,
-        evidence_dir: Path,
-        debugger_dir: Path,
-        history_dir: Path,
-        attribution_dir: Path | None,
-    ) -> dict[str, Any]:
-        parent = self._checkpoint_dir(index - 1)
-        parent_manifest = verify_checkpoint(parent)
-        output_root = self.config.campaign_dir / "evolve" / f"C{index}"
-
-        def action(context: StageContext) -> StageResult:
-            workspace = prepare_evolve_workspace(
-                workspaces_dir=self.config.campaign_dir / "workspaces",
-                checkpoint=f"C{index}",
-                attempt=context.attempt,
-                parent_harness_dir=parent / "harness",
-                recovery_output_dir=context.attempt_dir / "recovery",
-            )
-            recovery_dir = (
-                context.attempt_dir / "recovery" if context.attempt > 1 else None
-            )
-            meta_output = output_root / f"attempt-{context.attempt:04d}"
-            result = self.meta.run_evolve(
-                round_index=index,
-                workspace=workspace,
-                evidence_dir=evidence_dir,
-                raw_evaluation_dir=self._evaluation_dir(
-                    index - 1,
-                    SplitName.TRAIN,
-                ),
-                debugger_dir=debugger_dir,
-                history_dir=history_dir,
-                attribution_dir=attribution_dir,
-                explore_skills_dir=self.config.campaign_dir / "explore_skills",
-                recovery_dir=recovery_dir,
-                output_dir=meta_output,
-            )
-            return StageResult(
-                outputs=(workspace, meta_output),
-                data={
-                    "workspace": str(workspace),
-                    "meta_output": str(meta_output),
-                    "result": result,
-                },
-            )
-
-        result = self.stage_store.run(
-            name=f"round.{index}.evolve",
-            semantic_inputs={
-                "round": index,
-                "parent_checkpoint": f"C{index - 1}",
-                "parent_harness_sha256": parent_manifest["harness_sha256"],
-                "evidence_sha256": sha256_file(evidence_dir / "evidence_manifest.json"),
-                "debugger_sha256": sha256_file(debugger_dir / "overview.json"),
-                "meta_model": self.config.document.models.meta.model_dump(mode="json"),
-                **self._meta_stage_inputs("evolve"),
-                "explore_skills_sha256": sha256_file(
-                    self.config.campaign_dir / "explore_skills" / "skills_manifest.json"
-                ),
-            },
-            action=action,
-        )
-        self._write_state()
-        return result.data
-
-    def _ensure_candidate_validation(
-        self,
-        index: int,
+        label: str,
+        parent: str,
         workspace: Path,
+        stage_name: str,
+        raise_invalid: bool,
+        report_path: Path | None = None,
     ) -> dict[str, Any]:
-        parent_dir = self._checkpoint_dir(index - 1) / "harness"
+        """Generic and adapter validation of a committed candidate workspace."""
+
+        parent_dir = self._checkpoint_dir(int(parent[1:])) / "harness"
         parent_validation = validate_harness(
             parent_dir,
             self.harness_manifest,
             project_root=self.config.project_root,
             run_nexau_smoke=False,
         )
-        output_path = (
-            self.config.campaign_dir / "evolve" / f"C{index}" / "validation.json"
+        output_path = report_path or (
+            self.config.campaign_dir / "candidates" / label / "validation.json"
         )
         workspace_head = _git_head(workspace)
         train_ids = tuple(self.splits[SplitName.TRAIN].task_ids)
@@ -722,8 +653,8 @@ class CampaignController:
             )
             adapter_result = self.adapter.validate_candidate(
                 CandidateValidationRequest(
-                    checkpoint=f"C{index}",
-                    parent_checkpoint=f"C{index - 1}",
+                    checkpoint=label,
+                    parent_checkpoint=parent,
                     harness_dir=workspace,
                     parent_harness_dir=parent_dir,
                     training_task_ids=train_ids,
@@ -736,7 +667,7 @@ class CampaignController:
                 "adapter": adapter_result.model_dump(mode="json"),
             }
             atomic_write_json(output_path, report)
-            if not report["valid"]:
+            if raise_invalid and not report["valid"]:
                 raise CandidateValidationError(
                     {
                         "errors": generic["errors"] + adapter_result.errors,
@@ -746,10 +677,10 @@ class CampaignController:
             return StageResult(outputs=(output_path,), data=report)
 
         result = self.stage_store.run(
-            name=f"round.{index}.validate",
+            name=stage_name,
             semantic_inputs={
                 "workspace_head": workspace_head,
-                "parent_checkpoint": f"C{index - 1}",
+                "parent_checkpoint": parent,
                 "harness_manifest_sha256": sha256_file(
                     self.config.harness_manifest_path
                 ),
@@ -760,20 +691,23 @@ class CampaignController:
         )
         return result.data
 
-    def _ensure_checkpoint(
+    def _ensure_checkpoint_for(
         self,
-        index: int,
+        *,
+        label: str,
+        parent: str,
         workspace: Path,
         validation: dict[str, Any],
+        stage_name: str,
     ) -> dict[str, Any]:
-        destination = self._checkpoint_dir(index)
+        destination = self._checkpoint_dir(int(label[1:]))
         workspace_head = _git_head(workspace)
 
         def action(context: StageContext) -> StageResult:
             del context
             manifest = freeze_checkpoint(
-                checkpoint=f"C{index}",
-                parent_checkpoint=f"C{index - 1}",
+                checkpoint=label,
+                parent_checkpoint=parent,
                 workspace=workspace,
                 destination=destination,
                 validation_report=validation,
@@ -784,7 +718,7 @@ class CampaignController:
             )
 
         result = self.stage_store.run(
-            name=f"round.{index}.freeze",
+            name=stage_name,
             semantic_inputs={
                 "workspace_head": workspace_head,
                 "validation_sha256": sha256_json(validation),
@@ -794,81 +728,19 @@ class CampaignController:
         )
         return result.data
 
-    def _ensure_attribution(self, index: int) -> Path:
-        before = EvaluationResult.model_validate(
-            read_json(
-                self._evaluation_dir(index - 1, SplitName.TRAIN) / "adapter_result.json"
-            )
-        )
-        after = EvaluationResult.model_validate(
-            read_json(
-                self._evaluation_dir(index, SplitName.TRAIN) / "adapter_result.json"
-            )
-        )
-        change_manifest = load_change_manifest(
-            self._checkpoint_dir(index) / "harness" / "change_manifest.json"
-        )
-        output_dir = self.config.campaign_dir / "attribution" / f"C{index}"
-        task_aliases = self._attribution_task_aliases(index, before, after)
-
-        def action(context: StageContext) -> StageResult:
-            del context
-            transition = self.adapter.compare(before.summary, after.summary)
-            path = write_transition(
-                output_dir=output_dir,
-                transition=transition,
-                change_manifest=change_manifest,
-                task_aliases=task_aliases,
-            )
-            return StageResult(
-                outputs=(path,),
-                data={"transition": transition.model_dump(mode="json")},
-            )
-
-        self.stage_store.run(
-            name=f"round.{index}.attribute",
-            semantic_inputs={
-                "before_evaluation": before.evaluation_id,
-                "after_evaluation": after.evaluation_id,
-                "change_manifest_sha256": sha256_json(
-                    change_manifest.model_dump(mode="json")
-                ),
-                "task_aliases_sha256": sha256_json(task_aliases),
-            },
-            retryable=False,
-            action=action,
-        )
-        return output_dir
-
     def _attribution_task_aliases(
         self,
         index: int,
         before: EvaluationResult,
         after: EvaluationResult,
     ) -> dict[str, str]:
-        """Map debugger keys, task ids and task keys to evaluation task keys."""
-        aliases: dict[str, str] = {}
-        key_by_task_id: dict[str, str] = {}
-        for task in (*before.summary.task_states, *after.summary.task_states):
-            aliases[task.task_key] = task.task_key
-            if task.task_id:
-                key_by_task_id[task.task_id] = task.task_key
-                aliases[task.task_id] = task.task_key
-        summary_path = (
-            self.config.campaign_dir / "debugger" / f"C{index}" / "summary.json"
-        )
-        if summary_path.is_file():
-            for row in read_json(summary_path).get("tasks") or []:
-                debugger_key = row.get("task_key")
-                task_key = key_by_task_id.get(row.get("task_id") or "")
-                if debugger_key and task_key:
-                    aliases[str(debugger_key)] = task_key
-        return aliases
+        return ahe_algorithm.attribution_task_aliases(self, index, before, after)
 
     def _close_evolution_action(
         self,
         context: StageContext,
         rounds: int,
+        outcome: EvolutionOutcome,
     ) -> StageResult:
         del context
         path = self.config.campaign_dir / "selection" / "evolution_closed.json"
@@ -876,7 +748,32 @@ class CampaignController:
             "closed_at": datetime.now(UTC).isoformat(),
             "final_training_checkpoint": f"C{rounds}",
             "no_further_evolution": True,
+            "algorithm": self.algorithm.identity().model_dump(mode="json"),
+            "outcome": outcome.model_dump(mode="json"),
         }
+        atomic_write_json(path, payload)
+        return StageResult(outputs=(path,), data=payload)
+
+    def _algorithm_selection_action(
+        self,
+        context: StageContext,
+        outcome: EvolutionOutcome,
+    ) -> StageResult:
+        del context
+        payload = {
+            "schema_version": 1,
+            "selected_checkpoint": outcome.pick,
+            "selection_policy": "algorithm",
+            "selection_rule": (
+                f"the {self.algorithm.identity().name} algorithm's pick; no "
+                "validation evaluation"
+            ),
+            "algorithm_outcome": outcome.model_dump(mode="json"),
+            "validation_summaries": {},
+            "uncertainty": None,
+            "route": self._evaluated_route(),
+        }
+        path = self.config.campaign_dir / "selection" / "selection.json"
         atomic_write_json(path, payload)
         return StageResult(outputs=(path,), data=payload)
 
@@ -884,6 +781,7 @@ class CampaignController:
         self,
         context: StageContext,
         summaries: dict[str, EvaluationResult],
+        outcome: EvolutionOutcome | None = None,
     ) -> StageResult:
         del context
         selected = max(
@@ -896,7 +794,13 @@ class CampaignController:
         payload = {
             "schema_version": 1,
             "selected_checkpoint": selected,
+            "selection_policy": "validation",
             "selection_rule": "adapter.selection_key, then earliest checkpoint",
+            **(
+                {"algorithm_outcome": outcome.model_dump(mode="json")}
+                if outcome is not None and not self._is_ahe()
+                else {}
+            ),
             "validation_summaries": {
                 label: result.summary.model_dump(mode="json")
                 for label, result in summaries.items()
@@ -991,6 +895,11 @@ class CampaignController:
         normalized_reason = reason.strip()
         if not normalized_reason:
             raise ConfigurationError("extend-rounds needs a non-empty --reason")
+        if not self.algorithm.supports_round_extension:
+            raise ConfigurationError(
+                f"algorithm {self.algorithm.identity().name!r} does not support "
+                "extending rounds in place; its schedule depends on the round count"
+            )
         manifest_path = self._campaign_manifest_path()
         if not manifest_path.is_file():
             raise ConfigurationError("campaign does not exist; use run first")
@@ -1404,6 +1313,26 @@ class CampaignController:
                 for name, split in self.splits.items()
             },
         }
+        section = self.config.document.algorithm
+        if (
+            section.name != "ahe"
+            or section.settings
+            or self.config.algorithm_role_supplements
+        ):
+            source = algorithm_source(self.algorithm)
+            identity["algorithm"] = {
+                **self.algorithm.identity().model_dump(mode="json"),
+                "settings": self.algorithm.settings.model_dump(mode="json"),
+                "source": _protected_path_identity(source) if source else None,
+                "resources": [
+                    _protected_path_identity(path)
+                    for path in self.algorithm.resources()
+                ],
+                "role_supplements": {
+                    role: _protected_path_identity(path)
+                    for role, path in self.config.algorithm_role_supplements
+                },
+            }
         return identity
 
     def _validate_split_separation(self) -> None:
@@ -1423,12 +1352,20 @@ class CampaignController:
     def _checkpoint_dir(self, index: int) -> Path:
         return self.config.campaign_dir / "checkpoints" / f"C{index}"
 
-    def _evaluation_dir(self, index: int, split: SplitName) -> Path:
+    def _evaluation_dir(
+        self,
+        index: int,
+        split: SplitName,
+        *,
+        repeat: int = 1,
+    ) -> Path:
         suffix = {
             SplitName.TRAIN: "train",
             SplitName.VALIDATION: "validation",
             SplitName.TEST: "final-test",
         }[split]
+        if repeat > 1:
+            suffix += f"-repeat-{repeat}"
         return self.config.campaign_dir / "evaluations" / f"C{index}-{suffix}"
 
     def _campaign_manifest_path(self) -> Path:
