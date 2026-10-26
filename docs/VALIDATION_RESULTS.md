@@ -1,5 +1,67 @@
 # Validation Results
 
+## AHE-028 through AHE-043 providers, operations, and evaluation practice
+
+Validated at `2026-10-26T06:37:21Z` from source commit
+`8c897548e3b0b9d638564cd4f9cc9436bee567f8`:
+
+```text
+New provider, operations, statistics, identity tests: 24 passed
+Complete suite:                                176 passed in 235.75s
+ruff check .:                                  all checks passed
+ruff format --check .:                         115 files already formatted
+python -m compileall -q src tests:              exit 0
+git diff --check:                               exit 0
+uv build:                                       exit 0
+```
+
+Validation environment:
+
+```text
+Python:            3.14.7
+ahe-runner:        0.8.0
+NexAU:             0.3.9 (commit 35ee1861546db3cb280a6e17e38a74060d7c96c3)
+ag-ui-protocol:    0.1.22
+OpenAI Python:     3.29.0 (source venv); 3.37.0 (isolated wheel venv)
+Pydantic:          2.14.1
+PyYAML:            6.0.3
+Pytest:            9.1.1
+Ruff:              0.17.0
+```
+
+Clean release artifacts:
+
+```text
+ahe_runner-0.8.0-py3-none-any.whl
+sha256: 789a52009a9a3383ee27457e8725d613435e7f372bac013a31669aa979507f49
+
+ahe_runner-0.8.0.tar.gz
+sha256: f7725cbd9a4b73af03068b7c8b51a6147507379b939f0951b268d99d7856968c
+```
+
+As for 0.7.0, the declared NexAU Git source was unreachable, so the isolated
+wheel was installed with a uv override pointing `nexau` at the locally cached
+checkout of the pinned commit.
+
+Using only the isolated wheel installation, run outside the source checkout:
+
+- wheel metadata and `ahe_runner.__version__` both reported `0.8.0`;
+- offline and runtime-backed `ahe conformance` returned `valid: true` with no
+  warnings;
+- `ahe supervise` completed the generated three-round campaign in one launch;
+  `selection.json` carried the route fingerprint, and `final_test.json` a
+  paired bootstrap interval of `[0.25, 1.0]` for C3 against C0;
+- `ahe evaluate --checkpoint C3 --split test` reproduced the campaign's C3
+  test evaluation, and `ahe compare` against the campaign's own
+  `C3-final-test` folder reported a primary delta of `0.0` with no warnings;
+- after `transport.hung_call_retries` and both concurrency limits were
+  changed, `ahe resume` accepted the campaign and recorded one
+  `execution_settings` amendment listing the three changed paths.
+
+The Responses API path was exercised offline through real NexAU execution
+(a multi-turn tool call with reasoning items) against a mocked HTTP endpoint.
+No live model endpoint was contacted.
+
 ## AHE-026 and AHE-027 recovery and campaign continuation
 
 Validated at `2026-10-26T05:54:21Z` from source commit
