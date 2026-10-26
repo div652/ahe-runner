@@ -1,0 +1,14 @@
+type: tool
+name: rrsi_submit_digest
+description: >-
+  Submit the digest for your assigned task and lens as a JSON object that
+  follows the lens schema, under 6000 characters. Call it once, as your last
+  action; an invalid digest returns the problems to fix.
+input_schema:
+  type: object
+  properties:
+    digest_json:
+      type: string
+      description: The digest as a JSON object.
+  required: [digest_json]
+  additionalProperties: false

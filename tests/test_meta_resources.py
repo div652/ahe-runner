@@ -156,7 +156,7 @@ def test_generated_production_agent_config_loads_with_native_skill(
             self.config = config
             assert config.llm_config.api_key == secret
             assert config.system_prompt_type == "string"
-            assert config.system_prompt == ""
+            assert config.system_prompt == backend_module.META_PROMPT_HEAD
             assert "{{ benchmark_metric }}" in config.system_prompt_suffix
             self.full_trace = []
             self.global_storage = SimpleNamespace(get=lambda _key: None)

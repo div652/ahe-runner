@@ -17,6 +17,7 @@ ComponentClass = Literal[
     "skill",
     "sub_agent",
     "memory",
+    "agent_config",
 ]
 ChangeType = Literal["new", "improvement", "rollback"]
 
@@ -36,6 +37,9 @@ class ChangeRecord(BaseModel):
     rationale: str
     predicted_fixes: list[str] = Field(default_factory=list)
     risk_tasks: list[str] = Field(default_factory=list)
+    # The evolution algorithm's own label for this change (for example an
+    # RRSI component tag). AHE leaves it unset.
+    tag: str | None = None
 
     @field_validator("failure_pattern", "mechanism", "rationale")
     @classmethod

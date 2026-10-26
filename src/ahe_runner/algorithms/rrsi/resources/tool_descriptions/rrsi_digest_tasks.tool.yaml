@@ -1,0 +1,30 @@
+type: tool
+name: rrsi_digest_tasks
+description: >-
+  Dispatch read-only digester sub-agents, one per request, in parallel. Each
+  investigates one task's trials of the incumbent's training evaluation
+  through the given lens and returns a structured digest. The result is the
+  list of digests (or an error per request).
+input_schema:
+  type: object
+  properties:
+    requests:
+      type: array
+      minItems: 1
+      items:
+        type: object
+        properties:
+          task:
+            type: string
+            description: A task key exactly as it appears in the task table.
+          lens:
+            type: string
+            enum: [failure, capability_gap, success]
+          questions:
+            type: array
+            items:
+              type: string
+        required: [task, lens, questions]
+        additionalProperties: false
+  required: [requests]
+  additionalProperties: false

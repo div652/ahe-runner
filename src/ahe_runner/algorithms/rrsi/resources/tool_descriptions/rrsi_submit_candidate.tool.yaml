@@ -1,0 +1,79 @@
+type: tool
+name: rrsi_submit_candidate
+description: >-
+  Commit the workspace as this round's candidate and declare its edits. The
+  runner checks the declaration (edit budget, components, coverage of every
+  changed file, any reserved exploration slot), writes change_manifest.json,
+  commits, and validates the harness. It returns ok true when the candidate
+  is submitted, or the problems to fix; fix them and call it again. Your
+  last action must be a successful submission.
+input_schema:
+  type: object
+  properties:
+    summary:
+      type: string
+    edits:
+      type: array
+      minItems: 1
+      items:
+        type: object
+        properties:
+          id:
+            type: string
+          type:
+            type: string
+            enum: [new, improvement, rollback]
+          component:
+            type: string
+            enum:
+              - prompt
+              - control_flow
+              - config
+              - output_plumbing
+              - context_mgmt
+              - client_tool
+              - skill
+              - memory
+              - subagent
+          paths:
+            type: array
+            minItems: 1
+            items:
+              type: string
+          hypothesis:
+            type: string
+          targets_mode:
+            type: string
+          why_not_lower_lever:
+            type: string
+          trigger_condition:
+            type: string
+          predicted_affected:
+            type: array
+            items:
+              type: string
+          retroactive_check:
+            type: string
+          regression_risk:
+            type: string
+          evidence:
+            type: array
+            minItems: 1
+            items:
+              type: string
+        required:
+          - id
+          - type
+          - component
+          - paths
+          - hypothesis
+          - targets_mode
+          - why_not_lower_lever
+          - trigger_condition
+          - predicted_affected
+          - retroactive_check
+          - regression_risk
+          - evidence
+        additionalProperties: false
+  required: [summary, edits]
+  additionalProperties: false

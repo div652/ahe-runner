@@ -1,0 +1,14 @@
+type: tool
+name: rrsi_submit_report
+description: >-
+  Submit the three-lens analysis report as a JSON object with the keys
+  failure_modes, capability_gaps, and success_habits (each a list). Call it
+  once, as your last action; an invalid report returns the problems to fix.
+input_schema:
+  type: object
+  properties:
+    report_json:
+      type: string
+      description: The report as a JSON object.
+  required: [report_json]
+  additionalProperties: false

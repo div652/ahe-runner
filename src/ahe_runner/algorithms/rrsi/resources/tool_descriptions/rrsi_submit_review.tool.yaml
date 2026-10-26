@@ -1,0 +1,21 @@
+type: tool
+name: rrsi_submit_review
+description: >-
+  Submit the review verdict for the candidate. Call it once, as your last
+  action.
+input_schema:
+  type: object
+  properties:
+    verdict:
+      type: string
+      enum: [accept, reject]
+    reasons:
+      type: array
+      items:
+        type: string
+    risk_notes:
+      type: array
+      items:
+        type: string
+  required: [verdict, reasons, risk_notes]
+  additionalProperties: false

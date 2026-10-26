@@ -99,6 +99,9 @@ _COMPACTION_PARAMS: dict[MetaRole, dict[str, Any]] = {
     "evolve": {"max_context_tokens": 220_000, "keep_iterations": 10},
     "explorers": {"max_context_tokens": 200_000, "keep_iterations": 15},
 }
+# The Jinja-rendered head of every meta-agent system prompt; the protected
+# prompt follows it verbatim as the suffix.
+META_PROMPT_HEAD = "\n"
 _PROMPT_ROLES = {
     "source_explorer.md": "source",
     "web_explorer.md": "web",
@@ -852,8 +855,10 @@ class NexAUMetaBackend(MetaBackend):
         config = AgentConfig.from_yaml(config_path)
         # NexAU renders both file and string prompts as Jinja. The suffix is
         # appended after rendering, so use it to preserve protected prompts
-        # and operator supplements as exact literal text.
-        config.system_prompt = ""
+        # and operator supplements as exact literal text. The rendered part
+        # must be non-empty: for an empty system prompt NexAU substitutes its
+        # default prompt and drops the suffix.
+        config.system_prompt = META_PROMPT_HEAD
         config.system_prompt_type = "string"
         config.system_prompt_suffix = prompt_text
         config.sandbox_config = LocalSandboxConfig(work_dir=str(sandbox_dir))

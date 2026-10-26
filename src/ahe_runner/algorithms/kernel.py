@@ -36,6 +36,16 @@ if TYPE_CHECKING:
     from ..controller import CampaignController
 
 _LABEL_LEDGER = "allocation.json"
+# Harness-manifest component groups and their change-manifest class names.
+COMPONENT_CLASS_BY_GROUP = {
+    "system_prompt": "system_prompt",
+    "tool_descriptions": "tool_description",
+    "tool_implementations": "tool_implementation",
+    "middleware": "middleware",
+    "skills": "skill",
+    "sub_agents": "sub_agent",
+    "long_term_memory": "memory",
+}
 
 
 class EvolutionKernel:
@@ -208,8 +218,9 @@ class EvolutionKernel:
         )
 
     def component_changes(self, parent: str, label: str) -> list[dict[str, Any]]:
-        """Files that differ between two checkpoints, with their NexAU
-        component class from the harness manifest ("other" if none)."""
+        """Files that differ between two checkpoints, with their change-manifest
+        component class from the harness manifest ("agent_config" for the
+        root agent configuration, "other" for any other file)."""
 
         before = verify_checkpoint(self.checkpoint_dir(parent))["harness_files"]
         after = verify_checkpoint(self.checkpoint_dir(label))["harness_files"]
@@ -294,9 +305,12 @@ def component_diff(
     classes: dict[str, str] = {}
     globs = manifest.components.model_dump()
     for root in (after_root, before_root):
-        for component, patterns in globs.items():
+        for group, patterns in globs.items():
             for path in matched_component_paths(root, patterns):
-                classes.setdefault(path.relative_to(root).as_posix(), component)
+                classes.setdefault(
+                    path.relative_to(root).as_posix(),
+                    COMPONENT_CLASS_BY_GROUP[group],
+                )
     agent_config = manifest.agent_config
     rows = []
     for path in sorted(set(before) | set(after)):
