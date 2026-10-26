@@ -1,5 +1,45 @@
 # Validation Results
 
+## 0.9.0: evolution-algorithm plugins and RRSI
+
+Validated on 2026-10-26/27 at branch `algorithm-plugins`, commit `1c99ffb`:
+
+```text
+Complete suite: 191 passed (176 earlier tests unchanged, 15 RRSI and cost tests)
+ruff check / ruff format --check: clean
+```
+
+The earlier tests pass with AHE running as the default algorithm plugin, so the
+AHE lifecycle and stage names are unchanged. A test sends a real NexAU role run
+to a mocked Responses endpoint and checks that the protected role prompt is in
+the request; it caught that 0.4.0-0.8.0 sent NexAU's default prompt instead.
+
+### Live RRSI pilot (Harvey LAB, CAO)
+
+A two-round RRSI campaign ran end to end on 2026-10-27 through the CAO gateway:
+gpt-5.6-luna agent, one gpt-5.6-sol judge, gpt-5.6-sol meta agents, the
+firm-knowledge pilot split (10 training tasks, 1 test task), 2 trials, 2
+variants per round, the runner frozen at `1c99ffb`, and the Harvey adapter
+ported to this runner (session unit IDs, criteria as trial weights). It is a
+pipeline check, not a result.
+
+| Step | Outcome |
+|---|---|
+| C0 training, cost, calibration | S = 0.400; 20 of 20 trials priced (6.24 catalog units per trial); bootstrap delta = 0.378 |
+| Round 0 | 33 digests; A (C1): S 0.392 at +202% cost, rejected; B (C2): S 0.583 at -4% cost, accepted |
+| Round 1 | budget 2; A (C3): S 0.475, rejected; B (C4): S 0.683 at -19% cost, accepted |
+| Selection, final test | algorithm policy, C4; test (1 task x 2 trials) C0 0.590, C4 0.603 |
+
+Two `podman info` timeouts interrupted evaluations; each resume retried only
+the affected trial and reused every completed stage. The critic accepted every
+candidate on its first review, and the tag check re-tagged two edits to an
+existing tool from `client_tool` to `control_flow`.
+
+The pilot's noise band is large because these tasks have 2 to 24 criteria and
+trials of the same task often disagree, so both accepted gains are inside it.
+RRSI campaigns on this split need many more tasks and trials before delta is
+small enough for the cost rule to see real gains.
+
 ## NexAU source moved to a mirror
 
 Validated on 2026-10-26. The upstream `nex-agi` GitHub organization became
