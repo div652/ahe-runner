@@ -1,5 +1,24 @@
 # Validation Results
 
+## NexAU source moved to a mirror
+
+Validated on 2026-10-26. The upstream `nex-agi` GitHub organization became
+unreachable, so `pyproject.toml` now pins
+`git+https://github.com/div652/NexAU-mirror.git@d12d5c3fdef986c1de1904e7a7cf40436039966a`.
+That commit's tree, `f138661b66c2fff24580280b248953d1c24588be`, equals the
+tree of upstream tag `v0.3.9` (commit `35ee1861546db3cb280a6e17e38a74060d7c96c3`).
+
+In a new Python 3.12 virtual environment with an empty uv cache, installing
+`ahe-runner[web,dev]` from the source checkout resolved NexAU from the mirror
+(`nexau 0.3.9`) with no override, and the complete suite passed:
+
+```text
+Complete suite: 176 passed in 392.75s
+```
+
+This replaces the dependency caveat recorded for 0.7.0 and 0.8.0 below: a
+fresh machine can install the runner as documented.
+
 ## AHE-028 through AHE-043 providers, operations, and evaluation practice
 
 Validated at `2026-10-26T06:37:21Z` from source commit

@@ -259,8 +259,10 @@ adapter dependencies, installed NexAU version, adapter identity, benchmark
 identity, endpoint preflights, and repository commits are frozen in
 `campaign_manifest.json`.
 
-The package pins NexAU to the upstream `v0.3.9` Git tag because that release is
-not distributed as a resolvable `nexau==0.3.9` registry artifact. It also
+The package pins NexAU `v0.3.9` by commit, from `div652/NexAU-mirror`, because
+that release is not distributed as a resolvable `nexau==0.3.9` registry
+artifact and the upstream `nex-agi` organization became unreachable on
+2026-10-26. The mirror's file tree is identical to upstream `v0.3.9`. It also
 declares `greenlet` directly because NexAU imports SQLAlchemy's async layer at
 package import time without declaring that required extra transitively.
 

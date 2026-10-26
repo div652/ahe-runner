@@ -10,7 +10,9 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 dependencies = [
-  "nexau @ git+https://github.com/nex-agi/NexAU.git@v0.3.9",
+  # NexAU v0.3.9, pinned by commit. Mirror of nex-agi/NexAU (Apache-2.0),
+  # whose GitHub organization became unreachable on 2026-10-26.
+  "nexau @ git+https://github.com/div652/NexAU-mirror.git@d12d5c3fdef986c1de1904e7a7cf40436039966a",
   # NexAU 0.3.9 imports ThinkingTextMessageContentEvent, removed in 1.0.
   "ag-ui-protocol>=0.1.10,<1.0",
   "greenlet>=3.1.1",

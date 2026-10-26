@@ -61,7 +61,7 @@ meta:
     web_enabled: true
     web_search_backend: ddgs
     research_seed_urls:
-      - https://github.com/nex-agi/NexAU
+      - https://github.com/div652/NexAU-mirror
   role_supplements:
     source: ./runtime_meta_supplements/source.md
     web: ./runtime_meta_supplements/web.md

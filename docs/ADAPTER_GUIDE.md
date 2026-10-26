@@ -120,15 +120,21 @@ resolver can otherwise replace the runner's tested framework version.
 The current runner pins:
 
 ```text
-nexau @ git+https://github.com/nex-agi/NexAU.git@v0.3.9
+nexau @ git+https://github.com/div652/NexAU-mirror.git@d12d5c3fdef986c1de1904e7a7cf40436039966a
 ag-ui-protocol>=0.1.10,<1.0
 ```
 
-NexAU 0.3.9 is not published on PyPI. If a separately distributed adapter must
-declare these dependencies, use constraints compatible with the runner rather
-than a second PyPI-only NexAU declaration. Install and verify the runner first,
-then install benchmark-only dependencies without changing the resolved runner
-stack.
+NexAU 0.3.9 is not published on PyPI, and its upstream GitHub organization
+`nex-agi` became unreachable on 2026-10-26. The pin names commit `d12d5c3` of
+`div652/NexAU-mirror`, an unmodified re-hosting of the Apache-2.0 upstream:
+its file tree is byte-identical to upstream tag `v0.3.9` (commit `35ee186`,
+tree `f138661b`). Upstream history is not mirrored, because two earlier
+upstream commits contain a GitHub access token. A commit pin means the
+installed code cannot change whichever host serves it. If a separately
+distributed adapter must declare these dependencies, use constraints
+compatible with the runner rather than a second PyPI-only NexAU declaration.
+Install and verify the runner first, then install benchmark-only dependencies
+without changing the resolved runner stack.
 
 ## Public source roots and role supplements
 
