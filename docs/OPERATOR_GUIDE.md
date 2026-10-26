@@ -472,8 +472,8 @@ and exposes archived dirty state as recovery evidence.
 Do not delete a failed attempt to make resume proceed. Its identity and
 artifacts are part of the recovery contract.
 
-If a deterministic stage is `blocked`, first fix the external cause, then
-explicitly authorize another attempt:
+If a stage is `blocked`, first fix the external cause, then explicitly
+authorize another attempt:
 
 ```bash
 ahe retry-stage --config /path/to/my-ahe-project/ahe.yaml \
@@ -482,10 +482,75 @@ ahe retry-stage --config /path/to/my-ahe-project/ahe.yaml \
 ahe resume --config /path/to/my-ahe-project/ahe.yaml
 ```
 
-The reason and prior error remain in `stage.json`; no attempt is removed or
-rewritten. The command only reopens a blocked stage while its configured
-attempt budget still has capacity. Exhausted stages remain blocked and require
-a new campaign rather than an identity-changing amendment.
+The reason and prior error remain in `stage.json` under `manual_retries`; no
+attempt is removed or rewritten. `retry-stage` handles two cases:
+
+| Blocked stage | What `retry-stage` allows |
+|---|---|
+| attempts remain (`recovery.maximum_stage_attempts`) | one more attempt |
+| all attempts used, every attempt failed on infrastructure or was abandoned by a killed process, and the stage is retryable | `maximum_stage_attempts` more attempts, recorded as `attempt_allowance` |
+| all attempts used, and any attempt was an agent, candidate, or benchmark failure | refused; start a new campaign |
+
+The second case covers an outage that outlasts the attempt budget, such as a
+model server that stays down across several resumes. No attempt produced a
+result, so reopening cannot bias the campaign. The third case stays blocked so
+a failing stage cannot be retried until it happens to pass.
+
+### Check external services before each stage
+
+A long campaign may depend on services that degrade over hours, such as a
+local model server. Set `AHE_PRE_STAGE_COMMAND` to run a health check or
+restart before every new stage attempt:
+
+```bash
+export AHE_PRE_STAGE_COMMAND="/path/to/check_model_server.sh"
+export AHE_PRE_STAGE_TIMEOUT_SECONDS=1200   # optional; default 1200
+ahe resume --config /path/to/my-ahe-project/ahe.yaml
+```
+
+The command is split with shell quoting rules and run without a shell, with
+`AHE_STAGE_NAME` and `AHE_CAMPAIGN_DIR` set. Its output goes to stderr. It
+does not run for completed stages. A nonzero exit or timeout stops the runner
+with an infrastructure error *before* the attempt is recorded, so no attempt
+is used; fix the service and resume. Each attempt records the command in
+`attempt.json`. The hook is operational setup, not campaign identity, so
+changing it does not invalidate resume.
+
+### Extend a campaign with more rounds
+
+To continue evolution beyond the configured `campaign.rounds`, raise the value
+in the configuration file, then record the change:
+
+```bash
+# edit ahe.yaml: campaign.rounds: 5 -> 10
+ahe extend-rounds --config ahe.yaml --reason "Continue from C5"          # dry run
+ahe extend-rounds --config ahe.yaml --reason "Continue from C5" --apply
+ahe resume --config ahe.yaml
+```
+
+The command refuses any other protected-input change, including the runner
+package, adapter, splits, models, transport, and meta inputs. Applied changes
+are appended to `campaign_amendments.json`. Each entry is chained to the
+previous identity hash. `campaign_manifest.json` and existing stage records
+are never rewritten. Every later command checks the configuration against the
+latest amendment.
+
+If the campaign has already closed (`evolution.close`, `selection`, or
+`final.complete` exists), add `--reopen-closed-evolution`. Every stage must be
+completed. The closing stages and their outputs (`selection/` and `final/`)
+are hash-verified and moved, never copied or deleted, to
+`superseded/closure-NN/`, with `reopen.json`. The amendment records the
+previous selection and the previous validation and test primary metrics.
+Resume then reuses every earlier round and evaluation, runs the new rounds,
+evaluates the new checkpoints on validation, selects over C0..CN by the same
+rule, and tests C0 and the new selection. Test evaluations that already exist
+are reused.
+
+Meta-agents never read validation, test, `selection/`, or `final/`, so
+reopening cannot change what Evolve sees. The decision to continue may have
+been made after reading the test result, though. A report must therefore give
+both the superseded closure and the new one, and say that the campaign was
+extended after it closed.
 
 ## 9. Optional phase control
 
@@ -505,6 +570,7 @@ checkpoint only. Test results never trigger further evolution.
 ```text
 campaign-artifacts/<campaign>/
 ├── campaign_manifest.json
+├── campaign_amendments.json   # only after extend-rounds
 ├── campaign_state.json
 ├── checkpoints/C0..CN/
 ├── workspaces/
@@ -517,6 +583,7 @@ campaign-artifacts/<campaign>/
 ├── attribution/
 ├── stages/
 ├── selection/selection.json
+├── superseded/closure-NN/     # only after a reopened closure
 └── final/
     ├── final_test.json
     └── selected-harness/
@@ -542,10 +609,12 @@ The complete lineage remains available:
 
 - `interrupted`: infrastructure failed and `resume` may continue.
 - `blocked`: deterministic failure, policy violation, invalid candidate, or
-  exhausted attempts; inspect the stage's `error.json`. If capacity remains
-  after correcting the cause, use `retry-stage`; it never erases the failed
-  attempt.
+  exhausted attempts; inspect the stage's `error.json`. After correcting the
+  cause, use `retry-stage`. It works while capacity remains, or after
+  exhaustion when every attempt failed on infrastructure. It never erases the
+  failed attempt.
 - valid low or zero reward: completed benchmark evidence, never an
   infrastructure retry.
 - campaign identity changed: use a new `artifacts_dir`; immutable inputs cannot
-  change in place.
+  change in place. The only exception is a larger `campaign.rounds`, recorded
+  with `extend-rounds`.

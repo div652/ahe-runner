@@ -5,7 +5,7 @@ plan and generated campaign artifacts. It contains confirmed issues, their
 impact, approved branch-local repairs, and recommendations for upstream AHE.
 It does not claim that a local patch has been accepted upstream.
 
-The completed generic upstream review and AHE-001–024 dispositions are in
+The completed generic upstream review and AHE-001–027 dispositions are in
 [`HARVEY_INTEGRATION_UPSTREAM_DISPOSITION.md`](HARVEY_INTEGRATION_UPSTREAM_DISPOSITION.md).
 
 ## Working agreement
@@ -30,7 +30,7 @@ The assistant announces new permanent files before creating them.
 | ID | Confirmed issue | Operator approval | Branch-local status |
 |---|---|---|---|
 | AHE-001 | Evaluated-agent sessions skipped the configured model preflight | Explained; repair authorized on 2026-10-12 | Fixed in `4a4e57b`; targeted offline regressions and lint passed |
-| AHE-002 | Registered skill folders' helper/resource files are not recognized as active skill components | Explained; operator chose a skills-free initial harness instead of a repair | No patch; outside the initial harness scope, potentially relevant to future scripted skills |
+| AHE-002 | Registered skill folders' helper/resource files are not recognized as active skill components | Explained; operator chose a skills-free initial harness instead of a repair; on 2026-10-14 the operator asked for a LAB-exact harness for campaign 9 | No conformance patch. Campaign 9 puts LAB's skill scripts in the Harvey `workspace_seed/` folder, copied into each sandbox (see the AHE-002 section) |
 | LAB-001 | Filename helper bypasses configured Copilot routing and suppresses its API failure | Explained in plain language; repair authorized on 2026-10-12 | Fixed in LAB `86678eba6` and AHE `f0e3b0b`; 92 LAB and 19 AHE offline cases passed |
 | AHE-003 | Candidate harness folders can shadow protected Python modules during evaluation and grading | Explained in plain language; adapter-level repair authorized on 2026-10-12 | Adapter-level rejection in Harvey `validate_candidate`; AHE source unchanged |
 | AHE-004 | `ahe-runner` cannot be declared as a dependency of an operator package under uv, because of its NexAU git-URL pin | Explained; recording authorized on 2026-10-12 | Worked around in the Harvey `pyproject.toml`; AHE source unchanged |
@@ -55,6 +55,8 @@ The assistant announces new permanent files before creating them.
 | AHE-023 | NexAU checks the context limit with a characters-÷-4 estimate and stops the agent before sending; LAB has no such check, and a provider "too long" error became an infrastructure error that was rerun | Explained on 2026-10-15 after campaign 9's rerun; the operator chose to keep those results with a caveat, fix it, and evaluate all 250 tasks again | Fixed locally; campaign 9b re-evaluates |
 | AHE-024 | The exact token counter of AHE-023 uses o200k_base for every model; Claude's tokenizer turns the same Harvey text into 1.65-1.68 times as many tokens, so `max_context_tokens` means a different amount of text per model | Explained on 2026-10-15 while preparing campaign 9c (claude-opus-4.8); the operator chose to keep the harness unchanged and let Anthropic's rejection end Opus runs, as LAB does, and approved recording; 9c was then dropped | No patch; only GPT models (o200k_base) are evaluated so far |
 | AHE-025 | All concurrent trials run as threads in one Python process, so host-side harness tools such as `grep` queue behind each other; LAB runs every task in its own process | Found on 2026-10-15 during campaign 10's C0 evaluation; the operator approved recording it | Fixed locally: the adapter setting `trial_processes` runs each trial's agent in its own process; campaign 10 was stopped and restarted with it |
+| AHE-026 | When an outage outlasts a stage's attempts, the stage is blocked and the campaign cannot continue, although every attempt failed on infrastructure and no result is in doubt; there is also no hook to keep a long-lived dependency such as the model server healthy between stages | Found on 2026-10-16 when campaign 12's model server crashed during the C4 train evaluation; the operator approved a command that reopens only infrastructure-blocked stages, plus a pre-stage hook | Fixed locally: `ahe retry-blocked-stage` (recorded in `campaign_amendments.json`) and `AHE_PRE_STAGE_COMMAND`; campaign 12 resumed with both |
+| AHE-027 | `ahe extend-rounds` refuses once evolution has closed, so a finished campaign cannot be continued for more rounds; the only option is a new campaign that repeats every finished round | Raised on 2026-10-16 when the operator asked to run campaign 12 (finished at 5 rounds) for 5 more rounds from its last checkpoint | Implemented locally (offline tests pass): `ahe extend-rounds --reopen-closed-evolution` moves the closing stages and their outputs to `superseded/closure-NN/` and records them in the amendment; every other stage is reused |
 | LAB-002 | Oversized agent output has no defined LAB score | Option A (240,000-character judge-prompt limit) chosen on 2026-10-12 | Harvey judge wrapper; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 | LAB-003 | Dual-judge disagreement semantics (discussion item) | Disagreement labelled failing; headline unchanged | Harvey adapter metrics; full record in `docs/HARVEY_LAB_BENCHMARK_ISSUES.md` |
 
@@ -268,6 +270,30 @@ Add coverage for Python/JavaScript/shell resources, undeclared or unregistered
 folders, malicious paths, and skill-asset changes in candidate attribution.
 This recommendation is deferred; no conformance code or asset policy was
 patched as part of the skills-free baseline decision.
+
+### Campaign 9 update: LAB-exact harness with `workspace_seed/`
+
+On 2026-10-14 the operator asked for a starting harness identical to LAB's:
+its system prompt with the docx, pptx and xlsx manuals included, its seven
+tools, and its skill scripts. The scripts must run inside the sandbox, as in
+LAB, not on the host.
+
+The Harvey adapter now copies any regular files under the harness's
+`workspace_seed/` folder into `/workspace` of each trial's sandbox before the
+agent starts. `harness_lab/workspace_seed/skills/{docx,pptx,xlsx}/scripts/`
+holds LAB's scripts unchanged, so the manuals' paths
+(`skills/docx/scripts/...`) work as in LAB. The manuals are part of
+`systemprompt.md`, as LAB builds its prompt, so no NexAU skill is
+registered and this issue does not arise.
+
+Safeguards in `harvey_ahe.candidate_checks`: host Python and YAML may not
+import or bind anything under `workspace_seed/`; `runpy` is banned; seed
+Python is not scanned as host code because it only runs in the sandbox.
+Symlinks and special files are not copied. Seed files count toward the
+harness hash and size limits.
+
+This is a Harvey-side workaround. The upstream recommendation above still
+applies.
 
 ## LAB-001: make the filename helper's transport explicit
 
@@ -1809,49 +1835,51 @@ returns a tool error to the model.
 
 ### Upstream recommendations
 
-1. Offer this as a documented manifest option for benchmark-parity harnesses.
+1. Offer this as a documented manifest option for benchmark-parity
+   harnesses.
 
 ## AHE-021: the model transport silently cut long prompts and ignored the effort
 
 ### Plain-language summary
 
 The evaluated agent reaches Copilot models through GH Copilot Server, which
-uses VS Code's language-model API. VS Code adds each model's default settings
-to every request. For gpt-5.4, gpt-5.5 and gpt-5.6-sol that means a 272k
-context size and "medium" effort. Copilot Chat then deleted the oldest
-messages, including the system prompt and the task, until a prompt fit about
-270k tokens, without any error. It also ignored the effort that the request
-asked for. Nothing in AHE could notice, because the transport reports no token
-usage and no effort.
+uses VS Code's language-model API. VS Code adds each model's default
+settings to every request. For gpt-5.4, gpt-5.5 and gpt-5.6-sol that means
+a 272k context size and "medium" effort. Copilot Chat then deleted the
+oldest messages, including the system prompt and the task, until a prompt
+fit about 270k tokens, without any error. It also ignored the effort that
+the request asked for. Nothing in AHE could notice, because the transport
+reports no token usage and no effort.
 
 ### Evidence
 
 - Campaign 9 (`HARVEY_AHE_RUNBOOK.md` section 5m): in all 25 Copilot 400
-  "No tool call found" errors, the cut falls exactly at a ~270k-token budget.
-  15 of 101 graded trials made silent cut calls and scored lower (mean
-  criterion pass 0.429 against 0.522).
-- Code: VS Code `sendChatRequest` merges schema defaults into `configuration`,
-  which Copilot Chat reads as `modelConfiguration` (`contextSize`,
-  `reasoningEffort`). It never reads the effort in `modelOptions`.
-- Probe (gpt-5.4) before the patch: a code in the first message was lost in a
-  317k-token prompt, and effort "none" and "high" behaved the same. After the
-  patch, both behaved as requested.
+  "No tool call found" errors, the cut falls exactly at a ~270k-token
+  budget. 15 of 101 graded trials made silent cut calls and scored lower
+  (mean criterion pass 0.429 against 0.522).
+- Code: VS Code `sendChatRequest` merges schema defaults into
+  `configuration`, which Copilot Chat reads as `modelConfiguration`
+  (`contextSize`, `reasoningEffort`). It never reads the effort in
+  `modelOptions`.
+- Probe (gpt-5.4) before the patch: a code in the first message was lost
+  in a 317k-token prompt, and effort "none" and "high" behaved the same.
+  After the patch, both behaved as requested.
 
 ### Approved local repair
 
 GH Copilot Server's `out/server.js` (host instance) now sets
-`options.configuration.contextSize` to the model's `maxInputTokens` and, when
-the request has one, `options.configuration.reasoningEffort`. The probe script
-and its before/after results are kept in
+`options.configuration.contextSize` to the model's `maxInputTokens` and,
+when the request has one, `options.configuration.reasoningEffort`. The
+probe script and its before/after results are kept in
 `harvey-ahe-project/scripts/copilot_context_effort_probe.py` and
 `harvey-ahe-project/operator-preflight/2026-10-14/copilot-server-patch/`.
 
 ### Upstream recommendations
 
-1. Before a campaign, run a transport probe for each model role: recall of a
-   code placed at the start of a prompt near the configured context limit, and
-   a latency or quality check that the effort is applied. Record the result
-   with the campaign.
+1. Before a campaign, run a transport probe for each model role: recall of
+   a code placed at the start of a prompt near the configured context
+   limit, and a latency or quality check that the effort is applied.
+   Record the result with the campaign.
 2. Where a transport reports no usage, record the prompt size AHE sent and
    flag calls above any known transport limit.
 
@@ -1859,85 +1887,86 @@ and its before/after results are kept in
 
 ### Plain-language summary
 
-The runner never resends a model call (`max_retries: 0`), so that every call
-the agent depends on is recorded exactly once. When a call hangs until the
-request timeout, the trial stops with an infrastructure error, and resume
-reruns the unit from its first step. This throws away completed work. It also
-favours shorter trials: a trial that makes more calls is more likely to meet a
-hang, so the trials that finish lean towards those that made fewer calls. The
-judges already resend transient failures inside a trial (`grade_with_retries`);
-the agent's own calls did not.
+The runner never resends a model call (`max_retries: 0`), so that every
+call the agent depends on is recorded exactly once. When a call hangs until
+the request timeout, the trial stops with an infrastructure error, and
+resume reruns the unit from its first step. This throws away completed
+work. It also favours shorter trials: a trial that makes more calls is more
+likely to meet a hang, so the trials that finish lean towards those that
+made fewer calls. The judges already resend transient failures inside a
+trial (`grade_with_retries`); the agent's own calls did not.
 
 ### Evidence
 
-- Campaign 9 (runbook 5m): 52 of the evaluated agent's calls hung until GH
-  Copilot Server's 300 s timeout. Copilot Chat logged each one as "cancelled"
-  after about 300 s, so the request was still open upstream.
-- The hangs are specific to gpt-5.6-sol. Over the same hour it hung on 2.6% of
-  calls, against 0-0.03% for gpt-5.4, gpt-5.5 and claude-sonnet-5. Campaign 8
-  (gpt-5.4) had 20 hangs in 75,722 calls.
-- They are stalls, not slow answers. Successful gpt-5.6-sol calls took at most
-  96 s (median 4 s), and none finished between 96 and 300 s. Prompt size
-  (median 20k tokens) and concurrency (median 9 calls in flight) were normal.
+- Campaign 9 (runbook 5m): 52 of the evaluated agent's calls hung until
+  GH Copilot Server's 300 s timeout. Copilot Chat logged each one as
+  "cancelled" after about 300 s, so the request was still open upstream.
+- The hangs are specific to gpt-5.6-sol. Over the same hour it hung on 2.6%
+  of calls, against 0-0.03% for gpt-5.4, gpt-5.5 and claude-sonnet-5.
+  Campaign 8 (gpt-5.4) had 20 hangs in 75,722 calls.
+- They are stalls, not slow answers. Successful gpt-5.6-sol calls took at
+  most 96 s (median 4 s), and none finished between 96 and 300 s. Prompt
+  size (median 20k tokens) and concurrency (median 9 calls in flight) were
+  normal.
 - They cluster early in a trial: about 7% of calls 2-4, 4% of calls 5-9,
   under 1% later.
 - About 27% of campaign 9's unit attempts were lost to hangs.
 
 ### Approved local repair
 
-`transport.hung_call_retries` (default 0, at most 5). When a call fails because
-a request timeout fired (the client's or the endpoint's "timed out" error), the
-identical request is sent again, up to that many extra times. Each failed
-attempt is written to `hung-attempt-N.json` in the call folder and listed under
-`hung_attempts` in `response.json`, or in `error.json` if every attempt fails.
-Other errors, such as 503 overload or 400, are never resent. The setting
-applies to every role that uses the campaign transport. Tests:
-`tests/test_model_access.py` (`test_hung_call_*`,
-`test_other_errors_are_not_resent`).
+`transport.hung_call_retries` (default 0, at most 5). When a call fails
+because a request timeout fired (the client's or the endpoint's "timed
+out" error), the identical request is sent again, up to that many extra
+times. Each failed attempt is written to `hung-attempt-N.json` in the call
+folder and listed under `hung_attempts` in `response.json`, or in
+`error.json` if every attempt fails. Other errors, such as 503 overload or
+400, are never resent. The setting applies to every role that uses the
+campaign transport. Tests: `tests/test_model_access.py`
+(`test_hung_call_*`, `test_other_errors_are_not_resent`).
 
 ### Upstream recommendations
 
-1. Offer per-call resending of hung requests as a documented transport option,
-   with every attempt kept in the trace.
-2. Report, per campaign, how many calls were resent and how many unit attempts
-   were lost to infrastructure errors, so readers can judge any bias towards
-   shorter trials.
+1. Offer per-call resending of hung requests as a documented transport
+   option, with every attempt kept in the trace.
+2. Report, per campaign, how many calls were resent and how many unit
+   attempts were lost to infrastructure errors, so readers can judge any
+   bias towards shorter trials.
 
 ### Outcome in campaign 9's rerun
 
 Runbook 5n: 106 hung attempts on 95 of 5,120 calls (about 2%). 92 calls
-succeeded on a resend; 3 hung three times in a row, so their trials were rerun
-and then succeeded. A call that hung once hung again 12% of the time, against
-2% for a fresh call, so the stalls look tied to the request.
+succeeded on a resend; 3 hung three times in a row, so their trials were
+rerun and then succeeded. A call that hung once hung again 12% of the
+time, against 2% for a fresh call, so the stalls look tied to the request.
 
 ## AHE-023: NexAU's context check differs from LAB's
 
 ### Plain-language summary
 
-Before every model call, NexAU estimates the prompt size and stops the agent if
-the estimate is over `max_context_tokens`. By default it estimates one token
-per four characters. LAB has no such check: it sends the prompt and stops
-cleanly only when the provider says "prompt is too long" or
+Before every model call, NexAU estimates the prompt size and stops the
+agent if the estimate is over `max_context_tokens`. By default it estimates
+one token per four characters. LAB has no such check: it sends the prompt
+and stops cleanly only when the provider says "prompt is too long" or
 "context_length_exceeded". The estimate is wrong in both directions. For
-prose it is 10-20% too high, so NexAU stops agents that would still fit. For
-dense tables it is too low, so a prompt that does not fit is sent, and the
-provider rejects it. GH Copilot Server reports that as a 500 "Message exceeds
-token limit", which the runner treats as an infrastructure error, so the trial
-is rerun from the start, a second chance LAB would not give.
+prose it is 10-20% too high, so NexAU stops agents that would still fit.
+For dense tables it is too low, so a prompt that does not fit is sent, and
+the provider rejects it. GH Copilot Server reports that as a 500 "Message
+exceeds token limit", which the runner treats as an infrastructure error,
+so the trial is rerun from the start, a second chance LAB would not give.
 
 ### Evidence
 
 - NexAU 0.3.9 `TokenCounter` defaults to `strategy="fallback"`,
-  `(len(text) + 3) // 4` (`archs/main_sub/utils/token_counter.py`); the stop is
-  in `execution/executor.py` around line 524.
-- Campaign 9 rerun (runbook 5n): 14 trials were stopped by the estimate. On
-  their last sent prompt the real o200k count was 0.80-0.96 times the estimate,
-  so about 10 of them were probably still under 921,793 real tokens when
-  stopped. All 14 wrote no output (mean criterion pass 0.12).
-- Task 208: one tool result of 2,715,670 characters (a table listing) was
-  estimated at about 680k tokens but is 946,107 real tokens; the request
-  (962,286) was rejected, recorded as an infrastructure error, and rerun
-  (second attempt 0.056).
+  `(len(text) + 3) // 4` (`archs/main_sub/utils/token_counter.py`); the
+  stop is in `execution/executor.py` around line 524.
+- Campaign 9 rerun (runbook 5n): 14 trials were stopped by the estimate.
+  On their last sent prompt the real o200k count was 0.80-0.96 times the
+  estimate, so about 10 of them were probably still under 921,793 real
+  tokens when stopped. All 14 wrote no output (mean criterion pass 0.12).
+- Task 208: one tool result of 2,715,670 characters (a table listing)
+  was estimated at about 680k tokens but is 946,107 real tokens; the
+  request (962,286) was rejected, recorded as an infrastructure error, and
+  rerun (second attempt 0.056).
 - No answered call in the rerun exceeded 797k real tokens, so nothing was
   silently cut (AHE-021).
 
@@ -1945,21 +1974,22 @@ is rerun from the start, a second chance LAB would not give.
 
 1. `harness_lab/agent.yaml` sets `token_counter:
    harvey_ahe.token_count:count_prompt_tokens`. The new module
-   `harvey_ahe/token_count.py` counts with o200k_base `encode_ordinary` (so
-   document text such as `<|endoftext|>` is ordinary text) and keeps NexAU's
-   per-message, per-block and per-tool overheads. It counts a 2.7M-character
-   table in about 0.3 s.
-2. `max_context_tokens` is now 911,793: 10,000 below Copilot's 921,793. This
-   margin is a local choice. Through Copilot, a prompt over the limit made of
-   many messages is silently cut from the start (AHE-021), not rejected, and
-   NexAU's count is within about 2k of Copilot's, so the harness must stop just
-   before the limit. LAB has no cap because its providers reject such prompts.
+   `harvey_ahe/token_count.py` counts with o200k_base `encode_ordinary`
+   (so document text such as `<|endoftext|>` is ordinary text) and keeps
+   NexAU's per-message, per-block and per-tool overheads. It counts a
+   2.7M-character table in about 0.3 s.
+2. `max_context_tokens` is now 911,793: 10,000 below Copilot's 921,793.
+   This margin is a local choice. Through Copilot, a prompt over the limit
+   made of many messages is silently cut from the start (AHE-021), not
+   rejected, and NexAU's count is within about 2k of Copilot's, so the
+   harness must stop just before the limit. LAB has no cap because its
+   providers reject such prompts.
 3. The Harvey adapter's `_run_session` treats a provider "too long" error
-   (LAB's "prompt is too long" and "context_length_exceeded", plus Copilot's
-   "Message exceeds token limit") as a graded `context_overflow` stop, as LAB
-   does, not as an infrastructure error. The final text is "[Error: Prompt too
-   long, rejected by the provider: ...]". The trace of that trial is empty,
-   because NexAU raises without returning messages.
+   (LAB's "prompt is too long" and "context_length_exceeded", plus
+   Copilot's "Message exceeds token limit") as a graded `context_overflow`
+   stop, as LAB does, not as an infrastructure error. The final text is
+   "[Error: Prompt too long, rejected by the provider: ...]". The trace of
+   that trial is empty, because NexAU raises without returning messages.
 4. Tests: `test_exact_token_counter_uses_o200k_with_nexau_overheads`,
    `test_harness_lab_matches_lab_loop_limits`
    (`tests/test_harvey_lab_exact.py`) and
@@ -1972,32 +2002,33 @@ is rerun from the start, a second chance LAB would not give.
 
 1. Count tokens with the model's tokenizer, or make the check opt-in, and
    document which estimate a harness uses.
-2. Classify a provider context-length rejection as an agent outcome, not an
-   infrastructure failure, so it is graded rather than rerun.
+2. Classify a provider context-length rejection as an agent outcome, not
+   an infrastructure failure, so it is graded rather than rerun.
 
 ## AHE-024: the exact token count assumes a GPT tokenizer
 
 ### Plain-language summary
 
-The AHE-023 fix counts every prompt with o200k_base, the tokenizer of the GPT
-models used up to campaign 9b, and stops the agent at `max_context_tokens` in
-that count. Claude models use their own tokenizer. For claude-opus-4.8, the
-same Harvey text is 1.65-1.68 times as many tokens, so a limit chosen for GPT
-lets through far more text than a Claude model accepts. The harness has one
-number and no record of which tokenizer it is counted in.
+The AHE-023 fix counts every prompt with o200k_base, the tokenizer of the
+GPT models used up to campaign 9b, and stops the agent at
+`max_context_tokens` in that count. Claude models use their own tokenizer.
+For claude-opus-4.8, the same Harvey text is 1.65-1.68 times as many
+tokens, so a limit chosen for GPT lets through far more text than a Claude
+model accepts. The harness has one number and no record of which tokenizer
+it is counted in.
 
 ### Evidence
 
 - Probes on 2026-10-15
   (`harvey-ahe-project/operator-preflight/2026-10-15/copilot-server-claude-thinking-patch/`):
-  three prompts of real tool output from campaign 9b traces were rejected by
-  Anthropic with their Claude token counts. 925,080 o200k tokens were 1,530,317
-  Claude tokens (1.654), 925,175 were 1,549,297 (1.675), and 631,109 were
-  1,058,298 (1.677).
-- Anthropic's limit for claude-opus-4.8 through Copilot is 1,000,000 Claude
-  tokens (`model_max_prompt_tokens_exceeded: prompt is too long: N tokens >
-  1000000 maximum`), about 597k o200k tokens of this text. The harness limit is
-  911,793 o200k tokens.
+  three prompts of real tool output from campaign 9b traces were rejected
+  by Anthropic with their Claude token counts. 925,080 o200k tokens were
+  1,530,317 Claude tokens (1.654), 925,175 were 1,549,297 (1.675), and
+  631,109 were 1,058,298 (1.677).
+- Anthropic's limit for claude-opus-4.8 through Copilot is 1,000,000
+  Claude tokens (`model_max_prompt_tokens_exceeded: prompt is too long: N
+  tokens > 1000000 maximum`), about 597k o200k tokens of this text. The
+  harness limit is 911,793 o200k tokens.
 - Copilot Chat itself counts only with o200k_base or cl100k_base and cuts
   prompts above 935,793 for this model, so for Claude the provider always
   rejects first and Copilot never cuts silently (unlike AHE-021).
@@ -2006,12 +2037,12 @@ number and no record of which tokenizer it is counted in.
 
 No patch. Campaign 9c (claude-opus-4.8) was planned to keep the harness
 unchanged: an Opus prompt over the provider's limit would be rejected and
-graded as a `context_overflow` (AHE-023), as LAB does. Two side effects were
-expected: such a trial's trace is empty, because NexAU raises without returning
-messages; and a prompt just under the limit leaves less room than the
-64,000-token output budget. The operator dropped 9c before launch, so every
-campaign so far evaluates a GPT model, for which the count is exact. Revisit
-this before evaluating any non-GPT model.
+graded as a `context_overflow` (AHE-023), as LAB does. Two side effects
+were expected: such a trial's trace is empty, because NexAU raises without
+returning messages; and a prompt just under the limit leaves less room than
+the 64,000-token output budget. The operator dropped 9c before launch, so
+every campaign so far evaluates a GPT model, for which the count is exact.
+Revisit this before evaluating any non-GPT model.
 
 ### Upstream recommendations
 
@@ -2098,3 +2129,158 @@ Known limits:
    host-side harness tools of one trial from blocking another's.
 2. Record per-tool wall time in traces, so that slow tools are visible
    without reconstructing them from model-call timestamps.
+
+## AHE-026: an outage can block a stage for good
+
+### Plain-language summary
+
+A stage that fails because of infrastructure (a timeout, a dropped
+connection) is retried when the operator resumes, up to
+`recovery.maximum_stage_attempts` attempts. If the outage lasts longer than
+those attempts, the stage is blocked, and AHE had no way to unblock it
+(AHE-011). The only option was to start a new campaign, throwing away hours
+of valid work, even though no attempt had produced a result and nothing
+about the campaign was in doubt.
+
+The outage itself also had a cause AHE could have helped with: the model
+server runs inside a VS Code window that slowly uses more memory, and the
+runner had no point at which an operator could check or restart it between
+stages.
+
+### Evidence
+
+- Campaign 12 (gpt-5.6-sol, high) ran for about 34 hours. On 2026-10-16 at
+  05:59:44 UTC the renderer process of the model host's VS Code window
+  stopped with "V8 javascript OOM" after about 46 hours. Its extension host
+  closed, and port 3141 stopped answering.
+- In the C4 train evaluation, 41 of 160 trials had finished; the other 119
+  failed with "Connection error". The two resumes that followed failed at
+  once for the same reason, the stage reached its 3 attempts and was blocked,
+  and the resume loop stopped.
+- Rounds 0 to 3 and round 4's debugger, Evolve, freeze and validation stages
+  were complete. The 41 finished C4 trials were written before the crash and
+  are valid.
+
+### Local decision or repair
+
+The operator approved, on 2026-10-16:
+
+1. `ahe retry-blocked-stage --config C --stage S --reason R [--apply]
+   [--allow-runner-code-change]` (`controller.py`, `state.py`). It accepts
+   only a blocked, retryable stage whose every attempt failed on
+   infrastructure (or was abandoned by a killed process). It adds
+   `recovery.maximum_stage_attempts` more attempts, recorded as
+   `attempt_allowance` and an `operator_overrides` entry in the stage
+   record, and appends an entry of kind `retry_blocked_stage` to
+   `campaign_amendments.json`, chained like the `extend-rounds` entries.
+   Protected inputs must be unchanged; changed runner files are accepted
+   only with the flag and are listed. It is a dry run unless `--apply`.
+2. Stages now store `retryable` in `stage.json`, so the check does not have
+   to guess. For older records, a stage counts as retryable only if an
+   earlier attempt failed on infrastructure without blocking it.
+3. `AHE_PRE_STAGE_COMMAND`: an operator command run before every new stage
+   attempt, with `AHE_STAGE_NAME` and `AHE_CAMPAIGN_DIR` set. If it fails or
+   times out (`AHE_PRE_STAGE_TIMEOUT_SECONDS`, default 1200), the runner
+   stops with an infrastructure error before the attempt is recorded, so no
+   attempt is used. Harvey uses it to restart the model server's VS Code
+   window when its memory is high (runbook section 5v).
+
+### Upstream recommendations
+
+1. Let an operator reopen a stage blocked only by infrastructure failures,
+   with an audit record, instead of requiring a new campaign.
+2. Give operators a supported hook between stages for health checks of
+   external services.
+
+## AHE-027: a closed campaign cannot be given more rounds
+
+### Plain-language summary
+
+`ahe extend-rounds` lets an operator raise `campaign.rounds` for a running
+campaign. It refuses once evolution has closed, that is once any of the
+stages `evolution.close`, `selection` or `final.complete` exists. Those
+stages are written for the old round count: `evolution.close` stores
+"the last checkpoint is C5", `selection` picked the best of C0..C5 on
+validation, and `final.complete` tested that pick. With a larger round count
+their recorded inputs no longer match, and the stage store stops with
+"stage semantic inputs changed after creation".
+
+So a finished campaign could only be continued by starting a new campaign,
+which repeats every finished round (for campaign 12 about 20 hours of model
+calls) and, because model calls are random, would not even reproduce the
+same C1..C5.
+
+### Evidence
+
+- Campaign 12 (`harvey-lab-campaign-12-gpt-5.6-sol-high-80-20-20`) finished
+  on 2026-10-16 at 18:29 UTC with 5 rounds. Validation selected C5; the final
+  test gave C5 0.722 against C0 0.645 (runbook 5w).
+- The operator asked to run 5 more rounds from C5 on the same model and
+  endpoint. `extend_rounds` refuses: the campaign has all three closing
+  stages.
+- Nothing before closing depends on the round count. The round count is
+  read only by `run`, `run_round`, `close_evolution` and `run_validation`
+  (`controller.py`), and is a stage input only of `evolution.close`. No meta
+  prompt, supplement or Evolve query mentions the total or a last round; the
+  Evolve query names only the current checkpoint (`C{i}`).
+- The meta agents cannot see what closing produced. Their read roots are the
+  training evidence and raw training evaluation, the debugger output,
+  history (built from training evaluations only, `history.py`), attribution,
+  checkpoints, Explore skills and public sources (`run_evolve` in
+  `meta/nexau_backend.py`). `evaluations/*-validation`,
+  `evaluations/*-final-test`, `selection/` and `final/` are never mounted.
+
+### Local decision or repair
+
+Implemented in `extend_rounds`, `_closure_reopen_plan` and
+`_archive_closure` (`controller.py`), with tests in `tests/test_campaign.py`.
+A new flag, `ahe extend-rounds --reopen-closed-evolution`. Without the flag
+nothing changes: extending a closed campaign is still refused, and the error
+names the flag.
+
+With the flag, in addition to the usual `extend-rounds` checks:
+
+1. Every stage of the campaign must be `completed`. A stage that is running,
+   interrupted or blocked is refused, so nothing is reopened halfway.
+2. The outputs of the closing stages are checked against their recorded
+   hashes, and must lie under `selection/` or `final/`.
+3. A dry run (the default) lists what would move, the previous selection and
+   the previous test scores.
+4. `--apply` moves, without copying or deleting:
+   - the stage records `stages/evolution.close`, `stages/selection` and
+     `stages/final.complete`, and
+   - their outputs (`selection/evolution_closed.json`,
+     `selection/selection.json`, `final/final_test.json`,
+     `final/selected-harness`)
+
+   to `superseded/closure-NN/`, keeping their relative paths, and writes
+   `superseded/closure-NN/reopen.json`. It then appends the usual
+   `extend_rounds` amendment with an extra `reopened_closed_evolution`
+   block: the archive folder, each moved path with its hash, the closed
+   round count, the previous selected checkpoint, and the previous
+   validation and test primary metrics.
+5. The next `ahe resume` reuses every other stage: all rounds so far, all
+   train, validation and test evaluations. It continues with round
+   `old + 1`, then closes evolution at the new round count, evaluates the new
+   checkpoints on validation, selects the best of C0..C{new} by the same rule,
+   and tests C0 and the new pick. A test evaluation that already exists for
+   the same checkpoint is reused, as in any resume.
+
+If the process stops after the moves but before the amendment is written,
+every command refuses the larger round count (identity check), and running
+`ahe extend-rounds --apply` without the flag records the amendment;
+`reopen.json` still documents the move.
+
+### What a report must say
+
+The decision to continue was taken after the 5-round test result was known.
+No meta agent can see validation or test results, so this cannot change what
+Evolve does; it can only change whether a 10-round result exists. A report
+should give both results: the 5-round closure (kept in
+`superseded/closure-01/` and in the amendment) and the 10-round one, and say
+that the campaign was extended after it had closed.
+
+### Upstream recommendations
+
+1. Let an operator continue a closed campaign for more rounds with an audit
+   record of the superseded closure, instead of requiring a new campaign.

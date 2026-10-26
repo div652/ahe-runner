@@ -550,11 +550,29 @@ checkpoints.
 Uncommitted edits are evidence, not a checkpoint. They are archived before the
 workspace is reset to the last successful commit.
 
-A deterministic blocked stage can be explicitly reopened only while its
-attempt budget has capacity. `retry-stage` records the operator reason and
-prior error, then changes the stage to interrupted so normal `resume` creates
-the next immutable attempt. It never erases attempts or changes semantic
-inputs.
+A blocked stage can be explicitly reopened while its attempt budget has
+capacity. After exhaustion, it can be reopened only if it is retryable and
+every attempt failed on infrastructure or was abandoned. It then receives
+`recovery.maximum_stage_attempts` more attempts through a recorded
+`attempt_allowance`. A stage with any agent, candidate, or benchmark failure
+stays bounded by the original budget. `retry-stage` records the operator
+reason and prior error, then changes the stage to interrupted so normal
+`resume` creates the next immutable attempt. It never erases attempts or
+changes semantic inputs.
+
+An optional operator command (`AHE_PRE_STAGE_COMMAND`) runs before each new
+stage attempt. If it fails, the runner stops with an infrastructure error
+before the attempt is recorded.
+
+`campaign.rounds` is the only identity field that may change in place.
+`extend-rounds` appends the new identity to `campaign_amendments.json`, chained
+by hash to the manifest or the previous amendment. All later commands verify
+the chain and compare against its last identity. No stage before closure
+depends on the total round count; only `evolution.close` records it. For a
+closed campaign, `--reopen-closed-evolution` moves the closing stage records
+and their `selection/` and `final/` outputs to `superseded/closure-NN/` after
+verifying their hashes, so the new closure is computed fresh while every
+earlier stage is reused.
 
 ## Model transport contract
 
@@ -737,6 +755,8 @@ ahe run --config PATH
 ahe resume --config PATH
 ahe status --config PATH
 ahe run-round --config PATH --round N
+ahe retry-stage --config PATH --stage NAME --reason TEXT
+ahe extend-rounds --config PATH --reason TEXT [--apply] [--reopen-closed-evolution]
 ahe close-evolution --config PATH
 ahe run-validation --config PATH
 ahe run-final-test --config PATH

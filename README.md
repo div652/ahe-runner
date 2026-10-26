@@ -256,12 +256,22 @@ ahe status --config /path/to/your-project/ahe.research.yaml
 # Continue an interrupted campaign
 ahe resume --config /path/to/your-project/ahe.research.yaml
 
-# Reopen a deterministic blocked stage after fixing its external cause
+# Reopen a blocked stage after fixing its external cause
 ahe retry-stage --config /path/to/your-project/ahe.research.yaml \
   --stage round.2.evolve \
   --reason "Corrected the adapter-side parser"
 ahe resume --config /path/to/your-project/ahe.research.yaml
+
+# After raising campaign.rounds in the config: add rounds (dry run first)
+ahe extend-rounds --config /path/to/your-project/ahe.research.yaml \
+  --reason "Continue evolution" --apply
 ```
+
+`retry-stage` also reopens a stage whose attempts were all used up by
+infrastructure failures, such as a long model-server outage. Set
+`AHE_PRE_STAGE_COMMAND` to run a health check before each stage attempt.
+`extend-rounds --reopen-closed-evolution` continues a campaign that has
+already closed and archives the superseded selection and test results.
 
 The campaign directory preserves checkpoints, evaluations, traces, evidence,
 model calls, selection, and recovery records. The selected harness is at:

@@ -1,20 +1,20 @@
 # Harvey Integration Upstream Disposition
 
-This document records the upstream review of AHE-001 through AHE-025 from
+This document records the upstream review of AHE-001 through AHE-027 from
 `HARVEY_INTEGRATION_UPSTREAM_RECOMMENDATIONS.md`. The findings were checked
 against the generic runner rather than accepted as Harvey-specific
 requirements.
 
 The resulting changes intentionally contain no Harvey task data, prompts,
 metrics, adapter code, campaign artifacts, or benchmark-specific policy. They
-form the AHE Runner 0.6.0 hardening boundary.
+form the AHE Runner 0.7.0 hardening boundary.
 
 ## Summary
 
 | Item | Assessment | Upstream disposition |
 |---|---|---|
 | AHE-001 | Correctness gap | Fixed: evaluated-model catalog, positive, negative, and observable-identity preflight is preserved per evaluation stage attempt. |
-| AHE-002 | Conformance gap | Fixed: every regular asset in a registered skill directory is an active, hashed skill component. |
+| AHE-002 | Conformance gap | Fixed: every regular asset in a registered skill directory is an active, hashed skill component. The later Harvey `workspace_seed/` workaround (sandbox-only scripts copied by the adapter) needs no runner change: files outside the component globs are already part of the harness hash, and copying them into a benchmark-owned sandbox is adapter policy. |
 | AHE-003 | Import-integrity risk | Fixed at validation boundary: reject candidate top-level names that shadow standard-library, loaded, or importable host modules. Separate-process grading remains the stronger future boundary. |
 | AHE-004 | Packaging/onboarding gap | Documented: adapters must not resolve a second runner/NexAU stack; NexAU 0.3.9 remains a direct Git dependency and `ag-ui-protocol` is constrained below 1.0. |
 | AHE-005 | Capability-routing gap | Fixed: object-valued session resources use per-session NexAU `GlobalStorage`, shared only with that root agent's sub-agents. |
@@ -23,7 +23,7 @@ form the AHE Runner 0.6.0 hardening boundary.
 | AHE-008 | Workspace contamination | Fixed: every meta-agent receives a private runtime sandbox/work directory. |
 | AHE-009 | Prompt mutation/failure | Fixed: resolved core prompts and role supplements are passed to NexAU as literal strings; the prompt file remains as immutable attempt evidence. |
 | AHE-010 | Oversized file-search output | Fixed through the AHE-016 tool/middleware replacement: guarded native file tools use long-output handling and private full-output artifacts. |
-| AHE-011 | Recovery limitation | Fixed with explicit `ahe retry-stage`. Prior attempts and errors remain immutable, a reason is required, and exhausted stages cannot be reopened. Identity-changing runner-patch amendments were rejected. |
+| AHE-011 | Recovery limitation | Fixed with explicit `ahe retry-stage`. Prior attempts and errors remain immutable and a reason is required. Exhausted stages reopen only under AHE-026's infrastructure-only rule. Identity-changing runner-patch amendments were rejected. |
 | AHE-012 | Performance limitation | Deferred: cross-checkpoint concurrency requires one campaign-wide scheduler so adapter, judge, evaluated-agent, and meta-agent limits are not multiplied accidentally. |
 | AHE-013 | Directory-listing overflow | Fixed through AHE-016: guarded listing/glob tools participate in bounded output handling. |
 | AHE-014 | Evidence/citation mismatch | Fixed through AHE-016: full tool outputs are durable, while Debugger citations are captured from the post-truncation text actually shown to the model. |
@@ -38,6 +38,8 @@ form the AHE Runner 0.6.0 hardening boundary.
 | AHE-023 | Context-accounting and classification bug | Fixed generically: provider context rejections are excluded from infrastructure retry classification, adapters receive a public classifier for benchmark-native graded outcomes, and manifests can protect the evaluated agent tree's counter and limit. Harvey's tokenizer and scoring text remain local. |
 | AHE-024 | Cross-model tokenizer assumption | Fixed as explicit protected policy rather than a universal tokenizer: manifests and meta config state the counter import, counting unit, limit, and optional provider maximum. Operators must recalibrate when the model or transport changes. |
 | AHE-025 | Trial-execution contention and observability gap | Accepted with an ownership boundary: adapters still choose their worker model, while the runner provides an opt-in spawned evaluated-trial seam that preserves preflight and endpoint policy. Every evaluated session now records protected per-tool wall time. Harvey's `trial_processes` setting remains local. |
+| AHE-026 | Recovery and operations gap | Fixed in `ahe retry-stage` rather than a second command: a blocked, retryable stage whose every attempt failed on infrastructure or was abandoned receives `recovery.maximum_stage_attempts` more attempts, recorded in `stage.json` as `attempt_allowance` and a `manual_retries` event. Stages with any agent, candidate, or benchmark failure stay bounded. `AHE_PRE_STAGE_COMMAND` runs an operator health check before each new attempt; its failure consumes no attempt. Harvey's `--allow-runner-code-change` flag and model-host memory guard were not adopted. |
+| AHE-027 | Campaign-continuation gap | Fixed: `ahe extend-rounds` (dry run unless `--apply`) accepts only a larger `campaign.rounds`, recorded in a hash-chained `campaign_amendments.json`. `--reopen-closed-evolution` hash-verifies and moves the closing stages and `selection/`/`final/` outputs to `superseded/closure-NN/`, then resume reuses every other stage. The runner-code-change override was not adopted. |
 
 ## Important design decisions
 
@@ -121,6 +123,45 @@ sub-agent harness tools. `tool_timings.json` and
 it from gaps between model calls. Benchmark-owned protected actions still run
 in the adapter and retain adapter-owned timing.
 
+### Infrastructure-exhausted stages and the pre-stage hook
+
+Harvey's local fix added a separate `retry-blocked-stage` command. Upstream
+folds the rule into the existing `retry-stage`, so operators have one recovery
+command. While a blocked stage has attempts left, the command authorizes one
+more, as before. Once a stage has used every attempt, it is reopened only when
+it is retryable and every attempt ended as `infrastructure_failed` or was
+abandoned by a killed process. No attempt produced a result, so the reopening
+cannot select among outcomes. A stage with any genuine failure stays bounded
+by its original budget, preserving AHE-011's guard against retrying until a
+stage passes.
+
+For stage records written before `retryable` was stored, a stage counts as
+retryable only if an earlier infrastructure failure was followed by an
+automatic retry rather than an operator retry.
+
+The reopen does not change campaign identity, so it is recorded on the stage
+(`attempt_allowance` and the `manual_retries` event) rather than in
+`campaign_amendments.json`.
+
+`AHE_PRE_STAGE_COMMAND` is an environment variable rather than a
+configuration field. It is operational, like credentials, and must not change
+campaign identity. The runner records it on each attempt it preceded.
+
+### Continuing a campaign
+
+`campaign.rounds` is part of campaign identity, and only `evolution.close`
+records it as a stage input. `extend-rounds` therefore accepts exactly two
+identity differences: the configuration file hash and `campaign.rounds`. Any
+runner-package change is refused. This keeps the AHE-011 decision against
+identity-changing runner patches inside one campaign. Harvey's
+`--allow-runner-code-change` override was deliberately not adopted.
+
+Reopening a closed campaign archives rather than deletes the old closure.
+Meta-agents never mount validation, test, `selection/`, or `final/`, so the
+superseded results cannot influence later evolution. Because the operator may
+decide to continue after reading the test result, the Operator Guide requires
+a report to give both closures.
+
 ### Metric changes
 
 Metric semantics cannot be proven from unrestricted natural-language
@@ -184,7 +225,7 @@ termination reason, trace policy, and grade.
 
 ## Generic regression coverage
 
-The 0.6.0 hardening changes add or extend coverage for:
+The 0.7.0 hardening changes add or extend coverage for:
 
 - evaluated-model preflight caching, proofs, and failures;
 - per-session resources and isolation;
@@ -206,7 +247,14 @@ The 0.6.0 hardening changes add or extend coverage for:
 - protected evaluated/meta context-counter units and limits.
 - spawned evaluated-trial runtime reconstruction and preflight reuse;
 - endpoint-budget sharing across runner-spawned processes;
-- protected root/sub-agent tool wall-time evidence.
+- protected root/sub-agent tool wall-time evidence;
+- infrastructure-only reopening of exhausted stages, including legacy records
+  and refusals for mixed or non-retryable stages;
+- pre-stage commands that run before attempts and consume none on failure;
+- hash-chained round extensions, tamper detection, and refusal of any other
+  identity change, including runner code;
+- reopening a closed campaign with byte-for-byte reuse of earlier stages and
+  archived closures.
 
 Validation results are recorded separately after the implementation commit so
 the tested source identity remains explicit.

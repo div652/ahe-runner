@@ -39,6 +39,7 @@ from .io import (
     sha256_file,
     sha256_json,
     tree_hashes,
+    verify_path_fingerprint,
 )
 from .loading import load_adapter
 from .meta import MetaBackendContext, create_meta_backend
@@ -52,6 +53,14 @@ from .workspace import (
     prepare_evolve_workspace,
     verify_checkpoint,
 )
+
+CLOSING_STAGES = ("evolution.close", "selection", "final.complete")
+_CLOSING_OUTPUT_ROOTS = frozenset({"selection", "final"})
+_EXTENDABLE_IDENTITY_FIELDS = frozenset(
+    {"config.config_sha256", "config.document.campaign.rounds"}
+)
+PRE_STAGE_COMMAND_ENV = "AHE_PRE_STAGE_COMMAND"
+PRE_STAGE_TIMEOUT_ENV = "AHE_PRE_STAGE_TIMEOUT_SECONDS"
 
 
 class CampaignController:
@@ -71,6 +80,8 @@ class CampaignController:
         self.stage_store = StageStore(
             campaign_dir=config.campaign_dir,
             maximum_attempts=config.document.recovery.maximum_stage_attempts,
+            pre_stage_command=os.environ.get(PRE_STAGE_COMMAND_ENV) or None,
+            pre_stage_timeout_seconds=_pre_stage_timeout(),
         )
         self.method_reference = (
             Path(__file__).resolve().parent / "resources" / "AHE_METHODS_REFERENCE.md"
@@ -295,6 +306,7 @@ class CampaignController:
                 {"name": row["name"], "last_error": row.get("last_error")}
                 for row in interrupted
             ],
+            "campaign_amendments": self._amendment_summary(),
             "model_call_retries": summarize_model_call_retries(
                 self.config.campaign_dir,
                 configured_retries=(self.config.document.transport.hung_call_retries),
@@ -889,7 +901,347 @@ class CampaignController:
         atomic_write_json(path, payload)
         return StageResult(outputs=(path, selected_harness), data=payload)
 
+    def extend_rounds(
+        self,
+        *,
+        reason: str,
+        apply: bool = False,
+        reopen_closed_evolution: bool = False,
+    ) -> dict[str, Any]:
+        """Accept a larger ``campaign.rounds`` for an existing campaign.
+
+        The operator first raises ``campaign.rounds`` in the configuration file.
+        The new identity is appended to ``campaign_amendments.json``; the
+        original campaign manifest and every stage record stay unchanged. Any
+        other protected-input change is refused.
+
+        With ``reopen_closed_evolution`` a closed campaign can be extended too:
+        the closing stages and their outputs move, unchanged, to
+        ``superseded/closure-NN/`` and are described in the amendment.
+        """
+
+        normalized_reason = reason.strip()
+        if not normalized_reason:
+            raise ConfigurationError("extend-rounds needs a non-empty --reason")
+        manifest_path = self._campaign_manifest_path()
+        if not manifest_path.is_file():
+            raise ConfigurationError("campaign does not exist; use run first")
+        manifest = read_json(manifest_path)
+        accepted = self._accepted_campaign_identity(manifest)
+        identity = self._campaign_identity()
+        old_rounds = accepted["identity"]["config"]["document"]["campaign"]["rounds"]
+        new_rounds = self.config.document.campaign.rounds
+        if identity == accepted["identity"]:
+            raise ConfigurationError(
+                "nothing to amend: the configuration already matches the "
+                f"accepted campaign identity ({old_rounds} rounds)"
+            )
+        if new_rounds <= old_rounds:
+            raise ConfigurationError(
+                "extend-rounds only increases campaign.rounds; the accepted value "
+                f"is {old_rounds} and the configuration says {new_rounds}"
+            )
+        changes = _identity_differences(accepted["identity"], identity)
+        refused = [
+            change for change in changes if change not in _EXTENDABLE_IDENTITY_FIELDS
+        ]
+        if refused:
+            raise IntegrityError(
+                "extend-rounds only changes campaign.rounds, but other protected "
+                f"inputs changed: {refused}"
+            )
+        stages = self.stage_store.status()
+        closing_stages = sorted(
+            row["name"] for row in stages if row["name"] in CLOSING_STAGES
+        )
+        reopen_plan: dict[str, Any] | None = None
+        if closing_stages:
+            if not reopen_closed_evolution:
+                raise IntegrityError(
+                    "rounds cannot be extended after evolution has closed; "
+                    f"existing stages: {closing_stages}; pass "
+                    "--reopen-closed-evolution to supersede the closure"
+                )
+            reopen_plan = self._closure_reopen_plan(stages, from_rounds=old_rounds)
+        elif reopen_closed_evolution:
+            raise ConfigurationError(
+                "--reopen-closed-evolution was given, but evolution has not closed"
+            )
+        identity_sha = sha256_json(identity)
+        amendment: dict[str, Any] = {
+            "kind": "extend_rounds",
+            "created_at": datetime.now(UTC).isoformat(),
+            "reason": normalized_reason,
+            "from_rounds": old_rounds,
+            "to_rounds": new_rounds,
+            "changes": changes,
+            "previous_identity_sha256": accepted["identity_sha256"],
+            "identity_sha256": identity_sha,
+            "identity": identity,
+        }
+        report: dict[str, Any] = {
+            "status": "applied" if apply else "dry_run",
+            "campaign_dir": str(self.config.campaign_dir),
+            "from_rounds": old_rounds,
+            "to_rounds": new_rounds,
+            "changes": changes,
+            "previous_identity_sha256": accepted["identity_sha256"],
+            "identity_sha256": identity_sha,
+            "ledger": str(self._campaign_amendments_path()),
+        }
+        if reopen_plan is not None:
+            amendment["reopened_closed_evolution"] = reopen_plan
+            report["reopened_closed_evolution"] = reopen_plan
+        if not apply:
+            return report
+        if reopen_plan is not None:
+            self._archive_closure(reopen_plan, reason=normalized_reason)
+        self._append_campaign_amendment(manifest, amendment)
+        self._write_state()
+        return report
+
+    def _closure_reopen_plan(
+        self,
+        stages: list[dict[str, Any]],
+        *,
+        from_rounds: int,
+    ) -> dict[str, Any]:
+        """Check that a closed campaign can be reopened; list what moves."""
+
+        unfinished = sorted(
+            f"{row['name']} ({row.get('status')})"
+            for row in stages
+            if row.get("status") != "completed"
+        )
+        if unfinished:
+            raise IntegrityError(
+                "evolution can be reopened only when every stage is completed; "
+                f"not completed: {unfinished}"
+            )
+        campaign_dir = self.config.campaign_dir
+        by_name = {row["name"]: row for row in stages}
+        moves: list[dict[str, Any]] = []
+        for name in CLOSING_STAGES:
+            row = by_name.get(name)
+            if row is None:
+                continue
+            moves.append(
+                {
+                    "kind": "stage_record",
+                    "stage": name,
+                    "path": self.stage_store.stage_dir(name)
+                    .relative_to(campaign_dir)
+                    .as_posix(),
+                    "stage_id": row.get("stage_id"),
+                    "semantic_inputs_sha256": row.get("semantic_inputs_sha256"),
+                }
+            )
+            for fingerprint in row.get("outputs") or []:
+                relative = Path(str(fingerprint["path"]))
+                if (
+                    relative.is_absolute()
+                    or ".." in relative.parts
+                    or not relative.parts
+                    or relative.parts[0] not in _CLOSING_OUTPUT_ROOTS
+                ):
+                    raise IntegrityError(
+                        f"closing stage {name} has an output outside "
+                        f"{sorted(_CLOSING_OUTPUT_ROOTS)}: {relative}"
+                    )
+                verify_path_fingerprint(fingerprint, relative_to=campaign_dir)
+                moves.append(
+                    {
+                        "kind": "stage_output",
+                        "stage": name,
+                        "path": relative.as_posix(),
+                        "type": fingerprint.get("type"),
+                        "sha256": fingerprint.get("sha256"),
+                    }
+                )
+        archive_root = campaign_dir / "superseded"
+        number = 1 + sum(1 for path in archive_root.glob("closure-*") if path.is_dir())
+        archive_dir = archive_root / f"closure-{number:02d}"
+        selection = dict(by_name.get("selection", {}).get("data") or {})
+        final = dict(by_name.get("final.complete", {}).get("data") or {})
+        return {
+            "closed_rounds": from_rounds,
+            "archive_dir": archive_dir.relative_to(campaign_dir).as_posix(),
+            "moves": moves,
+            "previous_selected_checkpoint": selection.get("selected_checkpoint"),
+            "previous_selection_rule": selection.get("selection_rule"),
+            "previous_validation_primary": {
+                label: summary.get("primary")
+                for label, summary in dict(
+                    selection.get("validation_summaries") or {}
+                ).items()
+            },
+            "previous_test_primary": {
+                label: summary.get("primary")
+                for label, summary in dict(final.get("test_summaries") or {}).items()
+            },
+        }
+
+    def _archive_closure(self, plan: dict[str, Any], *, reason: str) -> None:
+        """Move the closing stages and outputs into the plan's archive folder."""
+
+        campaign_dir = self.config.campaign_dir
+        archive_dir = campaign_dir / str(plan["archive_dir"])
+        archive_dir.mkdir(parents=True, exist_ok=False)
+        for move in plan["moves"]:
+            source = campaign_dir / str(move["path"])
+            target = archive_dir / str(move["path"])
+            if not source.exists():
+                raise IntegrityError(
+                    f"closure path disappeared before moving: {source}"
+                )
+            target.parent.mkdir(parents=True, exist_ok=True)
+            mode = source.stat().st_mode
+            if source.is_dir() and not mode & stat.S_IWUSR:
+                # Renaming a folder to a new parent rewrites its ".." entry.
+                source.chmod(mode | stat.S_IWUSR)
+                os.rename(source, target)
+                target.chmod(mode)
+            else:
+                os.rename(source, target)
+        atomic_write_json(
+            archive_dir / "reopen.json",
+            {
+                "schema_version": 1,
+                "kind": "reopened_closed_evolution",
+                "created_at": datetime.now(UTC).isoformat(),
+                "reason": reason,
+                **plan,
+            },
+        )
+
+    def _append_campaign_amendment(
+        self,
+        manifest: dict[str, Any],
+        amendment: dict[str, Any],
+    ) -> int:
+        """Append to ``campaign_amendments.json``; return the 1-based index."""
+
+        ledger_path = self._campaign_amendments_path()
+        ledger = (
+            read_json(ledger_path)
+            if ledger_path.is_file()
+            else {
+                "schema_version": 1,
+                "base_identity_sha256": manifest["identity_sha256"],
+                "amendments": [],
+            }
+        )
+        ledger["amendments"] = [*ledger["amendments"], amendment]
+        atomic_write_json(ledger_path, ledger)
+        return len(ledger["amendments"])
+
+    def _accepted_campaign_identity(self, manifest: dict[str, Any]) -> dict[str, Any]:
+        """Return the identity a resume must match: manifest or last amendment."""
+
+        base = {
+            key: value
+            for key, value in manifest.items()
+            if key not in {"created_at", "identity_sha256"}
+        }
+        if sha256_json(base) != manifest.get("identity_sha256"):
+            raise IntegrityError("campaign manifest does not match its identity hash")
+        accepted = {"identity": base, "identity_sha256": manifest["identity_sha256"]}
+        ledger_path = self._campaign_amendments_path()
+        if not ledger_path.is_file():
+            return accepted
+        ledger = read_json(ledger_path)
+        if ledger.get("base_identity_sha256") != manifest["identity_sha256"]:
+            raise IntegrityError(
+                "campaign amendments do not belong to this campaign manifest"
+            )
+        amendments = ledger.get("amendments")
+        if not isinstance(amendments, list) or not amendments:
+            raise IntegrityError("campaign amendments file has no amendments")
+        for index, amendment in enumerate(amendments, start=1):
+            if amendment.get("previous_identity_sha256") != accepted["identity_sha256"]:
+                raise IntegrityError(
+                    f"campaign amendment {index} does not follow the previous identity"
+                )
+            identity = amendment.get("identity")
+            if not isinstance(identity, dict) or sha256_json(identity) != amendment.get(
+                "identity_sha256"
+            ):
+                raise IntegrityError(
+                    f"campaign amendment {index} does not match its identity hash"
+                )
+            accepted = {
+                "identity": identity,
+                "identity_sha256": amendment["identity_sha256"],
+            }
+        return accepted
+
+    def _amendment_summary(self) -> list[dict[str, Any]]:
+        ledger_path = self._campaign_amendments_path()
+        if not ledger_path.is_file():
+            return []
+        return [
+            {
+                key: amendment.get(key)
+                for key in ("kind", "created_at", "reason", "from_rounds", "to_rounds")
+            }
+            | {
+                "reopened_closure": (
+                    amendment.get("reopened_closed_evolution") or {}
+                ).get("archive_dir")
+            }
+            for amendment in read_json(ledger_path).get("amendments") or []
+        ]
+
+    def _campaign_amendments_path(self) -> Path:
+        return self.config.campaign_dir / "campaign_amendments.json"
+
     def _ensure_campaign_manifest(self) -> dict[str, Any]:
+        identity = self._campaign_identity()
+        identity_sha = sha256_json(identity)
+        payload = {
+            **identity,
+            "identity_sha256": identity_sha,
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+        path = self._campaign_manifest_path()
+        if path.is_file() and self._campaign_amendments_path().is_file():
+            existing = read_json(path)
+            accepted = self._accepted_campaign_identity(existing)
+            if identity != accepted["identity"]:
+                changed = sorted(
+                    key
+                    for key in set(accepted["identity"]) | set(identity)
+                    if accepted["identity"].get(key) != identity.get(key)
+                )
+                raise IntegrityError(
+                    "campaign identity changed in protected inputs "
+                    f"{changed} since the last campaign amendment; "
+                    "use a new artifacts directory"
+                )
+            return existing
+        if path.is_file():
+            existing = read_json(path)
+            comparable = dict(existing)
+            comparable.pop("created_at", None)
+            expected = dict(payload)
+            expected.pop("created_at", None)
+            if comparable != expected:
+                changed = sorted(
+                    key
+                    for key in set(comparable) | set(expected)
+                    if key not in {"created_at", "identity_sha256"}
+                    and comparable.get(key) != expected.get(key)
+                )
+                raise IntegrityError(
+                    "campaign identity changed in protected inputs "
+                    f"{changed}; use a new artifacts directory "
+                    "(or `ahe extend-rounds` if only campaign.rounds was raised)"
+                )
+            return existing
+        atomic_write_json(path, payload)
+        return payload
+
+    def _campaign_identity(self) -> dict[str, Any]:
         adapter_source = inspect.getsourcefile(type(self.adapter))
         adapter_dependencies = [
             Path(adapter_source).resolve() if adapter_source else None,
@@ -949,33 +1301,7 @@ class CampaignController:
                 for name, split in self.splits.items()
             },
         }
-        identity_sha = sha256_json(identity)
-        payload = {
-            **identity,
-            "identity_sha256": identity_sha,
-            "created_at": datetime.now(UTC).isoformat(),
-        }
-        path = self._campaign_manifest_path()
-        if path.is_file():
-            existing = read_json(path)
-            comparable = dict(existing)
-            comparable.pop("created_at", None)
-            expected = dict(payload)
-            expected.pop("created_at", None)
-            if comparable != expected:
-                changed = sorted(
-                    key
-                    for key in set(comparable) | set(expected)
-                    if key not in {"created_at", "identity_sha256"}
-                    and comparable.get(key) != expected.get(key)
-                )
-                raise IntegrityError(
-                    "campaign identity changed in protected inputs "
-                    f"{changed}; use a new artifacts directory"
-                )
-            return existing
-        atomic_write_json(path, payload)
-        return payload
+        return identity
 
     def _validate_split_separation(self) -> None:
         sets = {name: set(split.task_ids) for name, split in self.splits.items()}
@@ -1007,6 +1333,34 @@ class CampaignController:
 
     def _write_state(self) -> None:
         self.status()
+
+
+def _pre_stage_timeout() -> float:
+    raw = os.environ.get(PRE_STAGE_TIMEOUT_ENV)
+    if not raw:
+        return 1200.0
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ConfigurationError(f"{PRE_STAGE_TIMEOUT_ENV} must be a number") from exc
+    if value <= 0:
+        raise ConfigurationError(f"{PRE_STAGE_TIMEOUT_ENV} must be positive")
+    return value
+
+
+def _identity_differences(before: Any, after: Any, prefix: str = "") -> list[str]:
+    """Return the dotted paths of every leaf that differs between two identities."""
+
+    if isinstance(before, dict) and isinstance(after, dict):
+        changes: list[str] = []
+        for key in sorted(set(before) | set(after)):
+            path = f"{prefix}.{key}" if prefix else str(key)
+            if key not in before or key not in after:
+                changes.append(path)
+            else:
+                changes.extend(_identity_differences(before[key], after[key], path))
+        return changes
+    return [] if before == after else [prefix]
 
 
 def _protected_path_identity(path: Path) -> dict[str, Any]:

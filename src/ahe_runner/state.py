@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import os
+import shlex
+import subprocess
+import sys
 import traceback
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -47,9 +51,13 @@ class StageStore:
         *,
         campaign_dir: Path,
         maximum_attempts: int,
+        pre_stage_command: str | None = None,
+        pre_stage_timeout_seconds: float = 1200.0,
     ) -> None:
         self.campaign_dir = campaign_dir.resolve()
         self.maximum_attempts = maximum_attempts
+        self.pre_stage_command = pre_stage_command
+        self.pre_stage_timeout_seconds = pre_stage_timeout_seconds
         self.root = self.campaign_dir / "stages"
 
     def run(
@@ -109,11 +117,13 @@ class StageStore:
             atomic_write_json(stage_path, stage)
 
         attempt = len(attempts) + 1
-        if attempt > self.maximum_attempts:
+        allowed_attempts = self._allowed_attempts(stage)
+        if attempt > allowed_attempts:
             stage["status"] = "blocked"
-            stage["last_error"] = f"stage exhausted {self.maximum_attempts} attempts"
+            stage["last_error"] = f"stage exhausted {allowed_attempts} attempts"
             atomic_write_json(stage_path, stage)
             raise StageBlockedError(name, stage["last_error"])
+        self._run_pre_stage_command(name)
 
         attempt_dir = stage_dir / "attempts" / f"{attempt:04d}"
         attempt_dir.mkdir(parents=True, exist_ok=False)
@@ -126,8 +136,11 @@ class StageStore:
             "started_at": datetime.now(UTC).isoformat(),
             "attempt_dir": str(attempt_dir.relative_to(self.campaign_dir)),
         }
+        if self.pre_stage_command:
+            attempt_record["pre_stage_command"] = self.pre_stage_command
         attempts.append(attempt_record)
         stage["attempts"] = attempts
+        stage["retryable"] = retryable
         stage["status"] = "running"
         stage["updated_at"] = datetime.now(UTC).isoformat()
         atomic_write_json(stage_path, stage)
@@ -168,7 +181,7 @@ class StageStore:
             can_retry = (
                 retryable
                 and isinstance(exc, InfrastructureError)
-                and attempt < self.maximum_attempts
+                and attempt < allowed_attempts
             )
             stage["status"] = "interrupted" if can_retry else "blocked"
             stage["updated_at"] = datetime.now(UTC).isoformat()
@@ -203,12 +216,19 @@ class StageStore:
         return result
 
     def retry_blocked(self, *, name: str, reason: str) -> dict[str, Any]:
-        """Authorize one more attempt of a blocked stage without erasing history."""
+        """Authorize another attempt of a blocked stage without erasing history.
+
+        A stage with attempts left gets one more. A stage that used all its
+        attempts is reopened only when it is retryable and every attempt failed
+        on infrastructure (or was abandoned by a killed process); it then gets
+        ``maximum_attempts`` more. Any other exhausted stage stays blocked, so
+        an agent or benchmark failure cannot be retried until it passes.
+        """
 
         normalized_reason = reason.strip()
         if not normalized_reason:
             raise ConfigurationError("retry reason must be non-empty")
-        stage_path = self.root / _stage_directory_name(name) / "stage.json"
+        stage_path = self._stage_path(name)
         if not stage_path.is_file():
             raise ConfigurationError(f"campaign stage does not exist: {name}")
         stage = read_json(stage_path)
@@ -219,21 +239,23 @@ class StageStore:
                 f"stage {name!r} is {stage.get('status')!r}, not blocked"
             )
         attempts = list(stage.get("attempts") or [])
-        if len(attempts) >= self.maximum_attempts:
-            raise StageBlockedError(
-                name,
-                f"stage exhausted {self.maximum_attempts} attempts",
-            )
+        allowed_attempts = self._allowed_attempts(stage)
+        kind = "next_attempt"
+        if len(attempts) >= allowed_attempts:
+            _require_infrastructure_exhaustion(name, stage, allowed_attempts)
+            kind = "infrastructure_reopen"
+            allowed_attempts = len(attempts) + self.maximum_attempts
+            stage["attempt_allowance"] = allowed_attempts
         requested_at = datetime.now(UTC).isoformat()
         event = {
+            "kind": kind,
             "requested_at": requested_at,
             "reason": normalized_reason,
             "prior_error": stage.get("last_error"),
             "completed_attempts": len(attempts),
             "next_attempt": len(attempts) + 1,
-            "attempts_remaining_after_retry": (
-                self.maximum_attempts - len(attempts) - 1
-            ),
+            "allowed_attempts": allowed_attempts,
+            "attempts_remaining_after_retry": (allowed_attempts - len(attempts) - 1),
         }
         retries = list(stage.get("manual_retries") or [])
         retries.append(event)
@@ -246,6 +268,46 @@ class StageStore:
             "status": stage["status"],
             "retry": event,
         }
+
+    def stage_dir(self, name: str) -> Path:
+        """Return the folder that holds stage ``name``'s record and attempts."""
+
+        return self.root / _stage_directory_name(name)
+
+    def _stage_path(self, name: str) -> Path:
+        return self.stage_dir(name) / "stage.json"
+
+    def _allowed_attempts(self, stage: Mapping[str, Any]) -> int:
+        return max(self.maximum_attempts, int(stage.get("attempt_allowance") or 0))
+
+    def _run_pre_stage_command(self, name: str) -> None:
+        """Run the operator's pre-stage command; a failure consumes no attempt."""
+
+        if not self.pre_stage_command:
+            return
+        environment = {
+            **os.environ,
+            "AHE_STAGE_NAME": name,
+            "AHE_CAMPAIGN_DIR": str(self.campaign_dir),
+        }
+        try:
+            completed = subprocess.run(
+                shlex.split(self.pre_stage_command),
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                stdout=sys.stderr,
+                stderr=sys.stderr,
+                timeout=self.pre_stage_timeout_seconds,
+                check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise InfrastructureError(
+                f"pre-stage command failed before stage {name}: {exc}"
+            ) from exc
+        if completed.returncode != 0:
+            raise InfrastructureError(
+                f"pre-stage command exited {completed.returncode} before stage {name}"
+            )
 
     def status(self) -> list[dict[str, Any]]:
         if not self.root.is_dir():
@@ -294,6 +356,58 @@ class StageStore:
         }
         atomic_write_json(stage_path, stage)
         return stage
+
+
+def _require_infrastructure_exhaustion(
+    name: str,
+    stage: Mapping[str, Any],
+    allowed_attempts: int,
+) -> None:
+    attempts = list(stage.get("attempts") or [])
+    exhausted = f"stage exhausted {allowed_attempts} attempts"
+    if not attempts:
+        raise StageBlockedError(name, exhausted)
+    other = [
+        int(row.get("attempt", index))
+        for index, row in enumerate(attempts, start=1)
+        if not _failed_on_infrastructure(row)
+    ]
+    if other:
+        raise StageBlockedError(
+            name,
+            f"{exhausted}; attempts {other} did not fail on infrastructure, so "
+            "the stage cannot be reopened",
+        )
+    retryable = stage.get("retryable")
+    if retryable is None:
+        # Records written before `retryable` was stored: an earlier attempt that
+        # failed on infrastructure and was followed without an operator retry
+        # shows the runner itself retried, so the stage was retryable.
+        manually_retried = {
+            int(row.get("completed_attempts", 0))
+            for row in stage.get("manual_retries") or []
+        }
+        retryable = any(
+            row.get("status") == "infrastructure_failed"
+            and int(row.get("attempt", index)) not in manually_retried
+            for index, row in enumerate(attempts[:-1], start=1)
+        )
+    if not retryable:
+        raise StageBlockedError(
+            name,
+            f"{exhausted}; the stage is not retryable by design",
+        )
+
+
+def _failed_on_infrastructure(attempt: Mapping[str, Any]) -> bool:
+    if attempt.get("status") == "infrastructure_failed":
+        return True
+    error = attempt.get("error")
+    return (
+        attempt.get("status") == "interrupted"
+        and isinstance(error, dict)
+        and error.get("type") == "AbandonedStageAttempt"
+    )
 
 
 def _stage_directory_name(name: str) -> str:

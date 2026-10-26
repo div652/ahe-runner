@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import shlex
+import sys
 from pathlib import Path
 
 import pytest
@@ -131,6 +133,153 @@ def test_stage_store_cannot_retry_exhausted_blocked_stage(tmp_path: Path) -> Non
         store.run(name="demo", semantic_inputs={}, action=fail)
     with pytest.raises(StageBlockedError, match="exhausted"):
         store.retry_blocked(name="demo", reason="operator requested retry")
+
+
+def _infrastructure_failure(_context):  # type: ignore[no-untyped-def]
+    raise InfrastructureError("model server down")
+
+
+def _completes(output: Path):  # type: ignore[no-untyped-def]
+    def action(context):  # type: ignore[no-untyped-def]
+        atomic_write_json(output, {"attempt": context.attempt})
+        return StageResult(outputs=(output,), data={"attempt": context.attempt})
+
+    return action
+
+
+def test_infrastructure_exhausted_stage_reopens_with_more_attempts(
+    tmp_path: Path,
+) -> None:
+    campaign = tmp_path / "campaign"
+    store = StageStore(campaign_dir=campaign, maximum_attempts=2)
+    run = {"name": "demo", "semantic_inputs": {"value": 1}}
+
+    with pytest.raises(StageInterruptedError):
+        store.run(**run, action=_infrastructure_failure)
+    with pytest.raises(StageBlockedError):
+        store.run(**run, action=_infrastructure_failure)
+    with pytest.raises(StageBlockedError):
+        store.run(**run, action=_completes(campaign / "out.json"))
+
+    retry = store.retry_blocked(name="demo", reason="restarted the model server")
+    assert retry["retry"]["kind"] == "infrastructure_reopen"
+    assert retry["retry"]["allowed_attempts"] == 4
+    assert retry["retry"]["attempts_remaining_after_retry"] == 1
+    with pytest.raises(ConfigurationError, match="not blocked"):
+        store.retry_blocked(name="demo", reason="again")
+
+    with pytest.raises(StageInterruptedError):
+        store.run(**run, action=_infrastructure_failure)
+    result = store.run(**run, action=_completes(campaign / "out.json"))
+    assert result.data == {"attempt": 4}
+
+    stage = read_json(campaign / "stages" / "demo" / "stage.json")
+    assert stage["status"] == "completed"
+    assert stage["attempt_allowance"] == 4
+    assert [row["status"] for row in stage["attempts"]] == [
+        "infrastructure_failed",
+        "infrastructure_failed",
+        "infrastructure_failed",
+        "completed",
+    ]
+
+
+def test_only_infrastructure_exhausted_retryable_stages_reopen(
+    tmp_path: Path,
+) -> None:
+    campaign = tmp_path / "campaign"
+    store = StageStore(campaign_dir=campaign, maximum_attempts=2)
+
+    def logic_error(_context):  # type: ignore[no-untyped-def]
+        raise ValueError("bad candidate")
+
+    # One genuine failure, then an outage exhausts the remaining attempt.
+    with pytest.raises(StageBlockedError):
+        store.run(name="mixed", semantic_inputs={}, action=logic_error)
+    store.retry_blocked(name="mixed", reason="fixed the adapter parser")
+    with pytest.raises(StageBlockedError):
+        store.run(name="mixed", semantic_inputs={}, action=_infrastructure_failure)
+    with pytest.raises(StageBlockedError, match="did not fail on infrastructure"):
+        store.retry_blocked(name="mixed", reason="outage")
+
+    # A non-retryable stage blocks on its first outage; once its attempts are
+    # used up it stays blocked even though every failure was infrastructure.
+    for attempt in (1, 2):
+        with pytest.raises(StageBlockedError):
+            store.run(
+                name="final",
+                semantic_inputs={},
+                action=_infrastructure_failure,
+                retryable=False,
+            )
+        if attempt == 1:
+            store.retry_blocked(name="final", reason="restart")
+    with pytest.raises(StageBlockedError, match="not retryable"):
+        store.retry_blocked(name="final", reason="outage")
+
+    # Records written before `retryable` was stored: an earlier infrastructure
+    # failure that did not block shows the stage was retryable.
+    with pytest.raises(StageInterruptedError):
+        store.run(name="legacy", semantic_inputs={}, action=_infrastructure_failure)
+    with pytest.raises(StageBlockedError):
+        store.run(name="legacy", semantic_inputs={}, action=_infrastructure_failure)
+    for name in ("legacy", "final"):
+        stage_path = campaign / "stages" / name / "stage.json"
+        stage = read_json(stage_path)
+        del stage["retryable"]
+        atomic_write_json(stage_path, stage)
+    assert store.retry_blocked(name="legacy", reason="outage")["retry"]["kind"] == (
+        "infrastructure_reopen"
+    )
+    with pytest.raises(StageBlockedError, match="not retryable"):
+        store.retry_blocked(name="final", reason="outage")
+
+
+def test_pre_stage_command_runs_before_each_attempt(tmp_path: Path) -> None:
+    campaign = tmp_path / "campaign"
+    log = tmp_path / "hook.log"
+    record = (
+        "import os, sys; "
+        "open(sys.argv[1], 'a').write(os.environ['AHE_STAGE_NAME'] + ' ' "
+        "+ os.environ['AHE_CAMPAIGN_DIR'] + '\\n')"
+    )
+    command = shlex.join([sys.executable, "-c", record, str(log)])
+    store = StageStore(
+        campaign_dir=campaign, maximum_attempts=2, pre_stage_command=command
+    )
+    output = campaign / "out.json"
+
+    store.run(name="demo", semantic_inputs={}, action=_completes(output))
+    store.run(name="demo", semantic_inputs={}, action=_completes(output))
+    assert log.read_text(encoding="utf-8") == f"demo {campaign.resolve()}\n"
+    stage = read_json(campaign / "stages" / "demo" / "stage.json")
+    assert stage["attempts"][0]["pre_stage_command"] == command
+
+    failing = StageStore(
+        campaign_dir=campaign,
+        maximum_attempts=2,
+        pre_stage_command=shlex.join([sys.executable, "-c", "raise SystemExit(3)"]),
+    )
+    for _ in range(3):
+        with pytest.raises(InfrastructureError, match="exited 3"):
+            failing.run(name="other", semantic_inputs={}, action=_completes(output))
+    slow = StageStore(
+        campaign_dir=campaign,
+        maximum_attempts=2,
+        pre_stage_command=shlex.join(
+            [sys.executable, "-c", "import time; time.sleep(30)"]
+        ),
+        pre_stage_timeout_seconds=0.5,
+    )
+    with pytest.raises(InfrastructureError, match="pre-stage command failed"):
+        slow.run(name="other", semantic_inputs={}, action=_completes(output))
+    other = campaign / "stages" / "other"
+    assert not (other / "attempts").exists()
+    assert read_json(other / "stage.json").get("attempts", []) == []
+
+    result = store.run(name="other", semantic_inputs={}, action=_completes(output))
+    assert result.data == {"attempt": 1}
+    assert log.read_text(encoding="utf-8").splitlines()[-1].startswith("other ")
 
 
 def test_evolve_workspace_continues_committed_head_only(tmp_path: Path) -> None:

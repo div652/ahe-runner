@@ -41,6 +41,24 @@ def main(argv: list[str] | None = None) -> int:
     retry_parser.add_argument("--config", type=Path, required=True)
     retry_parser.add_argument("--stage", required=True)
     retry_parser.add_argument("--reason", required=True)
+    extend_parser = subparsers.add_parser(
+        "extend-rounds",
+        help=(
+            "Accept a raised campaign.rounds for an existing campaign "
+            "(dry run unless --apply)."
+        ),
+    )
+    extend_parser.add_argument("--config", type=Path, required=True)
+    extend_parser.add_argument("--reason", required=True)
+    extend_parser.add_argument("--apply", action="store_true")
+    extend_parser.add_argument(
+        "--reopen-closed-evolution",
+        action="store_true",
+        help=(
+            "Also extend a closed campaign: move the closing stages and their "
+            "outputs to superseded/closure-NN/."
+        ),
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -96,6 +114,12 @@ def _dispatch(controller: CampaignController, args: argparse.Namespace) -> Any:
         return controller.run_round(args.round)
     if args.command == "retry-stage":
         return controller.retry_stage(name=args.stage, reason=args.reason)
+    if args.command == "extend-rounds":
+        return controller.extend_rounds(
+            reason=args.reason,
+            apply=args.apply,
+            reopen_closed_evolution=args.reopen_closed_evolution,
+        )
     if args.command == "close-evolution":
         return controller.close_evolution()
     if args.command == "run-validation":
