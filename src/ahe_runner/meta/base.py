@@ -63,6 +63,9 @@ class RoleSpec:
     # "reader" uses the Debugger's output limits, "writer" the Evolve Agent's.
     profile: Literal["reader", "writer"] = "reader"
     settings: ModelSettings | None = None  # None: models.meta
+    # Run the endpoint preflight first. A role started from inside another
+    # role's stage (a sub-role) can rely on that stage's preflight.
+    preflight: bool = True
     # Deterministic stand-in used by the scripted backend (tests, examples).
     scripted: Callable[[RoleSpec], str] | None = None
 

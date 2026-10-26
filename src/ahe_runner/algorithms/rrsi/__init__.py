@@ -616,6 +616,8 @@ class RrsiAlgorithm(EvolutionAlgorithm):
             stop_tools=("rrsi_submit_digest",),
             context={"rrsi_task": task, "rrsi_lens": lens},
             profile="reader",
+            # The analyst's stage already ran the preflight for this model.
+            preflight=False,
             scripted=scripted.digester,
         )
         try:

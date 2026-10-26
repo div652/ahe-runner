@@ -712,3 +712,119 @@ def test_nexau_backend_runs_an_rrsi_role_with_its_tools(
     # NexAU system prompt silently replaced it with NexAU's default).
     assert "RRSI Leakage Critic" in requests[0]["instructions"]
     assert "UNDECLARED BUNDLING" in requests[0]["instructions"]
+
+
+def test_evaluated_session_usage_is_attributed_to_its_trial(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from openai import OpenAI
+
+    import ahe_runner.meta.model_client as model_client_module
+    import ahe_runner.runtime as runtime_module
+    from ahe_runner.adapter import BenchmarkInterface
+    from ahe_runner.harness import load_harness_manifest
+    from ahe_runner.runtime import (
+        AgentInput,
+        AgentInputMessage,
+        AgentSessionRequest,
+        EvaluatedAgentRuntime,
+    )
+
+    config = load_config(make_example_project(tmp_path))
+    model = config.document.models.evaluated.model_copy(
+        update={"api_mode": "responses", "temperature": None}
+    )
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        del request
+        return httpx.Response(
+            200,
+            json={
+                "id": "resp",
+                "object": "response",
+                "created_at": 1,
+                "model": model.model,
+                "status": "completed",
+                "output": [
+                    {
+                        "type": "message",
+                        "id": "msg",
+                        "role": "assistant",
+                        "status": "completed",
+                        "content": [
+                            {"type": "output_text", "text": "Done.", "annotations": []}
+                        ],
+                    }
+                ],
+                "parallel_tool_calls": True,
+                "tool_choice": "auto",
+                "tools": [],
+                "usage": {
+                    "input_tokens": 1000,
+                    "input_tokens_details": {"cached_tokens": 600},
+                    "output_tokens": 50,
+                    "output_tokens_details": {"reasoning_tokens": 20},
+                    "total_tokens": 1050,
+                },
+            },
+        )
+
+    def build(transport, api_key, *, client_id=None):  # type: ignore[no-untyped-def]
+        del transport, client_id
+        return OpenAI(
+            base_url="http://127.0.0.1:39297/v1",
+            api_key=api_key,
+            max_retries=0,
+            http_client=httpx.Client(transport=httpx.MockTransport(handle)),
+        )
+
+    def fake_preflight(*, output_path: Path, **_kwargs: Any) -> dict[str, Any]:
+        output_path.write_text(json.dumps({"status": "completed"}), encoding="utf-8")
+        return {"status": "completed"}
+
+    monkeypatch.setattr(model_client_module, "build_openai_client", build)
+    monkeypatch.setattr(runtime_module, "run_model_preflight", fake_preflight)
+    evaluation = tmp_path / "evaluation"
+    runtime = EvaluatedAgentRuntime(
+        harness_dir=config.harness_dir,
+        manifest=load_harness_manifest(config.harness_manifest_path),
+        benchmark_interface=BenchmarkInterface(description="Cost fixture."),
+        model=model,
+        transport=config.document.transport,
+        api_key=config.api_key,
+        artifact_root=evaluation / "runtime",
+    )
+    try:
+        for attempt in (1, 2):
+            session = runtime.open_session(
+                AgentSessionRequest(
+                    session_id=f"u1-{attempt}",
+                    artifact_dir=evaluation / "runtime" / "u1" / f"attempt-{attempt}",
+                    unit_id="u1",
+                    attempt=attempt,
+                )
+            )
+            session.run(
+                AgentInput(messages=(AgentInputMessage(role="user", content="Go."),))
+            )
+            session.close()
+    finally:
+        runtime.close()
+    atomic_write_json(evaluation / "units" / "u1" / "complete.json", {"attempt": 2})
+    pricing = ModelPricing(
+        input_per_million=20, cached_input_per_million=2, output_per_million=120
+    )
+    report = evaluation_cost(evaluation, pricing)
+    trial = report["per_trial"]["u1"]
+    # Only the completed attempt counts: one call of 400 + 600 cached + 50.
+    assert trial["calls"] == 1
+    assert trial["tokens"] == {
+        "input": 400,
+        "cached_input": 600,
+        "cache_write": 0,
+        "output": 50,
+    }
+    assert report["mean_cost_per_trial"] == pytest.approx(
+        (400 * 20 + 600 * 2 + 50 * 120) / 1e6
+    )

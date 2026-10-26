@@ -936,10 +936,11 @@ class NexAUMetaBackend(MetaBackend):
             self._require_shell_image()
         settings = spec.settings or self.context.config.document.models.meta
         spec.runtime_dir.mkdir(parents=True, exist_ok=True)
-        self._preflight(
-            settings=settings,
-            path=spec.runtime_dir / "model-preflight.json",
-        )
+        if spec.preflight:
+            self._preflight(
+                settings=settings,
+                path=spec.runtime_dir / "model-preflight.json",
+            )
         context = {
             **spec.context,
             "meta_role": spec.role,
