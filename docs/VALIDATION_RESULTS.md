@@ -1,5 +1,68 @@
 # Validation Results
 
+## AHE-026 and AHE-027 recovery and campaign continuation
+
+Validated at `2026-10-26T05:54:21Z` from source commit
+`915bea3d351105c87d3992ab5e07b801c21ac713`:
+
+```text
+Focused stage-store and campaign contracts:  24 passed in 124.35s
+Complete suite:                              152 passed in 206.83s
+ruff check .:                                all checks passed
+ruff format --check .:                       108 files already formatted
+python -m compileall -q src tests:            exit 0
+git diff --check:                             exit 0
+uv build:                                     exit 0
+```
+
+Validation environment:
+
+```text
+Python:            3.14.7
+ahe-runner:        0.7.0
+NexAU:             0.3.9 (commit 35ee1861546db3cb280a6e17e38a74060d7c96c3)
+ag-ui-protocol:    0.1.22
+OpenAI Python:     3.29.0 (source venv); 3.37.0 (isolated wheel venv)
+Pydantic:          2.14.1
+PyYAML:            6.0.3
+Pytest:            9.1.1
+Ruff:              0.17.0
+```
+
+Clean release artifacts:
+
+```text
+ahe_runner-0.7.0-py3-none-any.whl
+sha256: 4845d4abb18085a31d48215a53e16ac1412a974960c18040c298715372bbd1da
+
+ahe_runner-0.7.0.tar.gz
+sha256: 9fd23a6399371d5c5849ba3b87785e4c75b19a501ac57c0af7061f09157d8584
+```
+
+Dependency availability: the declared NexAU source,
+`https://github.com/nex-agi/NexAU.git`, returned "Repository not found" on
+2026-10-26, and NexAU is not on PyPI. The isolated wheel was therefore
+installed with the `web` extra and a uv override pointing `nexau` at the
+locally cached checkout of the pinned commit `35ee186`. A fresh machine
+without that cache cannot currently install the runner as documented.
+
+Using only the isolated wheel installation, run outside the source checkout:
+
+- wheel metadata and `ahe_runner.__version__` both reported `0.7.0`, and the
+  package resolved from the isolated environment's `site-packages`;
+- offline `ahe conformance` returned `valid: true` with no warnings, and the
+  runtime-backed configuration also conformed;
+- the generated three-round offline campaign completed and selected `C3`;
+- after `campaign.rounds` was raised to 5, `ahe extend-rounds
+  --reopen-closed-evolution --apply` archived the closure to
+  `superseded/closure-01`;
+- `ahe resume` built C4 and C5, re-ran closure, validation, selection and
+  final test, and finished with 50 stages;
+- a second `ahe resume` added no attempt to any stage.
+
+No live model endpoint was contacted. NexAU emitted its expected optional
+`E2B SDK not installed` import message.
+
 ## AHE-025 trial isolation and tool timing
 
 Validated at `2026-10-15T19:46:23Z` from source commit
